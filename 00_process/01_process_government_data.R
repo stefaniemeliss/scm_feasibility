@@ -9,20 +9,34 @@ dir <- getwd()
 library(kableExtra)
 library(dplyr)
 
-# read in school_list info about OAT schools
-school_list <- read.csv(file = file.path(dir, "misc", "OAT Linked establishments.csv"))
+#### ORMISTON ACADEMIES TRUST ####
+
+# read in info about OAT schools
+oat_schools <- read.csv(file = file.path(dir, "misc", "OAT Linked establishments.csv"))
 
 # fix input data
-names(school_list) <- tolower(names(school_list))
-names(school_list)[names(school_list) == "local.authority..name."] <- "laname"
-school_list$laestab <- gsub("/", "", school_list$laestab)
+names(oat_schools) <- tolower(names(oat_schools))
+names(oat_schools)[names(oat_schools) == "local.authority..name."] <- "laname"
+oat_schools$laestab <- gsub("/", "", oat_schools$laestab)
+oat_schools$linked.establishment <- "ORMISTON ACADEMIES TRUST"
 
 # schools must have been part of OAT for 4 or more years
 cut_off_date <- as.Date("2021-09-01")
-school_list$joined.date <- as.Date(school_list$joined.date, format =  "%d/%m/%Y")
-school_list <- school_list[school_list$joined.date <= cut_off_date, ]
+oat_schools$joined.date <- as.Date(oat_schools$joined.date, format =  "%d/%m/%Y")
+oat_schools <- oat_schools[oat_schools$joined.date <= cut_off_date, ]
+
+# read in info about Dixons schools
+dixons_schools <- read.csv(file = file.path(dir, "misc", "Dixons Linked establishments.csv"))
+
+# fix input data
+names(dixons_schools) <- tolower(names(dixons_schools))
+names(dixons_schools)[names(dixons_schools) == "local.authority..name."] <- "laname"
+dixons_schools$laestab <- gsub("/", "", dixons_schools$laestab)
+dixons_schools$joined.date <- as.Date(dixons_schools$joined.date, format =  "%d/%m/%Y")
+dixons_schools$linked.establishment <- "DIXONS ACADEMIES TRUST"
 
 # derive URNs
+school_list <- rbind(oat_schools, dixons_schools)
 urn_list <- school_list$urn
 
 # available information of schools
@@ -75,8 +89,16 @@ spc[, grepl("^number|^percentage|boarders|infants", names(spc), perl = T)] <- ap
 df <- merge(school_list, gias, by = intersect(names(gias), names(school_list)), all = T)
 df <- merge(df, spc, by = c("urn", "laestab"), all = T)
 
+# split data and save
+df_oat <- subset(df, linked.establishment == "ORMISTON ACADEMIES TRUST")
+df_dixons <- subset(df, linked.establishment == "DIXONS ACADEMIES TRUST")
+
 # save data
-xlsx::write.xlsx(df, file = "government_data.xlsx", sheetName = "data_OAT", row.names = F)
+xlsx::write.xlsx(df_oat, file = "government_data.xlsx", sheetName = "data_OAT", row.names = F)
+xlsx::write.xlsx(df_dixons, file = "government_data.xlsx", sheetName = "data_Dixons", append = T, row.names = F)
+
+
+#### data dict ####
 
 # write data dictionary
 dict <- data.frame(variable = names(df))
@@ -90,6 +112,7 @@ dict$explanation <- c(
   "Type of school - Linked establishments extract",
   "School open or closed - Linked establishments extract",
   "When did school join academy group - Linked establishments extract",
+  "Name of linked establishment",
   "la = Local authority - GIAS 2022/23 extract",
   "estab = Establishment number - GIAS 2022/23 extract",
   "School name",
