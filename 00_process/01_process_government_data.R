@@ -94,8 +94,8 @@ df_oat <- subset(df, linked.establishment == "ORMISTON ACADEMIES TRUST")
 df_dixons <- subset(df, linked.establishment == "DIXONS ACADEMIES TRUST")
 
 # save data
-xlsx::write.xlsx(df_oat, file = "government_data.xlsx", sheetName = "data_OAT", row.names = F)
-xlsx::write.xlsx(df_dixons, file = "government_data.xlsx", sheetName = "data_Dixons", append = T, row.names = F)
+xlsx::write.xlsx(df_oat, file = file.path("data", "data_government.xlsx"), sheetName = "data_OAT", row.names = F)
+xlsx::write.xlsx(df_dixons, file = file.path("data", "data_government.xlsx"), sheetName = "data_Dixons", append = T, row.names = F)
 
 
 #### data dict ####
@@ -218,4 +218,4 @@ dict$explanation <- c(
   "IDACI Decile for postcode"
 )
 
-xlsx::write.xlsx(dict, file = "government_data.xlsx", sheetName = "dict", append = T, row.names = F)
+xlsx::write.xlsx(dict, file = file.path("data", "data_government.xlsx"), sheetName = "dict", append = T, row.names = F)
