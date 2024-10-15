@@ -1,0 +1,233 @@
+---
+title: "Teacher pay"
+author: "Stefanie Meliss"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 4
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+options(scipen = 999)
+# empty work space
+rm(list = ls())
+
+# define directory
+dir <- getwd()
+dir <- gsub("/01_explore", "", dir)
+
+# load libraries
+library(kableExtra)
+library(dplyr)
+library(ggplot2)
+
+# source ambition theme
+devtools::source_url("https://github.com/stefaniemeliss/ambition_theme/blob/main/ambition_theme.R?raw=TRUE")
+
+
+# read in misc info about OAT schools
+misc <- read.csv(file = file.path(dir, "misc", "OAT Linked establishments.csv"))
+misc <- xlsx::read.xlsx(file = file.path(dir, "government_data.xlsx"), sheetName = "data_OAT")
+
+# read in workforce data
+df <- read.csv(file = file.path(dir, "data", "school-workforce-in-england_2023", "data", "workforce_teacher_pay_2010_2023_school.csv"))
+names(df) <- gsub("X...", "", names(df), fixed = T)
+
+# read in info about dataset
+dict <- read.csv(file = file.path(dir, "misc", "meta_pay.csv"))
+names(dict) <- gsub("X...", "", names(dict), fixed = T)
+vars <- dict$Variable.name
+
+# derive URNs
+urn_list <- misc$urn[misc$phase_type_grouping == "State-funded secondary" & grepl("Urban", misc$urban_rural)]
+# urn_list <- misc$urn
+
+# replace with NAs
+df <- df %>%
+  mutate(across(matches("average"), ~na_if(., "x"))) %>% # x = not available - information has not been collected or there are no estimates available at this level of aggregation.
+  mutate(across(matches("average"), ~na_if(., "z"))) %>% # z = not applicable - statistic cannot be produced. For example where a denominator is not available to produce a percentage.
+  mutate(across(matches("average"), ~na_if(., "c"))) %>% # c = confidential - where presentation of data would disclose confidential information
+  mutate(across(matches("average"), ~na_if(., "u"))) # u = low reliability - values of the potentially low quality, for example where values of statistical significance have been calculated.
+
+# make numeric
+df[, grepl("average", names(df))] <- apply(df[, grepl("average", names(df))], MARGIN = 2, FUN = as.numeric)
+
+
+# derive years
+years_list <- sort(unique(df$time_period))
+
+# subset data to only include OAT schools
+df <- df %>% filter(school_urn %in% urn_list)
+
+# add number of years to df
+df <- merge(df, df %>% group_by(school_urn) %>%
+              summarise(total_years_of_data = n()), by = "school_urn")
+
+# modify data for plotting
+df$time_period <- factor(df$time_period)
+df$school_urn <- factor(df$school_urn)
+
+
+# create scaffold for difference in difference calculations
+scaffold <- merge(data.frame(time_period = factor(years_list)), data.frame(school_urn = factor(urn_list)))
+df <- merge(scaffold, df, by = c("school_urn", "time_period"), all.x = T)
+df$Diff <- NA
+df$Shift <- NA
+```
+
+Teacher pay - school level  
+  
+Filename: workforce_teacher_pay_2010_2023_school.csv  
+Geographic levels: School  
+Time period: 2010/11 to 2023/24  
+Content summary: Full and part-time teachers in state funded schools by grade of teacher, salary bands, average salary, sector, gender and age. At school level.  
+  
+Variable names and descriptions for this file are provided below:  
+
+
+```{r, results='asis', echo = F}
+dict %>%
+  kbl(row.names = F) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
+  print()
+```
+
+
+```{r working_chunk, echo=FALSE, eval=F}
+
+if (trans == "RAW") {
+  dep_var = var
+  
+} else if (trans == "LAGGED") {
+  
+  df <- df %>%
+    group_by(school_urn) %>%
+    mutate(Diff = get(var) - lag(get(var))) %>%
+    as.data.frame()
+  
+  dep_var = "Diff"
+  
+} else if (trans == "2Y ROLLING") {
+  
+  df <- df %>%
+    group_by(school_urn) %>%
+    mutate(Shift = zoo::rollapply(get(var), width = 2, FUN = mean, align = 'right', fill = NA)) %>%
+    as.data.frame()
+  
+  dep_var = "Shift"
+  
+}
+
+
+# look at histogram by year
+plt <- ggplot(data = df, aes(x = get(dep_var))) + 
+  geom_histogram(bins = 25) + 
+  facet_wrap(~get(group_var)) + 
+  ambition_theme + 
+  ylab("Count") +
+  xlab(paste(y_lab, "-", trans))
+print(plt)
+
+# compute descriptives per year
+out <- rbind(
+  do.call("rbind",psych::describeBy(df[, dep_var], group = df[, group_var]))
+)
+# edit output
+out$vars <- NULL
+out <- round(out, 3)
+# print output
+kbl(out, caption = paste("Descriptives of variable", var, trans)) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>%
+  print()
+
+# augmented Dickey-Fuller test
+tseries::adf.test(na.omit(out$mean), k = 0) %>%
+  print()
+
+# plot overall time series
+plt <- ggplot(data = df, aes(x = time_period, y = get(dep_var), group = school_urn, col = school_urn)) +
+  geom_point() + 
+  geom_line() + 
+  ambition_theme + theme(legend.position = "none",  
+                         axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ylab(paste(y_lab, "-", trans)) +
+  xlab(x_lab)
+print(plt)
+
+# plot yearly average
+out[, group_var] <- row.names(out)
+plt <- ggplot(data = out, aes(x = time_period, y = mean)) +
+  geom_point(size = 3) + 
+  geom_errorbar(aes(ymin = mean-1.96*se, ymax = mean+1.96*se), width=.2,
+                position=position_dodge(.9)) +
+  geom_line(group = 1) + 
+  ambition_theme + theme(legend.position = "none",  
+                         axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ylab(paste(y_lab, "-", trans)) +
+  xlab(x_lab)
+print(plt)
+
+# within school stats
+tmp <- df %>% group_by(school_urn) %>%
+  summarise(obs_per_school = sum(!is.na(get(dep_var))),
+            within_school_mean = mean(get(dep_var), na.rm = T),
+            within_school_sd = sd(get(dep_var), na.rm = T),
+            snr = abs(mean(get(dep_var), na.rm = T))/sd(get(dep_var), na.rm = T),
+            rsd = sd(get(dep_var), na.rm = T)/abs(mean(get(dep_var), na.rm = T)))
+tmp[-1] %>% 
+  filter(within_school_sd > 0 & within_school_mean != 0) %>%
+  psych::describe(omit = T) %>%
+  kbl(caption = paste("Descriptives of school-level", var, trans)) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
+  print()
+
+# show in boxplot
+plt <- ggplot(data = tmp, aes(x = rsd )) +
+  geom_boxplot() +
+  geom_point(aes(y = 0), color = coral) +
+  ambition_theme +
+  theme(axis.title.y = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank()) +
+  scale_x_continuous(labels = scales::percent) +
+  xlab(paste("%RSD", y_lab, "- RAW")) # % relative standard deviation
+print(plt)
+
+```
+
+
+```{r, echo = F, results='asis',fig.align='center', warning=FALSE}
+
+# define DV and label
+group_var = "time_period"
+x_lab = "Academic years"
+
+transforms <- c("RAW", "LAGGED", "2Y ROLLING")
+
+for (var in vars) {
+  
+  y_lab = dict$Variable.description[dict$Variable.name == var]
+  
+  cat("\n## ", y_lab, "\n")
+  cat("\n\n")
+  
+  for (trans in transforms) {
+    
+    cat("\n#### ", stringr::str_to_sentence(trans), "data\n")
+    cat("\n\n")
+    
+    <<working_chunk>>
+      
+      cat("\n\n")
+    
+    
+  }
+  
+}
+
+```
+
