@@ -23,7 +23,7 @@ table_desc <- function(data = df, group_var = "group", dep_var = "variable"){
   # print output
   kbl(out, caption = paste0("Descriptives of variable '", dep_var,"' for whole sample and within each group")) %>%
     kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
-    print
+    print()
   cat("\n")
 }
 
