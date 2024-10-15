@@ -1,0 +1,456 @@
+---
+title: "MSCMT"
+author: "Stefanie Meliss"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 4
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list = ls())
+```
+
+Source: https://cran.r-project.org/web/packages/MSCMT/vignettes/  
+  
+# Working with package MSCMT  
+
+## Introduction
+
+Based on the `basque` dataset and the corresponding example of package `Synth`, this vignette illustrates the usage of package `MSCMT`.
+Thereby, parts of @Abadie2003 are reproduced in this example.
+
+## Preparing the Data
+
+The `MSCMT` package expects its input data to be a `list` of matrices, where each matrix corresponds to one variable of interest.
+The column names of the matrices correspond to the names of all units (treated unit and control units) and have to be identical across all elements of the list. 
+The row names correspond to the instants of time where data is available, they may well be different between variables.
+
+Currently, all variables must either contain annual, quarterly, monthly, weekly or daily data.
+The row names must therefore match one of the following patterns (where `d` corresponds to a single digit):
+
+1.  `dddd` for annual dates, e.g. `2016`,
+2.  `ddddQd` for quarterly dates, e.g. `2016Q1` for the first quarter of 2016,
+3.  `dddd-dd` for monthly dates, e.g. `2016-03` for March 2016.
+4.  `ddddWdd` for weekly dates, e.g. `2016W03` for the third week of 2016.
+5.  `dddd-dd-dd` for daily dates, e.g. `2016-03-17`.
+
+A list of matrices is a very useful, but quite unusual data format.
+Therefore, a helper function called `listFromLong`, which generates a list of matrices from 
+a more common data representation, the so-called 'long' format, has been included in package `MSCMT`. 
+With `listFromLong`, migrating from the `Synth` package to `MSCMT` is simple, because package `Synth` (more precisely, its `dataprep` function) expects its input data to be in
+'long' format.
+
+### Example
+
+The `basque` dataset in package `Synth` in 'long' format has the following structure:
+```{r}
+library(Synth)
+data(basque)
+colnames(basque)
+basque[703,]
+```
+
+With `listFromLong` from package `MSCMT`, the conversion to 'list' format is a simple task. 
+The names of the parameters correspond to the names of the parameters for function `dataprep` of package `Synth`:
+```{r}
+library(MSCMT)
+Basque <- listFromLong(basque, unit.variable="regionno", time.variable="year", unit.names.variable="regionname")
+names(Basque)
+head(Basque$gdpcap)
+```
+
+The 'list' representation allows for simple, reproducible data preparations.
+To reproduce the analysis of @Abadie2003, the following preparations are sufficient:
+```{r}
+# define the sum of all cases
+school.sum <- with(Basque,colSums(school.illit + school.prim + school.med + school.high  + school.post.high))
+# combine school.high and school.post.high in a single class
+Basque$school.higher <- Basque$school.high + Basque$school.post.high
+# calculate ratios and multiply by number of observations to obtain percentages from totals 
+for (item in c("school.illit", "school.prim", "school.med", "school.higher"))      
+  Basque[[item]] <- 6 * 100 * t(t(Basque[[item]]) / school.sum)
+```
+
+## Defining the Model
+
+In package `Synth`, data preparation and model formulation are combined in function `dataprep`, whereas the estimation is separated from the model formulation.
+The approach of package `MSCMT` is different: in order to facilitate the estimation of (potentially many) different models based on the same dataset, the model formulation has been
+moved to function `mscmt`, which also does the model estimation.
+
+To allow for the methodological extensions (**Multivariate** Synthetic Control Methods using **Time-Series**), the model syntax had to be made more flexible. 
+A model formulation now consists of
+
+*   defining the (single)^[Changing the treated unit for placebo studies is done automatically.] treated unit (single character string, parameter `treatment.identifier`),
+*   defining the (multiple) control units (vector of character strings, parameter `controls.identifier`),
+*   defining one or more dependent variables and the corresponding optimization periods as a `2 x L`-matrix (parameter `times.dep`),  where 
+    -   the column names consist of the names of the `L` dependent variables,
+    -   the first row contains the starting times of the optimization periods in the appropriate (annual, quarterly, or monthly) format,
+    -   the second row contains the end times of the optimization periods in the appropriate format,
+*   defining several predictor variables and the corresponding optimization periods as a `2 x K`-matrix (parameter `times.pred`), where
+    -   the column names consist of the names of the `K` predictor variables,
+    -   the first row contains the starting times of the optimization periods in the appropriate (annual, quarterly, or monthly) format,
+    -   the second row contains the end times of the optimization periods in the appropriate format,
+*   an (optional) vector of the names of `K` aggregation functions (parameter `agg.fns`) for the predictor variables. 
+    If missing, all predictor variables are considered to be time series, which corresponds to the function name `"id"`.
+    Whenever the result of an aggregation function has length exceeding 1, the resulting data is considered as a time series, too.
+
+Note that `times.dep` and `times.pred` may contain duplicate column names for further increased flexibility of the model specification.
+
+### Example
+
+The following model specification reproduces the model in @Abadie2003:
+```{r}
+treatment.identifier <- "Basque Country (Pais Vasco)"
+controls.identifier  <- setdiff(colnames(Basque[[1]]),
+                                c(treatment.identifier, "Spain (Espana)"))
+times.dep  <- cbind("gdpcap"                = c(1960,1969))
+times.pred <- cbind("school.illit"          = c(1964,1969),
+                    "school.prim"           = c(1964,1969),
+                    "school.med"            = c(1964,1969),
+                    "school.higher"         = c(1964,1969),
+                    "invest"                = c(1964,1969),
+                    "gdpcap"                = c(1960,1969),
+                    "sec.agriculture"       = c(1961,1969),
+                    "sec.energy"            = c(1961,1969),
+                    "sec.industry"          = c(1961,1969),
+                    "sec.construction"      = c(1961,1969),
+                    "sec.services.venta"    = c(1961,1969),
+                    "sec.services.nonventa" = c(1961,1969),
+                    "popdens"               = c(1969,1969))
+agg.fns <- rep("mean", ncol(times.pred))                       
+```
+
+## Single Estimation
+
+After preparing the data and formulating the model, the model estimation is done with function `mscmt`. 
+Apart from the function parameters concerning data and model specification, there are further parameters which, e.g.,
+
+*   control for several aspects of the optimization procedure, including weights for the inner and outer target functions, 
+*   choose and tune the optimizers, 
+*   verbose output,
+*   initiate placebo studies 
+*   allow to use the computational power of a multi-core cpu or cluster for placebo studies.
+
+### Example 
+
+A simple estimation (without a placebo study) produces the following console output (if parameter `verbose` is `TRUE`, which is the default):
+```{r}
+res <- mscmt(Basque, treatment.identifier, controls.identifier, times.dep, times.pred, agg.fns, seed=1)
+```
+
+Package `MSCMT` ships with an `S3` method for `print`, which gives a nice human-readable summary of the estimation results:
+```{r}
+res
+```
+
+While there is a basic `S3` method for `plot`, it is strongly recommended to use package `ggplot2` and the corresponding `S3` method for `ggplot` contained in package `MSCMT`.
+With the results of a simple estimation, two types of plots are available, the first being a comparison of original and synthesized data for the treated unit. 
+The variable to be plotted can be selected with parameter `what`, by default the (first) dependent variable is being chosen:
+```{r}
+library(ggplot2)
+ggplot(res, type="comparison")
+```
+
+The second type of plot is a plot of the gaps, ie. the differences between original and synthesized data:
+```{r}
+ggplot(res, type="gaps")
+```
+
+It is possible to plot several variables by providing a vector for argument `what`. Pre-defined sets of variables named `"dependents"`, `"predictors"`, and `"all"` can be selected with parameter `what.set`.
+```{r}
+ggplot(res, what=c("gdpcap","invest","school.higher","sec.energy"), type="comparison")
+```
+
+## Placebo Study
+
+Placebo studies are performed by simply setting the function argument `placebo` to `TRUE`. By default, the original treated unit is not added to the donor pool of the (original) control units, but this can be changed with parameter `placebo.with.treated`. 
+
+### Making Use of a Cluster
+
+A remarkable speed-up (depending on the number of control units) can be achieved for placebo studies by making use of a cluster, which can be set up with the help of package `parallel`. 
+The simplest form of a cluster is a local cluster, which makes the power of multi-core cpus available for the (lengthy) computations involved with placebo studies. 
+Setting up a local cluster is very easy, see the example below.
+
+The argument `cl` of function `mscmt` can be used to specify the cluster to be used for placebo studies.
+The only drawback of using a cluster for placebo studies is losing the verbose output from the individual (one for each unit) SCM estimations, which
+includes a lack of progress information for the whole placebo study. 
+Nevertheless, the speed-up should compensate for this drawback in all applications where a placebo study is meaningful.
+
+Although clusters should be shut down automatically when the corresponding (master) `R` process is finished, function `stopCluster` can (and should) be used to shut down the cluster manually.
+
+### Example
+
+In the following example, a (local) cluster with two nodes is used for the estimation.
+
+```{r}
+library(parallel)
+cl <- makeCluster(2)
+resplacebo <- mscmt(Basque, treatment.identifier, controls.identifier, times.dep, times.pred, agg.fns, cl=cl, placebo=TRUE, seed=1)
+stopCluster(cl)
+```
+
+Object `resplacebo` now contains single SCM estimations for each unit as well as aggregated information concerning original data, synthesized data, and gaps for all units.
+The individual SCM estimations can be accessed separately (as list elements with names corresponding to the units' names). 
+With the following plot, one can inspect whether there is some effect for Catalonia:
+
+```{r}
+ggplot(resplacebo[["Cataluna"]], type="comparison")
+```
+
+Several functions in package `MSCMT` are able to make use of the results of the placebo study as a whole. 
+One example are so-called placebo plots, by setting the plot type to `"placebo.gaps"` (the default for results of a placebo study):
+```{r}
+ggplot(resplacebo)
+```
+
+## Statistical Inference
+
+For statistical inference based on the results of a placebo study, the literature has developed so-called 'placebo tests', which have similarities to permutation tests. Two of these are
+
+*   tests for the (per-period) treatment effect based on the per-period gaps,
+*   tests for the aggregated treatment effect based on a difference-in-difference approach for aggregated (average) gaps.
+
+Most often, not all control units can be synthesized with an acceptable fit in a placebo study, resulting in large pre-treatment gaps. 
+Of course, large post-treatment gaps are expected for these units, but since these gaps are rather caused from lack of fit than from an existing treatment effect, 
+excluding such units is strongly advisable while investigating the effect for the (original) treated unit.
+
+Excluding control units with large pre-treatment errors is usually done by limiting the ratio of a control unit's pre-treatment (r)mspe to the treated unit's (r)mspe. 
+
+### Example
+
+Control units with large pre-treatment errors can easily be excluded from placebo plots:
+```{r}
+ggplot(resplacebo, exclude.ratio=5, ratio.type="mspe")
+```
+
+The p-values of per-period placebo tests can be calculated via function `pvalue` or plotted via `ggplot` with `plot.type="p.values"`:
+```{r}
+pvalue(resplacebo, exclude.ratio=5, ratio.type="mspe", alternative="less")
+ggplot(resplacebo, exclude.ratio=5, ratio.type="mspe", type="p.value", alternative="less")
+```
+
+Calculating the aggregated treatment effect and testing its significance can be done with function `did` of package `MSCMT`:
+```{r}
+did(resplacebo, range.post=c(1970,1990), exclude.ratio=5, alternative="less")
+```
+
+
+## Summary
+
+In this vignette, the basic workflow of preparing the data, defining and estimating the model, and evaluating the results of a (simple) SCM application with package `MSCMT` has been illustrated.
+
+Many features and options of package `MSCMT` remained untouched, because this would have led far beyond the scope of this simple example. 
+There are more specialized vignettes which illustrate
+
+*   how to check the feasibility of (and potentially improve) the results obtained by function `synth` of package `Synth`,
+*   an application of SCM using time series (SCM**T**).
+
+In future releases of this package, additional vignettes will (probably) be added to illustrate
+
+*   applications of **M**SCM and **M**SCM**T**,
+*   alternatives for the optimizers and its parameters,
+*   more functionality of the `ggplot` method.
+*   the use of cross-validation, see @CV.
+
+# Checking and Improving Results of package Synth  
+
+## Introduction
+
+This vignette illustrates the usage of `improveSynth`. For a more general introduction to package `MSCMT` see its [main vignette](WorkingWithMSCMT.html).
+
+Estimating an SCM model involves searching for an approximate solution of a nested optimization problem. 
+Although the formulation of the optimization problem is quite simple, finding a (good approximate) solution can be hard for several reasons, see @Mafia and @FastReliable.
+While implementing package `MSCMT` we put a lot of effort into the design of a smart and robust (but still fast) optimization procedure.
+
+Apart from function `mscmt` for the estimation of SCM models based on our model syntax, we also included the convenience function `improveSynth`,
+which implements checks for feasibility and optimality of results delivered by package `Synth`. 
+Below, we illustrate how to use `improveSynth`.
+
+
+## First Example
+
+We exemplify the usage of `improveSynth` based on the first example of function `synth` in package `Synth`.
+
+### Generating the result of package `Synth`
+
+The following code is thus essentially borrowed from the `example` section of the corresponding help page (all comments have been removed):
+
+```{r}
+library(Synth)
+data(synth.data)
+dataprep.out <-
+  dataprep(
+    foo = synth.data,
+    predictors = c("X1", "X2", "X3"),
+    predictors.op = "mean",
+    dependent = "Y",
+    unit.variable = "unit.num",
+    time.variable = "year",
+    special.predictors = list(
+      list("Y", 1991, "mean"),
+      list("Y", 1985, "mean"),
+      list("Y", 1980, "mean")
+    ),
+    treatment.identifier = 7,
+    controls.identifier = c(29, 2, 13, 17, 32, 38),
+    time.predictors.prior = c(1984:1989),
+    time.optimize.ssr = c(1984:1990),
+    unit.names.variable = "name",
+    time.plot = 1984:1996
+  )
+
+synth.out <- synth(dataprep.out)
+```
+
+### Checking the result
+
+We check the result by applying function `improveSynth` to `synth.out` and `dataprep.out`:
+
+```{r}
+library(MSCMT)
+synth2.out <- improveSynth(synth.out,dataprep.out)
+```
+
+Package `Synth` generated a (slightly) infeasible solution, returning a (slightly)
+suboptimal weight vector `w` for the control units.
+However, the predictor weights `v` are (considerably) suboptimal anyway, 
+because the original dependent loss of `r round(synth.out$loss.v,6)` (as well as
+the dependent loss for the corrected `w` `r round(synth2.out$new.loss.v,6)`)
+is considerably larger than the dependent loss `r round(synth2.out$loss.v,6)` 
+for the optimal predictor weights obtained by `improveSynth`.
+
+## Second Example
+
+In the second example, we modify the first example by allowing package `Synth` to use `genoud` as (outer) optimization algorithm.
+
+### Generating the result of package `Synth`
+
+`genoud` is switched on by the corresponding function argument. We capture the output with `capture.output` because it is **very** verbose. Furthermore, the calculation is quite lengthy, therefore the results have been cached.^[To reproduce from scratch, please delete `"synth3.out.RData"` from the `vignettes` folder.]
+
+```{r}
+if (file.exists("synth3.out.RData")) load ("synth3.out.RData") else {
+  set.seed(42)
+  out <- capture.output(synth3.out <- synth(dataprep.out,genoud=TRUE))
+}  
+```
+
+### Checking the result
+
+We again check the result by applying function `improveSynth` to `synth3.out` and `dataprep.out`:
+
+```{r}
+synth4.out <- improveSynth(synth3.out,dataprep.out)
+```
+
+Now, package `Synth` generated a solution with a dependent loss of `r round(synth3.out$loss.v,6)` which is even smaller than the dependent loss `r round(synth2.out$loss.v,6)` obtained by `improveSynth`.
+However, the solution generated by `Synth` is severely **infeasible**: the inner optimization failed, returning a suboptimal weight vector `w` for the control units, which itself lead to a wrong calculation of the dependent loss (which, of course, depends on `w`). 
+Implanting the true optimal `w` (depending on `v`) leads to a large increase of the dependent loss, which uncovers the suboptimality of `v`.
+
+`improveSynth` is able to detect this severe problem and calculates an improved *and feasible* solution 
+(the improved solution `r if(!isTRUE(all.equal(round(synth4.out$loss.v,6),round(synth2.out$loss.v,6)))) "essentially" else ""` matches the solution obtained from the first call to `improveSynth` above, 
+with a dependent loss of `r round(synth4.out$loss.v,6)``r if(!isTRUE(all.equal(round(synth4.out$loss.v,6),round(synth2.out$loss.v,6)))) paste0("as compared to ",round(synth2.out$loss.v,6)," above") else ""`).
+
+## Summary
+
+Issues with the inner and outer optimizers used in `synth` from package `Synth` may lead to infeasible or suboptimal solutions.
+This vignette illustrated the usage of the convenience function `improveSynth` from package `MSCMT` for checking and potentially improving results obtained from `synth`. 
+
+# SCM Using Time Series 
+
+## Introduction
+
+This vignette illustrates the syntax of SCM**T** models. For a more general introduction to package `MSCMT` see its [main vignette](WorkingWithMSCMT.html).
+
+Although SCM models are usually based on time series data of predictor variables, standard SCM estimation does not exploit this particular characteristic. 
+Instead, time series data of predictors are either aggregated, mostly by calculating (a bunch of) means, or every instant of time is considered as a separate input variable with individual predictor weight.
+With package `MSCMT`, a time series of a predictor variable can be considered as single input variable without the need of aggregation, an extension of SCM called SCM**T**, see @KP16.
+
+This vignette illustrates the syntax of SCM**T** models and how SCM**T** models may lead to more meaningful predictor weights without drawbacks concerning the model fit. 
+
+
+## Definition of the Standard Model
+
+We use the `basque` dataset in package `Synth` as an example and replicate the preparation of the data from the [main vignette](WorkingWithMSCMT.html) of this package:
+
+```{r}
+library(Synth)
+data(basque)
+library(MSCMT)
+Basque <- listFromLong(basque, unit.variable="regionno", time.variable="year", unit.names.variable="regionname")
+school.sum <- with(Basque,colSums(school.illit + school.prim + school.med + school.high  + school.post.high))
+Basque$school.higher <- Basque$school.high + Basque$school.post.high
+for (item in c("school.illit", "school.prim", "school.med", "school.higher"))      
+  Basque[[item]] <- 6 * 100 * t(t(Basque[[item]]) / school.sum)
+```
+
+We also replicate model specification of the [main vignette](WorkingWithMSCMT.html) which reproduces the model in @Abadie2003:
+
+```{r}
+treatment.identifier <- "Basque Country (Pais Vasco)"
+controls.identifier  <- setdiff(colnames(Basque[[1]]),
+                                c(treatment.identifier, "Spain (Espana)"))
+times.dep  <- cbind("gdpcap"                = c(1960,1969))
+times.pred <- cbind("school.illit"          = c(1964,1969),
+                    "school.prim"           = c(1964,1969),
+                    "school.med"            = c(1964,1969),
+                    "school.higher"         = c(1964,1969),
+                    "invest"                = c(1964,1969),
+                    "gdpcap"                = c(1960,1969),
+                    "sec.agriculture"       = c(1961,1969),
+                    "sec.energy"            = c(1961,1969),
+                    "sec.industry"          = c(1961,1969),
+                    "sec.construction"      = c(1961,1969),
+                    "sec.services.venta"    = c(1961,1969),
+                    "sec.services.nonventa" = c(1961,1969),
+                    "popdens"               = c(1969,1969))
+agg.fns <- rep("mean", ncol(times.pred))                       
+```
+
+Estimation of the model gives:
+```{r}
+res <- mscmt(Basque, treatment.identifier, controls.identifier, times.dep, times.pred, agg.fns, seed=1, single.v=TRUE, verbose=FALSE)
+res
+```
+
+It is remarkable that the mean of the lagged dependent variable `gdpcap.mean.1960.1969` is by far the most important predictor with a weight of `r res$v[6,"max.order"]`, 
+all other predictors are only marginally relevant due to their tiny 
+(at most `r format(max(res$v[-6,"max.order"]),scientific=FALSE)`) 
+weights.^[Notice that the weight vector `v` is obtained by maximizing the order statistics of `v` (while fixing the sum of `v` to 1). 
+This choice of 'v' attributes weights as large as possible to even the least relevant predictor(s).]
+
+## Removing the Lagged Dependent Variable
+
+Omitting the lagged dependent variable `gdpcap.mean.1960.1969` from the model definition, however, leads to a significant increase of the dependent loss:
+```{r}
+times.pred <- times.pred[,-6]
+agg.fns <- rep("mean", ncol(times.pred))                       
+res2 <- mscmt(Basque, treatment.identifier, controls.identifier, times.dep, times.pred, agg.fns, seed=1, single.v=TRUE, verbose=FALSE)
+res2
+```
+
+The dependent loss (MSPE) increased considerably from `r res$loss.v` to `r res2$loss.v`. Trying to give more meaning to the economic predictors in this way obviously has the drawback of worsening the fit
+of the dependent variable.
+
+## SCMT without the Lagged Dependent Variable
+
+Leaving the lagged dependent variable `gdpcap.mean.1960.1969` aside, but considering all other predictor variables as **time series** instead of aggregating their values leads to the following results:
+```{r}
+agg.fns <- rep("id", ncol(times.pred))   # Omitting agg.fns has the same effect (as "id" is the default)
+res3 <- mscmt(Basque, treatment.identifier, controls.identifier, times.dep, times.pred, agg.fns, seed=1, single.v=TRUE, verbose=FALSE)
+res3
+```
+
+Notice that this specification's model type is 'SCMT', in contrast to the previous models which were 'SCM' models. 
+By using the 'SCMT' model, the dependent loss (`r res3$loss.v`) is even smaller than that of the original model (`r res$loss.v`) which used the dependent variable's mean as an extra economic predictor. 
+``r rownames(res3$v)[which.max(res3$v[,"max.order"])]`` has now become the most important predictor with weight `r max(res3$v[,"max.order"])`, 
+all other predictor weights are at least `r format(min(res3$v[,"max.order"]),scientific=FALSE)`.
+
+## Summary
+
+This vignette illustrated that considering predictors as *true* time series (without intermediate aggregation) may have various benefits. 
+In this example, by excluding the mean of the lagged dependent variable from the set of economic predictors and considering all other predictors as time series,
+more meaningful predictor weights could be obtained and the dependent variable's fit could be slightly improved, too.

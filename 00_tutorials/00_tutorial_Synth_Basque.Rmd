@@ -1,0 +1,474 @@
+---
+title: "Synth"
+author: "Stefanie Meliss"
+date: '`r Sys.Date()`'
+output:
+  html_document:
+    toc: true
+    toc_depth: 4
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list = ls())
+```
+
+Code from [Synth: An R Package for Synthetic Control Methods in Comparative Case Studies by Abadie, Diamond & Hainmueller (2011)](https://www.jstatsoft.org/index.php/jss/article/view/v042i13/2278), also see this note [here](https://carlos-mendez.quarto.pub/r-synthetic-control-tutorial/).  
+
+#### Introduction to Synthetic Control Methods  
+
+A synthetic control unit is defined as a weighted average of available control units that approximates the treated unit’s relevant characteristics prior to treatment.  
+
+The synthetic control method guards against extrapolation outside the convex hull of the data, as weights from all control units can be chosen to be positive and sum to one.  
+
+#### The *Synth* Package in R  
+
+The Synth package in R implements synthetic control methods, with the central function being synth(), which constructs the synthetic control unit by solving an optimization problem to identify a set of weights assigned to potential control units.  
+
+Other functions like dataprep(), synth.tables(), path.plot(), and gaps.plot() help organize data, summarize results, and create visual representations.  
+
+#### Case Study: The Basque Country  
+
+The data example from [Abadie and Gardeazabal (2003)](https://economics.mit.edu/sites/default/files/publications/The%20Economic%20Costs%20of%20Conflict.pdf) uses synthetic control methods to investigate the effects of the terrorist conflict in the Basque Country on the Basque economy, using other Spanish regions as potential control units.  
+
+## Synthetic control methods  
+
+Synthetic control methods involve creating synthetic control units from multiple control units. The weights defining the synthetic control unit are chosen to best approximate the characteristics of the treated unit during the pre-treatment period.
+The synthetic control method is used to estimate the outcomes that would have been observed for the treated unit in the absence of the intervention.
+
+#### Theoretical Properties
+
+The method is based on an econometric model that generalizes the usual difference-in-differences model commonly applied in empirical literature.
+Construction of Synthetic Control Units
+
+The synthetic control unit is constructed from a set of control units, known as the donor pool. The intervention occurs at a specific time period, dividing the timeline into pre-intervention and post-intervention periods.  
+
+Two potential outcomes are defined: the outcome if the unit is not exposed to the intervention (denoted as $Y^{N}_{it}$), and the outcome if the unit is exposed to the intervention (denoted as $Y^{I}_{it}$). The goal is to estimate the effect of the intervention on the outcome for the treated unit in the post-intervention period, formally defined as the difference between the two potential outcomes $\alpha_{1t} = Y^{I}_{it} - Y^{N}_{it}$ for periods $T_0 + 1, T_0 + 2, ..., T$.  
+
+#### Estimation of Missing Potential Outcome  
+
+The synthetic control method aims to construct a synthetic control group that provides a reasonable estimate for the missing potential outcome $Y^{N}_{it}$ for the treated unit in the post-intervention period.  
+
+### Weight Selection  
+
+The synthetic control unit is defined by a vector of weights, each representing a particular weighted average of control units. The weights are chosen to best approximate the unit exposed to the intervention with respect to the outcome predictors and linear combinations of pre-intervention outcomes.
+In empirical applications, the weights are chosen so that the identity conditions hold approximately. The user can easily check how similar a particular synthetic control unit is to the treated unit.
+
+#### Numerical Implementation  
+
+The synth() function is used to numerically implement the synthetic control estimator. It defines a distance between the synthetic control unit and the treated unit, and chooses the vector of weights to minimize this distance.
+The synth() function allows for flexibility in the choice of the matrix $V$, which allows different weights to the variables depending on their predictive power on the outcome. An optimal choice of $V$ minimizes the mean square error of the synthetic control estimator.
+
+#### Inferential Techniques
+
+Synthetic control methods facilitate inferential techniques akin to permutation tests that are well-suited to comparative case studies in which the number of units in the comparison group and the number of periods in the sample are relatively small.
+The method proposes conducting placebo studies by iteratively applying the synthetic control method by randomly reassigning the intervention in time or across units to produce a set of placebo effects. These effects are then compared to the effect estimated for the actual intervention.
+The placebo tests are akin to permutation inference, where a test statistic is iteratively computed under random permutations of the assignment vector that determines whether a unit is in the treatment or the control group.
+
+## Implementation of the Synth package  
+
+Abadie and Gardeazabal (2003) study the economic impacts of conflict in the Basque Country. A synthetic Basque Country was constructed using a combination of other Spanish regions, which closely resembled the Basque Country’s economic characteristics before the onset of political terrorism in the 1970s. The data, spanning from 1955 to 1997, covers 17 Spanish regions, excluding the small autonomous towns of Ceuta and Melilla on the African coast. The data includes per-capita GDP (the outcome variable), as well as population density, sectoral production, investment, and human capital (the predictor variables). Missing data in the dataset are denoted by NA.  
+
+```{r cars}
+library("Synth")
+data("basque")
+head(basque)
+```
+In Abadie and Gardeazabal (2003), there are 16 control regions and the 13 predictor variables:  
+
+- 1964-1969 averages for gross total investment/GDP (invest).  
+- 1964-1969 averages for the share of education:  
+- 1964-1969 averages for the share of the working-age population that was illiterate (school.illit)  
+- 1964-1969 averages for the share of the working-age population with up to primary school education (school.prim)  
+- 1964-1969 averages for the share of the working-age population with some high school (school.med)
+- 1964-1969 averages for the share of the working-age population wit high school (school.high)  
+- 1961-1969 averages for six industrial-sector shares as a percentage of total production (these variables are named with a sec. prefix). These variables are available on a biennial basis  
+- 1960-1969 averages for real GDP per-capita (gdpcap) measured in thousands of 1986 USD.
+- 1969 population density measured in persons per square kilometer (popdens).  
+
+## Using dataprep()  
+
+At a minimum, synth() requires as inputs the four data matrices: $X_1$, $X_0$, $Z_1$ and $Z_0$. In our example, these four data matrices are:
+
+- $X_1$ is the $(13 \times 1)$ vector of Basque region predictors  
+- $X_0$ is the $(13 \times 16)$ matrix of values of the same variables for the 16 control regions. Note that all but one of these predictors is an average value over some range of the pre-treatment period, and the precise date-range varies across predictor variables.  
+- $Z_1$ is a $(10 \times 1)$ vector which contain the values for the outcome variable for the Basque country  
+- $Z_0$ is a $(10 \times 16)$ matrix which contain the values for the outcome variable for the control units for the 10 pre-intervention periods over which we want to minimize the MSPE.  
+
+It is strongly recommended to use dataprep() to extract and package the inputs for synth() in a single list object. This list object is also used by other functions such as synth.tables(), path.plot(), and gaps.plot() to produce tables and figures that illustrate the results  
+
+- To obtain $X_1$ and $X_0$, the user must define the predictor variables, the operator (e.g., mean), and time-period (e.g., 1964:1969) applied to these variables.  
+- The user must specify the dependent variable (e.g., gdpcap), the variable(s) identifying unit names (e.g., regionname) and/or numbers (e.g., regionno), the variable identifying time-periods (e.g., year), the treated unit (e.g., region number 17 which is the Basque country), the control units (e.g., regions number $c(2:16, 18)$), the time-period over which to optimize (e.g., the pre-treatment period 1960:1969). This refers to $Z_1$ and $Z_0$ accordingly.  
+- The user should also specify time-period over which outcome data should be plotted (usually before and after treatment, e.g., $1955:1997$).  
+
+How to use the function dataprep()  
+
+- Some of the predictor information is given by the arguments predictors, predictors.op, and time.predictors.prior.  
+- The rest of the information for the other predictors is specified in the special.predictors list.  
+
+This separation allow for easy handling of several predictors with the same operator over the same pre-treatment period (in this case, the school and investment variables) as well as additional custom (or “special”) predictors with heterogeneous operators and time-periods. For example, the variables for the sector production shares (with the sec prefix) are only available on a biennial basis ($1961, 1963, ..., 1969$)
+extracted via $seq(1961, 1963, 2)$. Averaging over the available years is easily accommodated using the special.predictors list. For more details and examples check the help file of dataprep().  
+
+```{r}
+# Prepare the data for analysis
+dataprep.out <- dataprep(
+  foo = basque,  # the dataset to be prepared
+  
+  # the predictor variables to be used in the model
+  predictors = c("school.illit", "school.prim", "school.med", 
+                 "school.high", "school.post.high", "invest"),
+  
+  predictors.op = "mean",  # operation to be applied on the predictors
+  
+  time.predictors.prior = 1964:1969,  # time period for the predictors
+  
+  # special predictors with their respective time periods and operations
+  special.predictors = list(
+    list("gdpcap", 1960:1969, "mean"),
+    list("sec.agriculture", seq(1961,1969,2), "mean"),
+    list("sec.energy", seq(1961,1969,2), "mean"),
+    list("sec.industry", seq(1961,1969,2), "mean"),
+    list("sec.construction", seq(1961,1969,2), "mean"),
+    list("sec.services.venta", seq(1961,1969,2), "mean"),
+    list("sec.services.nonventa", seq(1961,1969,2), "mean"),
+    list("popdens", 1969, "mean")
+  ),
+  
+  dependent = "gdpcap",  # the dependent variable
+  
+  unit.variable = "regionno",  # the variable representing the unit of observation
+  
+  unit.names.variable = "regionname",  # the variable representing the names of the units
+  
+  time.variable = "year",  # the variable representing the time period
+  
+  treatment.identifier = 17,  # the identifier for the treatment group
+  
+  controls.identifier = c(2:16,18),  # the identifiers for the control groups
+  
+  time.optimize.ssr = 1960:1969,  # the time period over which the sum of squared residuals (SSR) is minimized to estimate the weights
+  
+  time.plot = 1955:1997  # the time period for the plot
+)
+```
+
+We can confirm the contents of the four data matrices:
+
+- $X_1$ contains the predictors of the treatment unit (region 17).  
+- Education-related predictors are averaged over the 1964-1969 period.  
+- GPDpc averaged over the 1960-1969 period is also included as a predictor.  
+- Sector-related predictors are averaged over the 1961-1969 period (on a biannual basis).  
+- Population density is only available for the year 1969.  
+
+```{r}
+dataprep.out$X1
+```
+
+Notice that dataprep.out appends the associated date-range only to the names of the special.predictors.
+
+In $X_0$: - Region 1 is not included because it is national value - Region 17 is not included because it is the treatment unit.
+
+```{r}
+dataprep.out$X0
+```
+
+$Z_1$ contains the outcome values of the treatment unit BEFORE treatment (that is 1960-1969).  
+
+```{r}
+dataprep.out$Z1
+```
+
+$Z_0$ contains the outcome values of the control units BEFORE treatment (that is 1960-1969).  
+
+```{r}
+dataprep.out$Z0
+```
+
+There may be instances where it’s beneficial to adjust and alter $X_1$ and $X_0$ directly, without referring back to the original dataset. For instance, consider the five distinct education variables (school.illit, school.prim, school.med, school.high, school.post.high), which denote the count of individuals with different education levels, in thousands. In their 2003 study, Abadie and Gardeazabal combined the two highest categories (school.high and school.post.high) to represent all individuals with education beyond high school. They also used the percentage share for each predictor instead of the total count of individuals. The subsequent code demonstrates how to merge these variables in both $X_1$ and $X_0$, and how to convert the relevant values into percentage distributions:
+
+```{r}
+# Combine 'school.high' and 'school.post.high' in X1 and X0 matrices
+dataprep.out$X1["school.high",] <- dataprep.out$X1["school.high",] + dataprep.out$X1["school.post.high",]
+dataprep.out$X0["school.high",] <- dataprep.out$X0["school.high",] + dataprep.out$X0["school.post.high",]
+
+# Remove 'school.post.high' from X1 and X0 matrices
+post_high_row <- which(rownames(dataprep.out$X1)=="school.post.high")
+dataprep.out$X1 <- as.matrix(dataprep.out$X1[-post_high_row,])
+dataprep.out$X0 <- as.matrix(dataprep.out$X0[-post_high_row,])
+
+# Find the indices of 'school.illit' and 'school.high' in X0 matrix
+illit_row_index <- which(rownames(dataprep.out$X0)=="school.illit")
+high_row_index  <- which(rownames(dataprep.out$X0)=="school.high")
+
+# Scale the values in the rows between 'school.illit' and 'school.high' in X1 and X0 matrices to percentages
+dataprep.out$X1[illit_row_index:high_row_index,] <- (100*dataprep.out$X1[illit_row_index:high_row_index,]) / sum(dataprep.out$X1[illit_row_index:high_row_index,])
+dataprep.out$X0[illit_row_index:high_row_index,] <- 100*scale(dataprep.out$X0[illit_row_index:high_row_index,], center=FALSE, scale=colSums(dataprep.out$X0[illit_row_index:high_row_index,]))
+```
+
+## Running synth()  
+  
+The function synth() identifies the synthetic control for the Basque region by determining the weight vector $W^*$, which is achieved by solving the nested optimization problem outlined in equations (1) and (2).
+
+$$
+|| X_1 - X_{1}W ||_{V} = \sqrt{(X_1 - X_{1}W})'V(X_1 - X_{1}W)
+$$
+$$
+arg min(Z_1-Z_{0}W^*(V))'(Z_1-Z_{0}W^*(V))
+$$
+
+For any given $V$, the function synth() locates a $W^{*}V$ by minimizing equation (1). This minimization is achieved using a constrained quadratic optimization function from the kernlab package in R. The function synth() then determines the diagonal matrix $V^*$ that minimizes equation (2), thereby minimizing the Mean Squared Prediction Error (MSPE) for the pre-intervention period. To solve the optimization problem presented in equation (2), the authors utilize the general-purpose optimization function optim() in R.
+
+```{r}
+synth.out <- synth(data.prep.obj = dataprep.out,
+                   method = "BFGS" #   set optim() to use the BFGS quasi-Newton algorithm. 
+)
+```
+
+## Obtaining Results: Tables, Figures, and Estimates  
+
+The annual discrepancies in the GPD trend between the Basque region and its synthetic control  
+
+```{r}
+gaps <- dataprep.out$Y1plot - (dataprep.out$Y0plot %*% synth.out$solution.w)
+gaps
+```
+Tables are produced by using the synth.tab() function. This function produces four different types of tables:  
+
+```{r}
+synth.tables <- synth.tab(dataprep.res = dataprep.out,
+                          synth.res    = synth.out
+)
+names(synth.tables)
+```
+
+- tab.pred compares pre-treatment predictor values for the treated unit, the synthetic control unit, and all the units in the sample  
+- tab.v shows the weight corresponding to each predictor, i.e., V-weights and respective variable names  
+- tab.w shows the weight corresponding to each potential control unit, i.e., W-weights and respective unit numbers and possibly names   
+- tab.loss shows matrix that contains the table of W-loss and V-loss   
+
+```{r}
+synth.tables$tab.pred
+synth.tables$tab.v
+synth.tables$tab.w
+synth.tables$tab.loss
+```
+
+```{r}
+path.plot(synth.res = synth.out,
+          dataprep.res = dataprep.out,
+          Ylab = "Real GDPpc",
+          Xlab = "year",
+          Ylim = c(0,12),
+          Legend = c("Basque country","synthetic Basque country"),
+          Legend.position = "bottomright"
+)
+
+gaps.plot(synth.res = synth.out,
+          dataprep.res = dataprep.out,
+          Ylab = "Gap in real GDPpc",
+          Xlab = "year",
+          Ylim = c(-1.5,1.5),
+          Main = NA
+)
+```
+
+## Placebo tests  
+  
+- Synthetic control methods are beneficial because they allow for placebo tests. These tests reassign the intervention to units and periods where it didn’t occur to test the method’s effectiveness.  
+- Abadie and Gardeazabal (2003) demonstrated the placebo test for the synthetic control method using Catalonia as an example. They showed that there was no identifiable treatment effect when the synthetic control method was applied to Catalonia.  
+- There are several types of placebo tests that can be run with this package, such as placebos-in-time and placebos with outcome variables that should be unaffected by the treatment.  
+- Users can perform exact inferential techniques similar to permutation tests by applying the synthetic control method to every control unit in the sample and collecting information on the gaps.  
+- The user can plot these gaps to visually determine whether the line associated with the true synthetic control unit conspicuously differentiates itself from the rest.  
+- The approach is implemented by running a for loop to implement placebo tests across all control units in the sample and collecting information on the gaps.  
+- The results of this inferential technique can be seen in the figure below, where regions with a poor fit for the pre-treatment period are excluded.  
+- The figure demonstrates that when exposure to terrorism is reassigned to other regions, there is a very low probability of obtaining a gap as large as the one obtained for the Basque region.  
+- Poor-fitting regions are usually those that are very unusual in their pre-treatment characteristics, so no combination of other regions in the sample can reproduce the pre-treatment trends for these regions.  
+- An alternative to excluding regions based on MPSE is to compute the distribution of the ratio of post- to pre-treatment MPSE.  
+  
+#### Placebo test with one untreated country from donor pool   
+  
+```{r}
+dataprep.out <-
+              dataprep(foo = basque,
+                       predictors = c("school.illit" , "school.prim" , "school.med" ,
+                                      "school.high" , "school.post.high" , "invest") ,
+                       predictors.op = "mean" ,
+                       time.predictors.prior = 1964:1969 ,
+                       special.predictors = list(
+                         list("gdpcap" , 1960:1969 , "mean"),
+                         list("sec.agriculture" ,      seq(1961,1969,2), "mean"),
+                         list("sec.energy" ,           seq(1961,1969,2), "mean"),
+                         list("sec.industry" ,         seq(1961,1969,2), "mean"),
+                         list("sec.construction" ,     seq(1961,1969,2), "mean"),
+                         list("sec.services.venta" ,   seq(1961,1969,2), "mean"),
+                         list("sec.services.nonventa" ,seq(1961,1969,2), "mean"),
+                         list("popdens", 1969, "mean")
+                                                ),
+                       dependent = "gdpcap",
+                       unit.variable = "regionno",
+                       unit.names.variable = "regionname",
+                       time.variable = "year",
+                       treatment.identifier = 10, # Change the ID to other unit that did NOT receive the treatment
+                       controls.identifier = c(2:9,11:16,18),
+                       time.optimize.ssr = 1960:1969,
+                       time.plot = 1955:1997
+                       )
+
+# Combine 'school.high' and 'school.post.high' in X1
+dataprep.out$X1["school.high",] <- dataprep.out$X1["school.high",] + dataprep.out$X1["school.post.high",]
+
+# Remove 'school.post.high' from X1
+dataprep.out$X1 <- as.matrix(dataprep.out$X1[-which(rownames(dataprep.out$X1)=="school.post.high"),])
+
+# Combine 'school.high' and 'school.post.high' in X0
+dataprep.out$X0["school.high",] <- dataprep.out$X0["school.high",] + dataprep.out$X0["school.post.high",]
+
+# Remove 'school.post.high' from X0
+dataprep.out$X0 <- dataprep.out$X0[-which(rownames(dataprep.out$X0)=="school.post.high"),]
+
+# Find the row indices for 'school.illit' and 'school.high'
+lowest  <- which(rownames(dataprep.out$X0)=="school.illit")
+highest <- which(rownames(dataprep.out$X0)=="school.high")
+
+# Convert the values in X1 from 'school.illit' to 'school.high' into percentage shares
+dataprep.out$X1[lowest:highest,] <- (100*dataprep.out$X1[lowest:highest,]) / sum(dataprep.out$X1[lowest:highest,])
+
+# Scale the values in X0 from 'school.illit' to 'school.high' and convert into percentages
+dataprep.out$X0[lowest:highest,] <- 100*scale(dataprep.out$X0[lowest:highest,], center=FALSE, scale=colSums(dataprep.out$X0[lowest:highest,]))
+
+synth.out <- synth(data.prep.obj = dataprep.out,
+                   method = "BFGS"
+                   )
+
+path.plot(synth.res = synth.out,
+          dataprep.res = dataprep.out,
+          tr.intake = NA,
+          Ylab = "Real GDPpc",
+          Xlab = "year",
+          Ylim = c(0,12),
+          Legend = c("Catalonia country","synthetic Catalonia"),
+          Legend.position = "bottomright",
+          )
+
+ gaps.plot(synth.res = synth.out,
+           dataprep.res = dataprep.out,
+           Ylab = "Gap in real GDPpc",
+           Xlab = "year",
+           Ylim = c(-1.5,1.5),
+           Main = NA
+           )
+```
+
+#### Gaps Test  
+
+```{r}
+store <- matrix(NA,length(1955:1997),17)
+colnames(store) <- unique(basque$regionname)[-1]
+
+# run placebo test
+for(iter in 2:18)
+ {
+ dataprep.out <-
+              dataprep(foo = basque,
+                       predictors = c("school.illit" , "school.prim" , "school.med" ,
+                                      "school.high" , "school.post.high" , "invest") ,
+                       predictors.op = "mean" ,
+                       time.predictors.prior = 1964:1969 ,
+                       special.predictors = list(
+                         list("gdpcap" , 1960:1969 , "mean"),
+                         list("sec.agriculture" ,      seq(1961,1969,2), "mean"),
+                         list("sec.energy" ,           seq(1961,1969,2), "mean"),
+                         list("sec.industry" ,         seq(1961,1969,2), "mean"),
+                         list("sec.construction" ,     seq(1961,1969,2), "mean"),
+                         list("sec.services.venta" ,   seq(1961,1969,2), "mean"),
+                         list("sec.services.nonventa" ,seq(1961,1969,2), "mean"),
+                         list("popdens", 1969, "mean")
+                                                ),
+                       dependent = "gdpcap",
+                       unit.variable = "regionno",
+                       unit.names.variable = "regionname",
+                       time.variable = "year",
+                       treatment.identifier = iter,
+                       controls.identifier = c(2:18)[-iter+1],
+                       time.optimize.ssr = 1960:1969,
+                       time.plot = 1955:1997
+                       )
+
+
+
+
+ dataprep.out$X1["school.high",] <-
+   dataprep.out$X1["school.high",] + dataprep.out$X1["school.post.high",]
+ dataprep.out$X1 <-
+   as.matrix(dataprep.out$X1[-which(rownames(dataprep.out$X1)=="school.post.high"),])
+ dataprep.out$X0["school.high",] <-
+   dataprep.out$X0["school.high",] + dataprep.out$X0["school.post.high",]
+ dataprep.out$X0 <-
+   dataprep.out$X0[-which(rownames(dataprep.out$X0)=="school.post.high"),]
+
+ lowest  <- which(rownames(dataprep.out$X0)=="school.illit")
+ highest <- which(rownames(dataprep.out$X0)=="school.high")
+
+ dataprep.out$X1[lowest:highest,] <-
+  (100*dataprep.out$X1[lowest:highest,]) /
+   sum(dataprep.out$X1[lowest:highest,])
+ dataprep.out$X0[lowest:highest,] <-
+   100*scale(dataprep.out$X0[lowest:highest,],
+             center=FALSE,
+             scale=colSums(dataprep.out$X0[lowest:highest,])
+  )
+
+# run synth
+synth.out <- synth(
+                   data.prep.obj = dataprep.out,
+                   method = "BFGS"
+                   )
+
+# store gaps
+store[,iter-1] <- dataprep.out$Y1plot - (dataprep.out$Y0plot %*% synth.out$solution.w)
+}
+
+# now do figure
+data <- store
+rownames(data) <- 1955:1997
+
+# Set bounds in gaps data
+gap.start     <- 1
+gap.end       <- nrow(data)
+years         <- 1955:1997
+gap.end.pre  <- which(rownames(data)=="1969")
+
+#  MSPE Pre-Treatment
+mse        <-             apply(data[ gap.start:gap.end.pre,]^2,2,mean)
+basque.mse <- as.numeric(mse[16])
+# Exclude states with 5 times higher MSPE than basque
+data <- data[,mse<5*basque.mse]
+Cex.set <- .75
+
+# Plot
+plot(years,data[gap.start:gap.end,which(colnames(data)=="Basque Country (Pais Vasco)")],
+     ylim=c(-2,2),xlab="year",
+     xlim=c(1955,1997),ylab="Gap in real GDPpc",
+     type="l",lwd=2,col="black",
+     xaxs="i",yaxs="i")
+
+# Add lines for control states
+for (i in 1:ncol(data)) { lines(years,data[gap.start:gap.end,i],col="gray") }
+
+## Add Basque Line
+lines(years,data[gap.start:gap.end,which(colnames(data)=="Basque Country (Pais Vasco)")],lwd=2,col="black")
+
+# Add grid
+abline(v=1970,lty="dotted",lwd=2)
+abline(h=0,lty="dashed",lwd=2)
+legend("bottomright",legend=c("Basque country","control regions"),
+lty=c(1,1),col=c("black","gray"),lwd=c(2,1),cex=.8)
+arrows(1967,-1.5,1968.5,-1.5,col="black",length=.1)
+text(1961.5,-1.5,"Terrorism Onset",cex=Cex.set)
+abline(v=1955)
+abline(v=1997)
+abline(h=-2)
+abline(h=2)
+```
+
