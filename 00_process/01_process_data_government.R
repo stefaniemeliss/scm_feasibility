@@ -2,8 +2,10 @@ options(scipen = 999)
 # empty work space
 rm(list = ls())
 
-# define directory
+# define directories
 dir <- getwd()
+dir_data <- file.path(dir, "data")
+dir_misc <- file.path(dir, "misc")
 
 # load libraries
 library(kableExtra)
@@ -12,7 +14,7 @@ library(dplyr)
 #### ORMISTON ACADEMIES TRUST ####
 
 # read in info about OAT schools
-oat_schools <- read.csv(file = file.path(dir, "misc", "OAT Linked establishments.csv"))
+oat_schools <- read.csv(file = file.path(dir_misc, "OAT Linked establishments.csv"))
 
 # fix input data
 names(oat_schools) <- tolower(names(oat_schools))
@@ -26,7 +28,7 @@ oat_schools$joined.date <- as.Date(oat_schools$joined.date, format =  "%d/%m/%Y"
 oat_schools <- oat_schools[oat_schools$joined.date <= cut_off_date, ]
 
 # read in info about Dixons schools
-dixons_schools <- read.csv(file = file.path(dir, "misc", "Dixons Linked establishments.csv"))
+dixons_schools <- read.csv(file = file.path(dir_misc, "Dixons Linked establishments.csv"))
 
 # fix input data
 names(dixons_schools) <- tolower(names(dixons_schools))
@@ -35,21 +37,36 @@ dixons_schools$laestab <- gsub("/", "", dixons_schools$laestab)
 dixons_schools$joined.date <- as.Date(dixons_schools$joined.date, format =  "%d/%m/%Y")
 dixons_schools$linked.establishment <- "DIXONS ACADEMIES TRUST"
 
+# read in info about Lift schools
+lift_schools <- read.csv(file = file.path(dir_misc, "Lift Linked establishments.csv"))
+
+# fix input data
+names(lift_schools) <- tolower(names(lift_schools))
+names(lift_schools)[names(lift_schools) == "local.authority..name."] <- "laname"
+lift_schools$laestab <- gsub("/", "", lift_schools$laestab)
+lift_schools$joined.date <- as.Date(lift_schools$joined.date, format =  "%d/%m/%Y")
+lift_schools$linked.establishment <- "LIFT SCHOOLS"
+
+# save school list
+school_list <- rbind(oat_schools, dixons_schools, lift_schools)
+write.csv(school_list, file = file.path(dir_misc, "schools_list.csv"), row.names = F)
+
 # derive URNs
-school_list <- rbind(oat_schools, dixons_schools)
 urn_list <- school_list$urn
 
 # available information of schools
-gias <- read.csv(file = file.path(dir, "data", "performance-tables", "2022-2023", "2022-2023_england_school_information.csv"))
-spc <- read.csv(file = file.path(dir, "data", "school-pupils-and-their-characteristics_2023-24", "supporting-files", "spc_school_level_underlying_data.csv"))
-spc_c <- read.csv(file = file.path(dir, "data", "school-pupils-and-their-characteristics_2023-24", "supporting-files", "spc_school_level_class_size_underlying_data.csv"))
-imd <- read.csv(file = file.path(dir, "data", "2019-deprivation-by-postcode.csv"))
+gias <- read.csv(file = file.path(dir_data, "performance-tables", "2022-2023", "2022-2023_england_school_information.csv"))
+spc <- read.csv(file = file.path(dir_data, "school-pupils-and-their-characteristics_2023-24", "supporting-files", "spc_school_level_underlying_data.csv"))
+spc_c <- read.csv(file = file.path(dir_data, "school-pupils-and-their-characteristics_2023-24", "supporting-files", "spc_school_level_class_size_underlying_data.csv"))
+imd <- read.csv(file = file.path(dir_data, "2019-deprivation-by-postcode.csv"))
 
 # process gias
 names(gias) <- tolower(names(gias))
+names(gias) <- gsub("x...", "", names(gias), fixed = T)
 names(gias)[grepl("date|^estab", names(gias))] <- paste0(names(gias)[grepl("date|^estab", names(gias))], "_gias")
 
 # process imd
+names(imd) <- gsub("X...", "", names(imd), fixed = T)
 imd <- imd[, c("Postcode", "IDACI.Decile")]
 names(imd) <- c("school_postcode", "idaci.decile")
 imd <- imd[!duplicated(imd), ]
@@ -92,10 +109,12 @@ df <- merge(df, spc, by = c("urn", "laestab"), all = T)
 # split data and save
 df_oat <- subset(df, linked.establishment == "ORMISTON ACADEMIES TRUST")
 df_dixons <- subset(df, linked.establishment == "DIXONS ACADEMIES TRUST")
+df_aet <- subset(df, linked.establishment == "LIFT SCHOOLS")
 
 # save data
-xlsx::write.xlsx(df_oat, file = file.path("data", "data_government.xlsx"), sheetName = "data_OAT", row.names = F)
-xlsx::write.xlsx(df_dixons, file = file.path("data", "data_government.xlsx"), sheetName = "data_Dixons", append = T, row.names = F)
+xlsx::write.xlsx(df_oat, file = file.path(dir_data, "data_government.xlsx"), sheetName = "data_OAT", row.names = F)
+xlsx::write.xlsx(df_dixons, file = file.path(dir_data, "data_government.xlsx"), sheetName = "data_Dixons", append = T, row.names = F)
+xlsx::write.xlsx(df_aet, file = file.path(dir_data, "data_government.xlsx"), sheetName = "data_Lift", append = T, row.names = F)
 
 
 #### data dict ####
@@ -218,4 +237,4 @@ dict$explanation <- c(
   "IDACI Decile for postcode"
 )
 
-xlsx::write.xlsx(dict, file = file.path("data", "data_government.xlsx"), sheetName = "dict", append = T, row.names = F)
+xlsx::write.xlsx(dict, file = file.path(dir_data, "data_government.xlsx"), sheetName = "dict", append = T, row.names = F)
