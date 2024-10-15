@@ -1,0 +1,108 @@
+---
+title: "Government data on OAT"
+author: "Stefanie Meliss"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+options(scipen = 999)
+# empty work space
+rm(list = ls())
+
+# define directory
+dir <- getwd()
+dir <- gsub("/01_explore", "", dir)
+
+# load libraries
+library(kableExtra)
+library(dplyr)
+library(ggplot2)
+
+devtools::source_url("https://github.com/stefaniemeliss/scm_feasibility/blob/main/functions.R?raw=TRUE")
+
+
+# read in info about OAT schools
+df <- xlsx::read.xlsx(file = file.path(dir, "government_data.xlsx"), sheetName = "data_OAT")
+
+# select only subset of OAT schools
+df <- df %>% filter(phase_type_grouping == "State-funded secondary",
+                    grepl("Urban", urban_rural))
+
+```
+
+> Only secondary schools in urban regions included.  
+  
+
+
+### Source: School, pupils and their characteristics (2023-2024)
+
+Records retrieved from [https://explore-education-statistics.service.gov.uk/find-statistics/school-pupils-and-their-characteristics](https://content.explore-education-statistics.service.gov.uk/api/releases/60f096b8-6ed9-4e9e-97ee-2ca83867d51e/files)  
+
+```{r, echo = F, results='asis'}
+
+vars <- c(
+  "typeofestablishment_name",
+  "school_size",
+  "denomination",
+  "sepercentageof_school_description",
+  "admissions_policy",
+  "region_name",
+  "urban_rural"
+)
+
+# determine count of various characteristics #
+
+for (var in vars) {
+  df %>% group_by(get(var)) %>%
+    summarise(count = n()) %>% kbl(caption = var, row.names = F) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>%
+    print()
+}
+
+```
+
+
+```{r, echo = F, results='asis'}
+vars <- c(
+  "headcount.of.pupils",                                                                    
+  "fte.pupils",
+  "percentage.of.pupils.known.to.be.eligible.for.free.school.meals",
+  "percentage.of.pupils.known.to.be.eligible.for.free.school.meals..performance.tables.",
+  "number.of.pupils..used.for.fsm.calculation.in.performance.tables.",
+  "percentage.of.pupils.whose.first.language.is.known.or.believed.to.be.other.than.english",
+  "total.number.of.classes.taught.by.one.teacher",
+  "average.size.of.one.teacher.classes",                                                    
+  "idaci.decile"
+)
+
+for (var in vars) {
+  table_desc(data = df,
+             group_var = "urban_rural",
+             dep_var = var)
+}
+```
+
+### Source: School performance tables - General information about schools (2022-2023)
+
+Records retrieved from [www.compare-school-performance.service.gov.uk](https://www.compare-school-performance.service.gov.uk/download-data?download=true&regions=0&filters=GIAS&fileformat=csv&year=2022-2023&meta=false)  
+
+
+```{r, echo = F, results='asis'}
+
+vars <- c(
+  "isprimary",                                                                              
+  "issecondary",                                                                            
+  "ispost16"
+)
+
+df %>% group_by(across(all_of(vars))) %>%
+  summarise(count = n()) %>% kbl(caption = paste(vars, collapse = " x "), row.names = F) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T)
+
+
+
+```
