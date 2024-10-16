@@ -111,3 +111,46 @@ merge_timelines_across_columns <- function(data_in = df_in,
   
   return(data_out)
 }
+
+
+merge_staggered_timelines_across_columns <- function(data_in = df_in,
+                                                     column_vector = "cols_to_merge",
+                                                     stem = "new_var", 
+                                                     variable_levels = "new_levels",
+                                                     identifier_columns = "id_cols",
+                                                     data_out = df_out) {
+  
+  # select columns
+  tmp <- data_in[, c(identifier_columns, column_vector)]
+  
+  # determine mapping
+  mapping <- data.frame(old = column_vector,
+                        new = variable_levels)
+  cat("Applied mapping from column_vector to variable_levels:\n\n")
+  print(mapping)
+  
+  tag = paste0(stem, "_tag")
+  
+  # use dplyr
+  tmp <- tmp %>%
+    # apply grouping by identifier variable
+    group_by(.data[[identifier_columns]]) %>%
+    # replace every NA with the unique value observed for each group
+    mutate_at(column_vector, function(x) {ifelse(is.na(x), unique(x[!is.na(x)]), x)}) %>%
+    # remove all duplicated columns
+    distinct(., .keep_all = TRUE) %>%
+    
+    # transform into long format
+    reshape2::melt(id = identifier_columns, variable.name = tag, value.name = stem) %>%
+    # change variable levels
+    mutate(time_period = plyr::mapvalues(get(tag), column_vector, variable_levels, warn_missing = TRUE))
+  
+  
+  # merge with data_out
+  data_out <- merge(data_out, tmp, by = id_cols, all = T)
+  rm(tmp)
+  
+  return(data_out)
+}
+
+
