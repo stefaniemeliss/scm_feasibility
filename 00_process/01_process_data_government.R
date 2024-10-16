@@ -101,10 +101,15 @@ names(spc) <- gsub("x.", "percentage", names(spc))
 spc$opendate <- as.Date(spc$opendate, format =  "%d/%m/%Y")
 spc[, grepl("^number|^percentage|boarders|infants", names(spc), perl = T)] <- apply(spc[, grepl("^number|^percentage|boarders|infants", names(spc), perl = T)], MARGIN = 2, FUN = as.numeric)
 
-
 # combine school list and gias
 df <- merge(school_list, gias, by = intersect(names(gias), names(school_list)), all = T)
 df <- merge(df, spc, by = c("urn", "laestab"), all = T)
+
+# extract postcodes
+tmp <- as.data.frame(unique(df$school_postcode))
+write.table(tmp, file.path(dir_misc, "school_postcodes.csv"), 
+            row.names = F, col.names = F, sep = ",", quote = F)
+
 
 # split data and save
 df_oat <- subset(df, linked.establishment == "ORMISTON ACADEMIES TRUST")
