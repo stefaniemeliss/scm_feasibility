@@ -185,35 +185,58 @@ for (year in start:finish) {
     # unzip folder
     if (request$headers$`content-type` == "application/zip") {
       unzipped <- unzip(file_name, exdir = out_dir)
+      file.remove(file_name)
     }
     
   }
   
 }
 
-##### School pupils and their characteristics (2023-24) ##### 
+##### School pupils and their characteristics ##### 
 
-url <- "https://content.explore-education-statistics.service.gov.uk/api/releases/60f096b8-6ed9-4e9e-97ee-2ca83867d51e/files"
+urls <- c(
+  "https://content.explore-education-statistics.service.gov.uk/api/releases/60f096b8-6ed9-4e9e-97ee-2ca83867d51e/files",
+  "https://content.explore-education-statistics.service.gov.uk/api/releases/5597d8c4-ae2c-43cd-ba21-c6cbe80c5e4a/files",
+  "https://content.explore-education-statistics.service.gov.uk/api/releases/b71871a9-3207-4e83-8c5f-15eefdd2f458/files",
+  "https://content.explore-education-statistics.service.gov.uk/api/releases/18afd52c-ef75-406c-993e-e6459781dbcc/files",
+  "https://assets.publishing.service.gov.uk/media/5a824241ed915d74e340292a/SFR28_2017_Underlying_Data.zip",
+  "https://assets.publishing.service.gov.uk/media/5a7f3f4ced915d74e62294a7/SFR20_2016_Underlying_Data.zip",
+  "https://assets.publishing.service.gov.uk/media/5a7f22f6ed915d74e62289c9/SFR16_2015_Underlying_Data.zip",
+  "https://assets.publishing.service.gov.uk/media/5a80260de5274a2e8ab4e77a/SFR15_2014_Underlying_data_v102.zip",
+  "https://assets.publishing.service.gov.uk/media/5a7c1750e5274a1f5cc75bb1/SFR21-2013_UD.zip",
+  "https://assets.publishing.service.gov.uk/media/5a7a100ee5274a319e777952/sfr10-2012ud.zip",
+  "https://assets.publishing.service.gov.uk/media/5a7af937ed915d71db8b3d79/sfr12-2011udv4.zip",
+  "https://assets.publishing.service.gov.uk/media/5a7a2d68e5274a319e77865a/underlying_20data_20sfr092010.zip"
+)
 
-# retrieve information from URL 
-request <- GET(url = url, httr::add_headers(.headers=headers))
-request$headers$`content-type`
-request$headers$`content-disposition`
+# determine output directory
+out_dir <- file.path(dir_data, "spc")
+if (!dir.exists(out_dir)) {
+  dir.create(out_dir)
+}
 
-# specify file name
-tmp <- sub('[^\"]+\"([^\"]+).*', '\\1', request$headers$`content-disposition`) # extract relevant info from response header
-tmp <- gsub("/", "_", tmp)
-file_name <- file.path(dir_data, tmp)
-
-# retrieve raw content from request
-bin <- content(request, "raw")
-
-# write binary data to file
-writeBin(bin, file_name)
-
-# unzip folder and delete
-unzipped <- unzip(file_name, exdir = file.path(dir_data, gsub(".zip", "", tmp)))
-file.remove(file_name)
+for (url in urls) {
+  
+  # retrieve information from URL 
+  request <- GET(url = url, httr::add_headers(.headers=headers))
+  request$headers$`content-type`
+  request$headers$`content-disposition`
+  
+  # specify file name
+  tmp <- sub('[^\"]+\"([^\"]+).*', '\\1', request$headers$`content-disposition`) # extract relevant info from response header
+  tmp <- gsub("/", "_", tmp)
+  file_name <- file.path(out_dir, tmp)
+  
+  # retrieve raw content from request
+  bin <- content(request, "raw")
+  
+  # write binary data to file
+  writeBin(bin, file_name)
+  
+  # unzip folder and delete
+  unzipped <- unzip(file_name, exdir = file.path(out_dir, gsub(".zip", "", tmp)))
+  file.remove(file_name)
+}
 
 ##### School workforce in England (reporting year 2023) ##### 
 
@@ -263,9 +286,92 @@ writeBin(bin, file_name)
 unzipped <- unzip(file_name, exdir = file.path(dir_data, gsub(".zip", "", tmp)))
 file.remove(file_name)
 
-# extract postcodes
-tmp <- read.csv(file = file.path(dir_data, "school-pupils-and-their-characteristics_2023-24", "supporting-files", "spc_school_level_underlying_data.csv"))
-tmp <- as.data.frame(unique(tmp$school_postcode))
+##### School capacity ##### 
 
-write.table(tmp, file.path(dir_misc, "school_postcodes_spc_2023-24.csv"), 
-            row.names = F, col.names = F, sep = ",", quote = F)
+academic_years <- c(
+  "Academic year 2022-23",
+  "Academic year 2021-22",
+  "Academic year 2020-21",
+  "Academic year 2018-19",
+  "Academic Year 2017-18",
+  "Academic Year 2016-17",
+  "Academic Year 2015-16",
+  "Academic Year 2014-15",
+  
+  "Academic Year 2013-14",
+  "Academic Year 2013-14",
+  
+  "Academic Year 2012-13",
+  "Academic Year 2012-13",
+  
+  "Academic Year 2011-12",
+  
+  "Academic Year 2010-11",
+  "Academic Year 2010-11",
+  
+  "Academic Year 2009-10"
+)
+
+urls <- c(
+  "https://content.explore-education-statistics.service.gov.uk/api/releases/cfb27ea6-5078-4329-b59d-38ac104806dc/files", #2022-23
+  "https://content.explore-education-statistics.service.gov.uk/api/releases/35560c95-6ee1-4b3f-9c63-0e1afbcb62e2/files", #2021-22
+  "https://content.explore-education-statistics.service.gov.uk/api/releases/8f353ba3-5d7c-4d86-ae05-08d9ebca404d/files", #2020-21
+  "https://content.explore-education-statistics.service.gov.uk/api/releases/d57205e5-6517-44e1-9ebc-d42ac99f03dc/files", #2018-19
+  "https://assets.publishing.service.gov.uk/media/5ca33f25ed915d0c57e97e7c/School_Capacity_2018_Main_tables_underlying_data_.zip",
+  "https://assets.publishing.service.gov.uk/media/5aa85d0ded915d4f563b737e/SFR07_2018_SCAP_underlying_data.zip",
+  "https://assets.publishing.service.gov.uk/media/5a82e22e40f0b6230269d349/SCAP_2016_Underlying_data.zip",
+  "https://assets.publishing.service.gov.uk/media/5a80be33e5274a2e8ab51e83/2015_capacity_and_forecast_underlying_data.ods",
+
+  "https://assets.publishing.service.gov.uk/media/5a818c1de5274a2e8ab54927/Primary_Underlying_data.xlsx",
+  "https://assets.publishing.service.gov.uk/media/5a7f6657ed915d74e622a397/Secondary_Underlying_data.xlsx",
+  
+  "https://assets.publishing.service.gov.uk/media/5a749839ed915d0e8e399783/Primary_underlying_data.xlsx",
+  "https://assets.publishing.service.gov.uk/media/5a7d8f5fed915d3fb95947cd/Secondary_underlying_data.xlsx",
+  
+  "https://assets.publishing.service.gov.uk/media/5a7a1b8040f0b66eab999ca6/sfr01-2013ud.zip",
+  
+  "https://assets.publishing.service.gov.uk/media/5a7b548340f0b6425d5926e9/primary_20school_20underlying_20data_20update.csv",
+  "https://assets.publishing.service.gov.uk/media/5a7a13f8ed915d6eaf15396f/secondary_20school_20underlying_20data_20update.csv",
+  
+  "https://assets.publishing.service.gov.uk/media/5a7aea0040f0b66eab99d8a5/osr33-2010ud.zip"
+)
+
+# determine output directory
+out_dir <- file.path(dir_data, "school_capacity")
+if (!dir.exists(out_dir)) {
+  dir.create(out_dir)
+}
+
+for (u in 1:length(urls)) {
+  
+  # create folder for academic year
+  dir_year <- file.path(out_dir, academic_years[u])
+  
+  if (!dir.exists(dir_year)) {
+    dir.create(dir_year)
+  }
+  
+  
+  # retrieve information from URL 
+  request <- GET(url = urls[u], httr::add_headers(.headers=headers))
+  request$headers$`content-type`
+  request$headers$`content-disposition`
+  
+  # specify file name
+  tmp <- sub('[^\"]+\"([^\"]+).*', '\\1', request$headers$`content-disposition`) # extract relevant info from response header
+  tmp <- gsub("/", "_", tmp)
+  file_name <- file.path(dir_year, tmp)
+  
+  # retrieve raw content from request
+  bin <- content(request, "raw")
+  
+  # write binary data to file
+  writeBin(bin, file_name)
+  
+  # unzip folder
+  if (grepl("application", request$headers$`content-type`)) {
+    unzipped <- unzip(file_name, exdir = dir_year)
+    file.remove(file_name)
+  }
+  
+}
