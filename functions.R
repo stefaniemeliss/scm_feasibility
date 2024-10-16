@@ -72,3 +72,42 @@ rbind.all.columns <- function(x, y) {
   
   return(rbind(x, y))
 }
+
+
+
+merge_timelines_across_columns <- function(data_in = df_in,
+                                           cols_to_merge = "column_vector",
+                                           new_col = "stem", 
+                                           id_cols = "identifier_columns",
+                                           data_out = df_out) {
+  
+  # select columns
+  tmp <- data_in[, c(id_cols, cols_to_merge)]
+  #tmp <- data_in[, c(get(id_cols), get(cols_to_merge))]
+  
+  # replace any NAs with ""
+  tmp[, cols_to_merge] <- apply(tmp[, cols_to_merge], 2, function(x) {ifelse(is.na(x), "", x)})
+  
+  # merge information across cols using paste
+  tmp[, "tmp"] = apply(tmp[, cols_to_merge, drop = F], MARGIN = 1, FUN = function(i) paste(i, collapse = ""))
+  
+  # create column that contains tag with information about the column data retained
+  tmp[, cols_to_merge] <- apply(tmp[, cols_to_merge], 2, function(x) {ifelse(x != "", "true", "")}) # replace values with "true"
+  w <- which(tmp=="true",arr.ind=TRUE) # get indices of "true"
+  tmp[w] <- names(tmp)[w[,"col"]] # replace "true" with column name
+  tmp[, "tag"] = apply(tmp[, cols_to_merge, drop = F], MARGIN = 1, FUN = function(i) paste(i, collapse = "")) # merge across
+  
+  # drop columns that are now merged
+  tmp[, cols_to_merge] <- NULL
+  
+  # replace "" with NA
+  tmp[, c(-1, -2)] <- apply(tmp[, c(-1, -2)], 2, function(x) {ifelse(x == "", NA, x)})
+  
+  # change names
+  names(tmp) <- c(id_cols, new_col, paste0(new_col, "_tag"))
+  
+  # merge with data_out
+  data_out <- merge(data_out, tmp, by = id_cols, all = T)
+  
+  return(data_out)
+}
