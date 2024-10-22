@@ -167,7 +167,7 @@ dataprep.out$X1
 
 Notice that dataprep.out appends the associated date-range only to the names of the special.predictors.
 
-In $X_0$: - Region 1 is not included because it is national value - Region 17 is not included because it is the treatment unit.
+In $X_0$: Region 1 is not included because it is national value. Region 17 is not included because it is the treatment unit.
 
 ```{r}
 dataprep.out$X0
@@ -211,7 +211,7 @@ dataprep.out$X0[illit_row_index:high_row_index,] <- 100*scale(dataprep.out$X0[il
 The function synth() identifies the synthetic control for the Basque region by determining the weight vector $W^*$, which is achieved by solving the nested optimization problem outlined in equations (1) and (2).
 
 $$
-|| X_1 - X_{1}W ||_{V} = \sqrt{(X_1 - X_{1}W})'V(X_1 - X_{1}W)
+|| X_1 - X_{0}W ||_{V} = \sqrt{(X_1 - X_{0}W})'V(X_1 - X_{0}W)
 $$
 $$
 arg min(Z_1-Z_{0}W^*(V))'(Z_1-Z_{0}W^*(V))
