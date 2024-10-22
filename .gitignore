@@ -17,3 +17,9 @@
 *.pdf
 *.rds
 *.dta
+*.doc
+*.docx
+*.xml
+*.rels
+*.bin
+mimetype
