@@ -95,9 +95,9 @@ file.rename(unzipped, gsub("misc/", "misc/Lift ", unzipped))
 ##### performance tables #####
 
 # determine output directory
-out_dir <- file.path(dir_data, "performance-tables")
-if (!dir.exists(out_dir)) {
-  dir.create(out_dir)
+dir_out <- file.path(dir_data, "performance-tables")
+if (!dir.exists(dir_out)) {
+  dir.create(dir_out)
 }
 
 # determine years of interest
@@ -114,7 +114,7 @@ for (year in start:finish) {
   academic_year <- paste0(year,"-", year+1)
   
   # create folder for academic year
-  dir_year <- file.path(out_dir, academic_year)
+  dir_year <- file.path(dir_out, academic_year)
   
   if (!dir.exists(dir_year)) {
     dir.create(dir_year)
@@ -184,7 +184,7 @@ for (year in start:finish) {
     
     # unzip folder
     if (request$headers$`content-type` == "application/zip") {
-      unzipped <- unzip(file_name, exdir = out_dir)
+      unzipped <- unzip(file_name, exdir = dir_out)
       file.remove(file_name)
     }
     
@@ -210,9 +210,9 @@ urls <- c(
 )
 
 # determine output directory
-out_dir <- file.path(dir_data, "spc")
-if (!dir.exists(out_dir)) {
-  dir.create(out_dir)
+dir_out <- file.path(dir_data, "spc")
+if (!dir.exists(dir_out)) {
+  dir.create(dir_out)
 }
 
 for (url in urls) {
@@ -225,7 +225,7 @@ for (url in urls) {
   # specify file name
   tmp <- sub('[^\"]+\"([^\"]+).*', '\\1', request$headers$`content-disposition`) # extract relevant info from response header
   tmp <- gsub("/", "_", tmp)
-  file_name <- file.path(out_dir, tmp)
+  file_name <- file.path(dir_out, tmp)
   
   # retrieve raw content from request
   bin <- content(request, "raw")
@@ -234,7 +234,7 @@ for (url in urls) {
   writeBin(bin, file_name)
   
   # unzip folder and delete
-  unzipped <- unzip(file_name, exdir = file.path(out_dir, gsub(".zip", "", tmp)))
+  unzipped <- unzip(file_name, exdir = file.path(dir_out, gsub(".zip", "", tmp)))
   file.remove(file_name)
 }
 
@@ -337,15 +337,15 @@ urls <- c(
 )
 
 # determine output directory
-out_dir <- file.path(dir_data, "school_capacity")
-if (!dir.exists(out_dir)) {
-  dir.create(out_dir)
+dir_out <- file.path(dir_data, "school_capacity")
+if (!dir.exists(dir_out)) {
+  dir.create(dir_out)
 }
 
 for (u in 1:length(urls)) {
   
   # create folder for academic year
-  dir_year <- file.path(out_dir, academic_years[u])
+  dir_year <- file.path(dir_out, academic_years[u])
   
   if (!dir.exists(dir_year)) {
     dir.create(dir_year)
