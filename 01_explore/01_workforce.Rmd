@@ -19,6 +19,8 @@ rm(list = ls())
 # define directory
 dir <- getwd()
 dir <- gsub("/01_explore", "", dir)
+dir_data <- file.path(dir, "data")
+dir_misc <- file.path(dir, "misc")
 
 # load libraries
 library(kableExtra)
@@ -30,15 +32,16 @@ devtools::source_url("https://github.com/stefaniemeliss/ambition_theme/blob/main
 
 
 # read in misc info about OAT schools
-misc <- read.csv(file = file.path(dir, "misc", "OAT Linked establishments.csv"))
-misc <- xlsx::read.xlsx(file = file.path(dir, "government_data.xlsx"), sheetName = "data_OAT")
+misc <- read.csv(file = file.path(dir_misc, "OAT Linked establishments.csv"))
+misc <- xlsx::read.xlsx(file = file.path(dir_data, "data_government.xlsx"), sheetName = "data_OAT")
 
 # read in workforce data
-df <- read.csv(file = file.path(dir, "data", "school-workforce-in-england_2023", "data", "workforce_2010_2023_fte_hc_nat_reg_la_sch.csv"))
+df <- read.csv(file = file.path(dir_data, "school-workforce-in-england_2023", "data", "workforce_2010_2023_fte_hc_nat_reg_la_sch.csv"))
 names(df) <- gsub("X...", "", names(df), fixed = T)
 
 # read in info about dataset
-dict <- read.csv(file = file.path(dir, "misc", "meta_workforce.csv"))
+dict <- read.csv(file = file.path(dir_misc, "meta_workforce.csv"))
+names(dict) <- gsub("X...", "", names(dict), fixed = T)
 
 # derive URNs
 urn_list <- misc$urn[misc$phase_type_grouping == "State-funded secondary" & grepl("Urban", misc$urban_rural)]
@@ -166,6 +169,18 @@ plt <- ggplot(data = df, aes(x = time_period, y = get(dep_var), group = school_u
   xlab(x_lab)
 print(plt)
 
+# Trellis plot
+plt <- ggplot(data = df, aes(x = time_period, y = get(dep_var), group = school_urn, col = school_urn, fill = school_urn)) +
+  geom_point() + 
+  geom_line() + 
+  geom_area(alpha=0.6) +
+  facet_wrap("school_urn") +
+  ambition_theme + theme(legend.position = "none",  
+                         axis.text = element_blank()) +
+  ylab(paste(y_lab, "-", trans)) +
+  xlab(x_lab)
+print(plt)
+
 # plot yearly average
 out[, group_var] <- row.names(out)
 plt <- ggplot(data = out, aes(x = time_period, y = mean)) +
@@ -218,6 +233,10 @@ group_var = "time_period"
 x_lab = "Academic years"
 
 transforms <- c("RAW", "LAGGED", "2Y ROLLING")
+
+# debug
+var = vars[1]
+trans = transforms[1]
 
 for (var in vars) {
   
