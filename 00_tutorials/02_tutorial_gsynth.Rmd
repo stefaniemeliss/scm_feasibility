@@ -62,7 +62,7 @@ When dealing with clustered data, for example, panel data with regionally cluste
 units, one can use the cluster bootstrap procedure by specifying name of the cluster 
 variable in option `cl`. For example, `cl = "state"` for city-level data. 
 
-```{r sim1, cache = TRUE}
+```{r sim1, cache = FALSE}
 system.time(
     out <- gsynth(Y ~ D + X1 + X2, data = simdata, 
                   index = c("id","time"), force = "two-way", 
@@ -88,7 +88,7 @@ out$est.beta
 
 Parallel computing will speed up the bootstrap procedure significantly. When `parallel = TRUE` (default) and `cores` options are omitted, the algorithm will detect the number of available cores on your computer automatrically. (Warning: it may consume most of your computer's computational power if all cores are being used.)
 
-```{r sim2, cache = TRUE}
+```{r sim2, cache = FALSE}
 system.time(
 out <- gsynth(Y ~ D + X1 + X2, data = simdata,
               index = c("id","time"), force = "two-way", 
@@ -100,7 +100,7 @@ out <- gsynth(Y ~ D + X1 + X2, data = simdata,
 
 **gsynth** also incoporates jackknife method for uncertainty estimates. 
 
-```{r simJack, cache = TRUE}
+```{r simJack, cache = FALSE}
 
 out2 <- gsynth(Y ~ D + X1 + X2, data = simdata, 
                index = c("id","time"), force = "two-way", 
@@ -116,7 +116,7 @@ function *cumuEff* to calculate cumulative treatment effects. One can specify
 a period of interest in option `period`. If left blank, cumulative treatment 
 effects for all post-treatment period will be calculated.  
 
-```{r cumu1, cache = TRUE}
+```{r cumu1, cache = FALSE}
 cumu1 <- cumuEff(out, cumu = TRUE, id = NULL, period = c(0,5))
 cumu1$est.catt
 ```
@@ -126,7 +126,7 @@ unit names in option `id`. By specifying `cumu = FALSE`, average treatment effec
 (rather than cumulative effects) at each period will be returned. Note that in 
 this case, parametric bootstrap procedure is needed for uncertainty estimates. 
 
-```{r cumu2, cache = TRUE}
+```{r cumu2, cache = FALSE}
 cumu2 <- cumuEff(out, cumu = FALSE, id = c(101, 102, 103), period = c(0,5))
 cumu2$est.catt
 ```
@@ -215,7 +215,7 @@ The next two figures plot the estimated factors and factor loadings, respectivel
 ```{r sim_F, message = FALSE, results='hide'}
 plot(out, type = "factors", xlab = "Time")
 ```
-```{r sim_L, cache = TRUE, message = FALSE, results='hide', fig.height = 5}
+```{r sim_L, cache = FALSE, message = FALSE, results='hide', fig.height = 5}
 plot(out, type = "loadings")
 ```
 
@@ -223,7 +223,7 @@ plot(out, type = "loadings")
 
 The EM algorithm proposed by @Gobillon2016 takes advantage of the treatment group information in the pre-treatment period. We implement this method. The estimation takes more time, but the results are very similar to that from the original method -- the coefficients will be slightly more precisely estimated.
 
-```{r sim3, cache = TRUE}
+```{r sim3, cache = FALSE}
 system.time(
 out <- gsynth(Y ~ D + X1 + X2, data = simdata, 
               index = c("id","time"), EM = TRUE, 
@@ -241,7 +241,7 @@ plot(out, main = "Estimated ATT (EM)")
 
 In v1.0.9 or higher versions, we implement the matrix completion method proposed by @Athey2021 by setting `estimator = "mc"` (the default is `"ife"`, which represents the interactive fixed effects model). It uses a different regularization scheme and takes advantage of the treatment group information in the pre-treatment period. The option `lambda` controls the tuning parameter. If it is left blank, a sequence of candidate `lambda`s will be generated and tested sequentially. Users can set the length of candidate list by setting, for example, `nlambda = 10`. The option `lambda` can also receive a user-specified sequence as candidate `lambda`s. A built in cross-validation procedure will select the optimal hyper parameter when a single `lambda` is given. Users can specify the number of folds in cross-validation using the option `k` (e.g. `k = 5`).
 
-```{r sim_mc, cache = TRUE}
+```{r sim_mc, cache = FALSE}
 system.time(
 out <- gsynth(Y ~ D + X1 + X2, data = simdata, 
               estimator = "mc", index = c("id","time"), 
@@ -289,7 +289,7 @@ panelview(turnout ~ policy_edr, data = turnout,
 
 When no factor is assumed, the estimates are close to what we obtain from difference-in-differences:
 
-```{r turnout_did, cache = TRUE}
+```{r turnout_did, cache = FALSE}
 out0 <- gsynth(turnout ~ policy_edr + policy_mail_in + policy_motor, 
                data = turnout, index = c("abb","year"), 
                se = TRUE, inference = "parametric", 
@@ -304,7 +304,7 @@ plot(out0, type = "gap", xlim = c(-15, 15))
 
 Now we allow the algorithm to find the "correct" number of factors that predicts the pre-treatment data the best:
 
-```{r turnout_est, cache = TRUE}
+```{r turnout_est, cache = FALSE}
 out <- gsynth(turnout ~ policy_edr + policy_mail_in + policy_motor, 
               data = turnout,  index = c("abb","year"), 
               se = TRUE, inference = "parametric", 
@@ -403,7 +403,7 @@ panelview(turnout ~ policy_edr + policy_mail_in + policy_motor,
 
 ### Estimation
 
-```{r turnout_ub_est, cache = TRUE}
+```{r turnout_ub_est, cache = FALSE}
 out <- gsynth(turnout ~ policy_edr + policy_mail_in + policy_motor, 
               data = turnout.ub,  index = c("abb","year"), 
               se = TRUE, inference = "parametric", 
@@ -436,7 +436,7 @@ plot(out, type = "gap", ylim = c(-10, 20))
 ### Matrix completion
 
 Finally, we re-estimate the model using the matrix completion method:
-```{r turnout_ub_est2, cache = TRUE}
+```{r turnout_ub_est2, cache = FALSE}
 out.mc <- gsynth(turnout ~ policy_edr + policy_mail_in + policy_motor, 
                  min.T0 = 8, data = turnout.ub,  
                  index = c("abb","year"), estimator = "mc", 
