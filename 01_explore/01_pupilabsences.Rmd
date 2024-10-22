@@ -1,5 +1,5 @@
 ---
-title: "Teacher absences"
+title: "Pupil absences"
 author: "Stefanie Meliss"
 date: "`r Sys.Date()`"
 output:
@@ -19,6 +19,8 @@ rm(list = ls())
 # define directory
 dir <- getwd()
 dir <- gsub("/01_explore", "", dir)
+dir_data <- file.path(dir, "data")
+dir_misc <- file.path(dir, "misc")
 
 # load libraries
 library(kableExtra)
@@ -28,17 +30,18 @@ library(ggplot2)
 # source ambition theme
 devtools::source_url("https://github.com/stefaniemeliss/ambition_theme/blob/main/ambition_theme.R?raw=TRUE")
 
-
 # read in misc info about OAT schools
-misc <- read.csv(file = file.path(dir, "misc", "OAT Linked establishments.csv"))
-misc <- xlsx::read.xlsx(file = file.path(dir, "government_data.xlsx"), sheetName = "data_OAT")
+misc <- xlsx::read.xlsx(file = file.path(dir_data, "data_government.xlsx"), sheetName = "data_OAT")
 
 # read in workforce data
-df <- read.csv(file = file.path(dir, "data", "school-workforce-in-england_2023", "data", "sickness_absence_teachers_sch.csv"))
+df <- read.csv(file = file.path(dir_data, "data_pupilabsences.csv"))
 names(df) <- gsub("X...", "", names(df), fixed = T)
 
 # read in info about dataset
-dict <- read.csv(file = file.path(dir, "misc", "meta_absences.csv"))
+dict <- read.csv(file = file.path(dir_misc, "meta_pupilabsences.csv"))
+names(dict) <- gsub("X...", "", names(dict), fixed = T)
+dict$Variable <- tolower(dict$Variable)
+dict <- dict[1:2, ]
 
 # derive URNs
 urn_list <- misc$urn[misc$phase_type_grouping == "State-funded secondary" & grepl("Urban", misc$urban_rural)]
@@ -50,28 +53,19 @@ years_list <- sort(unique(df$time_period))
 # subset data to only include OAT schools
 df <- df %>% filter(school_urn %in% urn_list)
 
-# add number of years to df
-df <- merge(df, df %>% group_by(school_urn) %>%
-              summarise(total_years_of_data = n()), by = "school_urn")
-
 # modify data for plotting
 df$time_period <- factor(df$time_period)
 df$school_urn <- factor(df$school_urn)
 
-
 # create scaffold for difference in difference calculations
-scaffold <- merge(data.frame(time_period = factor(years_list)), data.frame(school_urn = factor(urn_list)))
-df <- merge(scaffold, df, by = c("school_urn", "time_period"), all.x = T)
 df$Diff <- NA
 df$Shift <- NA
 ```
 
-Teacher absences - school level  
+Pupil absences - school level  
   
-Filename: sickness_absence_teachers_sch.csv  
-Geographic levels: School  
-Time period: 2014/15 to 2022/23  
-Content summary: Full and part time teacher vacancies, temporarily filled posts in state-funded schools in England, by sector and grade. Numbers and rates. School level.  
+Time period: 2010/11 to 2022/23  
+Content summary: Percentage of pupil absence in state-funded schools in England, by sector and grade. Numbers and rates. School level.  
   
 Variable names and descriptions for this file are provided below:  
   
@@ -79,7 +73,7 @@ Variable names and descriptions for this file are provided below:
 ```{r, results='asis', echo = F}
 dict %>%
   kbl(row.names = F) %>%
-  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>%
   print()
 ```
 
@@ -188,7 +182,7 @@ print(plt)
 
 
 ```{r, echo = F, results='asis',fig.align='center', warning=FALSE}
-vars <- dict$Variable.name
+vars <- dict$Variable
 
 # define DV and label
 group_var = "time_period"
@@ -198,7 +192,7 @@ transforms <- c("RAW", "LAGGED", "2Y ROLLING")
 
 for (var in vars) {
   
-  y_lab = dict$Variable.description[dict$Variable.name == var]
+  y_lab = dict$Label[dict$Variable == var]
   
   cat("\n## ", y_lab, "\n")
   cat("\n\n")
