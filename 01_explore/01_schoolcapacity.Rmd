@@ -19,6 +19,8 @@ rm(list = ls())
 # define directory
 dir <- getwd()
 dir <- gsub("/01_explore", "", dir)
+dir_data <- file.path(dir, "data")
+dir_misc <- file.path(dir, "misc")
 
 # load libraries
 library(kableExtra)
@@ -30,15 +32,15 @@ devtools::source_url("https://github.com/stefaniemeliss/ambition_theme/blob/main
 
 
 # read in misc info about OAT schools
-misc <- read.csv(file = file.path(dir, "misc", "OAT Linked establishments.csv"))
-misc <- xlsx::read.xlsx(file = file.path(dir, "government_data.xlsx"), sheetName = "data_OAT")
+misc <- read.csv(file = file.path(dir_misc, "OAT Linked establishments.csv"))
+misc <- xlsx::read.xlsx(file = file.path(dir_data, "data_government.xlsx"), sheetName = "data_OAT")
 
 # read in workforce data
-df <- read.csv(file = file.path(dir, "data", "school-capacity_2022-23", "data", "school-capacity_200910-202223.csv"))
+df <- read.csv(file = file.path(dir_data, "school-capacity_2022-23", "data", "school-capacity_200910-202223.csv"))
 names(df) <- gsub("X...", "", names(df), fixed = T)
 
 # read in info about dataset
-dict <- read.csv(file = file.path(dir, "misc", "meta_schoolcapacity.csv"))
+dict <- read.csv(file = file.path(dir_misc, "meta_schoolcapacity.csv"))
 names(dict) <- gsub("X...", "", names(dict), fixed = T)
 vars <- dict$Variable.name
 
