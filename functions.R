@@ -154,3 +154,263 @@ merge_staggered_timelines_across_columns <- function(data_in = df_in,
 }
 
 
+### web scraping ###
+
+# Function to identify year of release
+get_year <- function(input_url){
+
+  # Split the URLs into parts
+  parts <- unlist(strsplit(input_url, "[[:punct:]]"))
+  
+  # Find the year indices
+  idx <- grep("(^20[0-2][0-9]$|^2[0-9]$)", parts)
+  
+  # check if it contains a year
+  if (identical(idx, integer(0)) == F) {
+    # if so, return year
+    year <- paste(parts[idx], collapse = "-")
+  } else {
+    year <- character(0)
+  }
+  
+  return(year)
+}
+
+assign_dir_year <- function(x, input_url = "url") assign(x, file.path(dir_out, get_year(input_url)),envir=globalenv())
+
+# functions
+is.sequential <- function(x){
+  all(abs(diff(x)) == 1)
+} 
+
+# Function to handle overlapping parts and convert relative URLs to absolute URLs
+resolve_url <- function(base_url, relative_url) {
+  if (!grepl("^http", relative_url)) {  # Check if the link is not absolute
+    # Remove the trailing slash from the base URL if it exists
+    base_url <- sub("/$", "", base_url)
+    
+    # Remove the leading slash from the relative URL if it exists
+    relative_url <- sub("^/", "", relative_url)
+    
+    # Split the URLs into parts
+    base_parts <- unlist(strsplit(base_url, "/"))
+    relative_parts <- unlist(strsplit(relative_url, "/"))
+    
+    # Find the index where the overlapping part starts
+    overlap_index <- which(base_parts %in% relative_parts)
+    
+    if (is.sequential(overlap_index)) {
+      # Find the first non-overlapping parts in the base URL
+      pre_overlap_base <- min(overlap_index) - 1
+      base_unique <- base_parts[1:pre_overlap_base]
+      
+      # Find the overlapping parts in the base URL
+      base_overlap <- base_parts[overlap_index]
+      
+      # Find the last non-overlapping parts in the relative URL
+      relative_unique <- relative_parts[! relative_parts %in% base_parts]
+      
+      # Combine the base URL with the overlapping and non-overlapping part of the relative URL 
+      absolute_url <- paste0(paste(base_unique, collapse = "/"), "/", paste(base_overlap, collapse = "/"), "/", paste(relative_unique, collapse = "/"))
+    } else {
+      absolute_url <- paste0(base_url, "/", relative_url)
+    }
+    return(absolute_url)
+  } else {
+    return(relative_url)
+  }
+}
+
+# function to download data from an URL that directly links to a file
+download_data_from_url <- function(url){
+  
+  # determine header information
+  headers = c(
+    `user-agent` = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.5005.61 Safari/537.36'
+  )
+  
+  # retrieve information from URL 
+  request <- httr::GET(url = url, httr::add_headers(.headers=headers))
+  # request <- httr::GET(url = url_meta, httr::add_headers(.headers=headers))
+  
+  # check for file name information
+  input = request$headers$`content-disposition` # e.g., "attachment; filename=Performancetables_114742.zip; filename*=UTF-8''Performancetables_114742.zip"
+  tmp <- sub(".*'", "", input) # remove everything before '
+  tmp <- sub("%2F", "_", tmp)
+  tmp <- ifelse(nchar(tmp) > 100, gsub("_20", "", tmp), tmp) # replace if filename is too long
+  
+  # check if higher level variable dir_year exists in environmeny
+  if (!exists("dir_year")){
+    
+    # get year from url
+    assign_dir_year("dir_year_data", url)
+    
+    # if url does not contain a year
+    if (identical(dir_year_data, character(0)) == T) {
+      
+      # check headers$`content-disposition`
+      assign_dir_year("dir_year_data", tmp)
+    }
+    
+  }
+  
+  # information on dir_year would come from a higher level in the script
+  if (!exists("dir_year") & exists("dir_year_data")){ # dir_year does not exist, but dir_year_data was created
+    
+    if (identical(dir_year_data, character(0)) == T) { # check it's not empty
+      
+      # if empty, ABORT & print to console
+      cat("No information on year available, character is empty\n")
+      cat("Skip file", tmp, "\n\n")
+      next
+      
+    } else {
+      
+      # if not empty, create directory to save data
+      if (!dir.exists(dir_year_data)) {
+        dir.create(dir_year_data)
+      }
+      # declare dir_year_data to be the higher level dir_year variable
+      dir_year <- dir_year_data
+      
+    }
+    
+  }
+  
+  
+  # determine file name
+  file_name <- file.path(dir_year, tmp)
+  
+  # retrieve raw content from request
+  cat("Downloading file from url...\n")
+  cat("\t", url, "\n")
+  bin <- content(request, "raw")
+  
+  # write binary data to file
+  writeBin(bin, file_name)
+  cat("\t...done\n\n")
+  
+  
+  # unzip folder
+  if (grepl("zip", file_name)) {
+    
+    cat("Unzipping...\n")
+    cat("\t...done\n\n")
+    
+    if (grepl("performance-tables", dir_year)) {
+      # Remove everything after the last / from directory
+      dir_ex <- sub("/[^/]+$", "", dir_year)
+    } else {
+      dir_ex <- dir_year
+    }
+    
+    unzipped <- unzip(file_name, exdir = dir_ex)
+    file.remove(file_name)
+  }
+  
+}
+
+# function to scrape a website for file download links that also downloads all linked files
+webscrape_government_data <- function(dir_out = "path_to_directory",
+                                      parent_url = "url",
+                                      pattern_to_match = "pattern"){
+  
+  # create output dir
+  if (!dir.exists(dir_out)) {
+    dir.create(dir_out)
+  }
+  
+  if (exists("dir_year")) {
+    rm(dir_year)
+  }
+  
+  assign("dir_out", dir_out, envir=globalenv())
+  
+  # Read the webpage content
+  webpage <- read_html(parent_url)
+  
+  # Extract all the links from the webpage
+  links <- webpage %>%
+    html_nodes("a") %>%  # Select all <a> tags
+    html_attr("href")    # Extract the href attribute
+  
+  # check if there are any application/octet-stream links
+  download_links <-  unique(links[grepl("/files$", links)])
+  
+  if (identical(download_links, character(0)) == F) {
+    cat("Found download links on parent URL...\n\t")
+    cat(download_links, sep = "\n\t")
+    # if so, download
+    sapply(download_links, download_data_from_url)
+  }
+  
+  # Filter the links using the specified pattern
+  release_links <- unique(links[grepl(pattern_to_match, links)])
+  
+  if (grepl("school-pupils-and-their-characteristics", parent_url)) {
+    # data not linked there
+    release_links <- sort(c(release_links, "https://www.gov.uk/government/statistics/schools-pupils-and-their-characteristics-january-2018"))
+  }
+  
+  
+  # check if there are any matching links
+  if (identical(release_links, character(0)) == T) {
+    cat("NO MATCHES FOUND")
+    cat(release_links)
+    cat(pattern_to_match)
+    
+  } else {
+    
+    # Apply the function to deal with relative urls to all release links
+    release_links <- sapply(release_links, function(link) {
+      resolve_url(parent_url, link)
+    })
+    
+    # Output the release links to the console
+    cat("Looping over these release links\n")
+    cat(release_links, sep = "\n\t")
+    cat("...\n\n")
+    
+    # loop over all releases
+    for (release_url in release_links) {
+      
+      #release_url <- release_links[2]
+      
+      # create folder for year of release
+      assign_dir_year("dir_year", release_url)
+      
+      if (!dir.exists(dir_year)) {
+        dir.create(dir_year)
+      }
+      
+      cat("Reading content of release landing page", release_url, "\n")
+      
+      # Read the webpage content
+      webpage <- read_html(release_url)
+      
+      # Extract all the links from the webpage
+      links <- webpage %>%
+        html_nodes("a") %>%  # Select all <a> tags
+        html_attr("href")    # Extract the href attribute
+      
+      # Filter the download links (e.g., links ending with .pdf)
+      download_links <- links[grepl("\\.[a-zA-Z]+$|/files$", links)]
+      download_links <- download_links[!grepl(".uk$", download_links)]
+      
+      # Remove duplicates
+      download_links <- unique(download_links)
+      
+      if (identical(download_links, character(0)) == F) {
+        cat("Found download links on release URL...\n\t")
+        cat(download_links, sep = "\n\t")
+        # if so, download
+        sapply(download_links, download_data_from_url)
+      }
+      
+    }
+    
+  }
+  
+}
+
+
