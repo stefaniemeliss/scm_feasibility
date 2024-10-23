@@ -235,15 +235,17 @@ download_data_from_url <- function(url){
   
   # check for file name information
   input = request$headers$`content-disposition` # e.g., "attachment; filename=Performancetables_114742.zip; filename*=UTF-8''Performancetables_114742.zip"
-  if (grepl('[^\"]', input, perl = T)) { # [^\"] = \
-    tmp <- sub('[^\"]+\"([^\"]+).*', '\\1', input)
-  } else {
+  if (grepl("'", input, perl = T)) {
     tmp <- sub(".*'", "", input) # remove everything before '
     tmp <- sub("%2F", "_", tmp)
-  }
+   } else { # if (grepl('[^\"]', input, perl = T)) { # [^\"] = \
+     tmp <- sub('[^\"]+\"([^\"]+).*', '\\1', input)
+   }
+  
+  tmp
   tmp <- ifelse(nchar(tmp) > 100, gsub("_20", "", tmp), tmp) # replace if filename is too long
   
-  # check if higher level variable dir_year exists in environmeny
+  # check if higher level variable dir_year exists in environment
   if (!exists("dir_year")){
     
     # get year from url
