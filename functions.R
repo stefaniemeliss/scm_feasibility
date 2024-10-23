@@ -266,8 +266,8 @@ download_data_from_url <- function(url){
     if (identical(dir_year_data, character(0)) == T) { # check it's not empty
       
       # if empty, ABORT & print to console
-      cat("No information on year available, character is empty\n")
-      cat("Skip file", tmp, "\n\n")
+      cat("\nNo information on year available, character is empty\n")
+      cat("\nSkipped file", tmp, "\n")
       next
       
     } else {
@@ -293,20 +293,20 @@ download_data_from_url <- function(url){
   file_name <- file.path(dir_ex, tmp)
   
   # retrieve raw content from request
-  cat("Downloading file from url...\n")
+  cat("\nDownloading file from url...\n")
   cat("\t", url, "\n")
   bin <- content(request, "raw")
   
   # write binary data to file
   writeBin(bin, file_name)
-  cat("\t...done\n\n")
+  cat("\t...done\n")
   
   
   # unzip folder
   if (grepl("zip", file_name)) {
     
     cat("Unzipping...\n")
-    cat("\t...done\n\n")
+    cat("\t...done\n")
     
     if (grepl("performance-tables", dir_year)) {
       # Remove everything after the last / from directory
@@ -345,8 +345,9 @@ webscrape_government_data <- function(dir_out = "path_to_directory",
   download_links <-  unique(links[grepl("/files$", links)])
   
   if (identical(download_links, character(0)) == F) {
-    cat("Found download links on parent URL...\n\t")
-    cat(download_links, sep = "\n\t")
+    cat("\nFound download links on parent URL...\n")
+    cat("\t", download_links, sep = "\n\t")
+    cat("\n")
     # if so, download
     sapply(download_links, download_data_from_url)
   }
@@ -374,9 +375,9 @@ webscrape_government_data <- function(dir_out = "path_to_directory",
     })
     
     # Output the release links to the console
-    cat("Looping over these release links\n")
+    cat("\nLooping over these release links\n")
     cat("\t", release_links, sep = "\n\t")
-    cat("...\n\n")
+    cat("\n")
     
     # loop over all releases
     for (release_url in release_links) {
@@ -390,7 +391,7 @@ webscrape_government_data <- function(dir_out = "path_to_directory",
         dir.create(dir_year)
       }
       
-      cat("Reading content of release landing page", release_url, "\n")
+      cat("\nReading content of release landing page", release_url, "\n")
       
       # Read the webpage content
       webpage <- read_html(release_url)
@@ -408,8 +409,9 @@ webscrape_government_data <- function(dir_out = "path_to_directory",
       download_links <- unique(download_links)
       
       if (identical(download_links, character(0)) == F) {
-        cat("Found download links on release URL...\n\t")
-        cat(download_links, sep = "\n\t")
+        cat("\nFound download links on release URL...\n")
+        cat("\t", download_links, sep = "\n\t")
+        cat("\n")
         # if so, download
         sapply(download_links, download_data_from_url)
       }
