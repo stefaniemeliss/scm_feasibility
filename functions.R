@@ -235,8 +235,12 @@ download_data_from_url <- function(url){
   
   # check for file name information
   input = request$headers$`content-disposition` # e.g., "attachment; filename=Performancetables_114742.zip; filename*=UTF-8''Performancetables_114742.zip"
-  tmp <- sub(".*'", "", input) # remove everything before '
-  tmp <- sub("%2F", "_", tmp)
+  if (grepl('[^\"]', input, perl = T)) { # [^\"] = \
+    tmp <- sub('[^\"]+\"([^\"]+).*', '\\1', input)
+  } else {
+    tmp <- sub(".*'", "", input) # remove everything before '
+    tmp <- sub("%2F", "_", tmp)
+  }
   tmp <- ifelse(nchar(tmp) > 100, gsub("_20", "", tmp), tmp) # replace if filename is too long
   
   # check if higher level variable dir_year exists in environmeny
@@ -320,10 +324,6 @@ webscrape_government_data <- function(dir_out = "path_to_directory",
     dir.create(dir_out)
   }
   
-  if (exists("dir_year")) {
-    rm(dir_year)
-  }
-  
   assign("dir_out", dir_out, envir=globalenv())
   
   # Read the webpage content
@@ -368,16 +368,16 @@ webscrape_government_data <- function(dir_out = "path_to_directory",
     
     # Output the release links to the console
     cat("Looping over these release links\n")
-    cat(release_links, sep = "\n\t")
+    cat("\t", release_links, sep = "\n\t")
     cat("...\n\n")
     
     # loop over all releases
     for (release_url in release_links) {
       
-      #release_url <- release_links[2]
+      #release_url <- release_links[1]
       
       # create folder for year of release
-      assign_dir_year("dir_year", release_url)
+      assign_dir_year("dir_year", file.path(dir_out, get_year(release_url)))
       
       if (!dir.exists(dir_year)) {
         dir.create(dir_year)
