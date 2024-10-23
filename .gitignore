@@ -23,3 +23,6 @@
 *.rels
 *.bin
 mimetype
+*xls
+*.ods
+*.rtf
