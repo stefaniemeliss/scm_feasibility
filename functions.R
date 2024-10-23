@@ -281,9 +281,14 @@ download_data_from_url <- function(url){
     
   }
   
-  
   # determine file name
-  file_name <- file.path(dir_year, tmp)
+  if (grepl('[^/"]', tmp, perl = T)) {
+    dir_ex <- sub("/[^/]+$", "", dir_year)
+  } else {
+    dir_ex <- dir_year
+  }
+  
+  file_name <- file.path(dir_ex, tmp)
   
   # retrieve raw content from request
   cat("Downloading file from url...\n")
