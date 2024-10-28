@@ -85,7 +85,17 @@ for (year in start:finish) {
     # download data
     download_data_from_url(url = url_meta)
     
-    
+    if (year == 2014 & datasets[d] == "PUPILABSENCE") {
+      # move guidance data in separate folder, currently saved in dir_out
+      tmp_dir <- file.path(dir_out, academic_year, "guidance_meta")
+      dir.create(tmp_dir)
+      # get all files
+      tmp_files <- list.files(dir_out, pattern = ".pdf|.xls", full.names = T)
+      # determine new names
+      tmp_files_new <- gsub("performance-tables", paste0("performance-tables/", academic_year, "/guidance_meta"), tmp_files)
+      # move
+      file.rename(tmp_files, tmp_files_new)
+    }
   }
   
 }
