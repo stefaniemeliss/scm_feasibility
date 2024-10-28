@@ -310,9 +310,9 @@ download_data_from_url <- function(url){
     
     if (grepl("performance-tables", dir_year)) {
       # Remove everything after the last / from directory
-      dir_ex <- sub("/[^/]+$", "", dir_year)
+      dir_ex <- sub("/[^/]+$", "", dir_ex)
     } else {
-      dir_ex <- dir_year
+      dir_ex <- dir_ex
     }
     
     unzipped <- unzip(file_name, exdir = dir_ex)
