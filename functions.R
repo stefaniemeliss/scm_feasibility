@@ -232,6 +232,7 @@ download_data_from_url <- function(url){
   # retrieve information from URL 
   request <- httr::GET(url = url, httr::add_headers(.headers=headers))
   # request <- httr::GET(url = url_meta, httr::add_headers(.headers=headers))
+  # request <- httr::GET(url = url_data, httr::add_headers(.headers=headers))
   
   # check for file name information
   input = request$headers$`content-disposition` # e.g., "attachment; filename=Performancetables_114742.zip; filename*=UTF-8''Performancetables_114742.zip"
@@ -241,8 +242,6 @@ download_data_from_url <- function(url){
    } else { # if (grepl('[^\"]', input, perl = T)) { # [^\"] = \
      tmp <- sub('[^\"]+\"([^\"]+).*', '\\1', input)
    }
-  
-  tmp
   tmp <- ifelse(nchar(tmp) > 100, gsub("_20", "", tmp), tmp) # replace if filename is too long
   
   # check if higher level variable dir_year exists in environment
@@ -284,13 +283,14 @@ download_data_from_url <- function(url){
   }
   
   # determine file name
-  if (grepl('[^/"]', tmp, perl = T)) {
-    dir_ex <- sub("/[^/]+$", "", dir_year)
-  } else {
-    dir_ex <- dir_year
-  }
-  
-  file_name <- file.path(dir_ex, tmp)
+  # if (grepl('[^/]', tmp, perl = T)) {
+  #   dir_ex <- sub("/[^/]+$", "", dir_year)
+  # } else {
+  #   dir_ex <- dir_year
+  # }
+  # 
+  # file_name <- file.path(dir_ex, tmp)
+  file_name <- file.path(dir_year, tmp)
   
   # retrieve raw content from request
   cat("\nDownloading file from url...\n")
@@ -310,9 +310,9 @@ download_data_from_url <- function(url){
     
     if (grepl("performance-tables", dir_year)) {
       # Remove everything after the last / from directory
-      dir_ex <- sub("/[^/]+$", "", dir_ex)
+      dir_ex <- sub("/[^/]+$", "", dir_year)
     } else {
-      dir_ex <- dir_ex
+      dir_ex <- dir_year
     }
     
     unzipped <- unzip(file_name, exdir = dir_ex)
