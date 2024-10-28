@@ -56,8 +56,8 @@ urn_list <- school_list$urn
 
 # available information of schools
 gias <- read.csv(file = file.path(dir_data, "performance-tables", "2022-2023", "2022-2023_england_school_information.csv"))
-spc <- read.csv(file = file.path(dir_data, "school-pupils-and-their-characteristics_2023-24", "supporting-files", "spc_school_level_underlying_data.csv"))
-spc_c <- read.csv(file = file.path(dir_data, "school-pupils-and-their-characteristics_2023-24", "supporting-files", "spc_school_level_class_size_underlying_data.csv"))
+spc <- read.csv(file = file.path(dir_data, "school-pupils-and-their-characteristics", "2023-24", "supporting-files", "spc_school_level_underlying_data.csv"))
+spc_c <- read.csv(file = file.path(dir_data,"school-pupils-and-their-characteristics", "2023-24", "supporting-files", "spc_school_level_class_size_underlying_data.csv"))
 imd <- read.csv(file = file.path(dir_data, "2019-deprivation-by-postcode.csv"))
 
 # process gias
