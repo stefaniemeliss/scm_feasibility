@@ -65,8 +65,12 @@ for (year in start:finish) {
     names(tmp) <- tolower(names(tmp))
     tmp <- tmp %>% filter(urn %in% urn_list)
     
+    # replace spaces and %
+    tmp <- apply(tmp, 2, function(x) {ifelse(grepl(" |%", x), gsub(" |%", "", x), x)}) %>% 
+      as.data.frame() 
+    
     # Figures are suppressed (“supp”) where they concern fewer than 10 pupils.
-    tmp <- apply(tmp, 2, function(x) {ifelse(x == "SUPP" | x == "NE" | x == "" | x == " ", NA, x)}) %>% 
+    tmp <- apply(tmp, 2, function(x) {ifelse(x == "SUPP" | x == "NE" | x == "" | x == " ", NA, as.numeric(x))}) %>% 
       as.data.frame()
     
     # add year
