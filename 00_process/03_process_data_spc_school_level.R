@@ -370,7 +370,7 @@ df <- merge_timelines_across_columns(data_in = spc,
 
 #### save data ####
 df <- df[with(df, order(urn, time_period)),]
-write.csv(df, file = file.path(dir_data, "data_spc_school_level.csv"), row.names = F)
+write.csv(df, file = file.path(dir_data, "data_spc.csv"), row.names = F)
 
 #### create var dict ####
 dict <- data.frame(variable = names(df)[!grepl("_tag", names(df))])
