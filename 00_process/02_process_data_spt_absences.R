@@ -66,7 +66,8 @@ for (year in start:finish) {
 
 # merge with scaffold
 df <- merge(scaffold, df, by = c("time_period", "urn"), all.x = T)
-names(df)[names(df) == "urn"] <- "school_urn"
+#names(df)[names(df) == "urn"] <- "school_urn"
 
 # save data
-write.csv(df, file = file.path(dir_data, "data_pupilabsences.csv"), row.names = F)
+df <- df[with(df, order(urn, time_period)),]
+write.csv(df, file = file.path(dir_data, "data_spt_absences.csv"), row.names = F)

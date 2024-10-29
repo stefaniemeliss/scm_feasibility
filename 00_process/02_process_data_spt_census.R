@@ -84,7 +84,7 @@ for (year in start:finish) {
 # process meta data #
 meta <- meta[with(meta, order(variable, time_period)), ]
 # save meta data #
-write.csv(meta, file = file.path(dir_misc, "meta_pupilcensus.csv"), row.names = F)
+write.csv(meta, file = file.path(dir_misc, "meta_spt_census.csv"), row.names = F)
 
 # process census data #
 
@@ -92,7 +92,7 @@ write.csv(meta, file = file.path(dir_misc, "meta_pupilcensus.csv"), row.names = 
 # TOTPUPSENDN - Total number of pupils on roll (all ages) - 2011-11 to 2013/14
 # NOR - Total number of pupils on roll from 2014/15 onwards
 cols_to_merge <- c("totpupsendn", "nor")
-new_col <- "pupils_on_roll"
+new_col <- "npuptot"
 
 df <- merge_timelines_across_columns(data_in = census, 
                                      identifier_columns = id_cols, 
@@ -137,7 +137,7 @@ df <- merge_timelines_across_columns(data_in = census,
 # merge with scaffold
 df <- merge(scaffold, df, by = c("time_period", "urn"), all.x = T)
 df <- df[with(df, order(urn, time_period)),]
-names(df)[names(df) == "urn"] <- "school_urn"
+#names(df)[names(df) == "urn"] <- "school_urn"
 
 # save data
-write.csv(df, file = file.path(dir_data, "data_pupilcensus.csv"), row.names = F)
+write.csv(df, file = file.path(dir_data, "data_spt_census.csv"), row.names = F)

@@ -116,7 +116,7 @@ names(meta) <- tolower(names(meta))
 meta$metafile.heading <- tolower(meta$metafile.heading)
 meta <- meta[with(meta, order(metafile.heading, time_period)), ]
 
-write.csv(meta, file = file.path(dir_misc, "meta_ks4.csv"), row.names = F)
+write.csv(meta, file = file.path(dir_misc, "meta_spt_ks4.csv"), row.names = F)
 
 ################
 
@@ -517,7 +517,7 @@ df <- merge(df, tmp, by = id_cols, all = T)
 # save data
 df <- merge(df, scaffold, by = id_cols, all = T)
 df <- df[with(df, order(urn, time_period)),]
-write.csv(df, file = file.path(dir_data, "data_ks4.csv"), row.names = F)
+write.csv(df, file = file.path(dir_data, "data_spt_ks4.csv"), row.names = F)
 
 
 
