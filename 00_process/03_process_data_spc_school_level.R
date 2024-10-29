@@ -398,4 +398,4 @@ dict$explanation <- c("academic year",
                       "number of pupils in classes taught by one teacher",
                       "average class size")
 # save file
-write.csv(dict, file = file.path(dir_misc, "meta_spc_school_level.csv"), row.names = F)
+write.csv(dict, file = file.path(dir_misc, "meta_spc.csv"), row.names = F)
