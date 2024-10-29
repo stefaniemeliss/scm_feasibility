@@ -179,6 +179,11 @@ df <- ks4[, c(id_cols, "att8scr", "p8mea", "p8meacov", "p8pup", "p8cilow", "p8ci
 # ks2aps - Key Stage 2 Average Points Score of Key Stage 4 cohort (201011 - 201819) 
 # ks2ass - KS4 cohort average KS2 Scaled Score (average of English reading and maths) (202122- 202223) 
 
+# see https://www.gov.uk/guidance/understanding-scaled-scores-at-key-stage-2
+# ks2ss may be converted to ks2aps using conversion tables
+# 2022: https://assets.publishing.service.gov.uk/media/62c30b5ae90e07748b592966/2022_key_stage_2_scaled_score_tables.pdf
+# 2023: https://assets.publishing.service.gov.uk/media/64ad30d1c933c10012f9e0de/2023_key_stage_2_scaled_score_tables.pdf
+
 cols_to_merge <- c("ks2aps", "ks2ass")
 new_col <- "ks2a"
 
