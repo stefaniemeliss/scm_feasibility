@@ -119,6 +119,12 @@ webscrape_government_data(dir_out =  file.path(dir_data, "school-capacity"),
                           parent_url = "https://explore-education-statistics.service.gov.uk/find-statistics/school-capacity",
                           pattern_to_match = glob2rx("*school-capacity/20*|*school-capacity*20**"))
 
+##### Special educational needs in England ##### 
+
+webscrape_government_data(dir_out =  file.path(dir_data, "special-educational-needs-in-england"),
+                          parent_url = "https://explore-education-statistics.service.gov.uk/find-statistics/special-educational-needs-in-england",
+                          pattern_to_match = glob2rx("*special-educational-needs-in-england/20*|*special-educational-needs-in-england-january-20**"))
+
 
 ##### Get information about Dixons schools #####
 
