@@ -204,7 +204,7 @@ df <- merge_timelines_across_columns(data_in = spc,
 # number of pupils known to be eligible for free school meals
 new_col <- "numfsm_e"
 spc[, new_col] <- spc$number.of.pupils.known.to.be.eligible.for.free.school.meals
-df <- merge(df, spc[, c(id_cols, new_col)], by = id_cols)
+df <- merge(df, spc[, c(id_cols, new_col)], by = id_cols, all = T)
 
 # % of pupils known to be eligible for free school meals	
 # Number of pupils know to be eligible for FSM expressed as a percentage of the total number of pupils
@@ -281,7 +281,7 @@ df[, new_col_p] <- df[, new_col] / df[, "numpup_spt"] * 100
 # number of pupils whose first language is known or believed to be other than English	
 new_col <- "numeal"
 spc[, new_col] <- spc$number.of.pupils.whose.first.language.is.known.or.believed.to.be.other.than.english
-df <- merge(df, spc[, c(id_cols, new_col)], by = id_cols)
+df <- merge(df, spc[, c(id_cols, new_col)], by = id_cols, all = T)
 
 # % of pupils whose first language is known or believed to be other than English
 # First language category expressed as a percentage of the total number of pupils of compulsory school age and above
@@ -298,7 +298,7 @@ df[, new_col_p] <- df[, new_col] / df[, "numcompage"] * 100
 # white British ethnic origin
 new_col <- "numeowb" 
 spc[, new_col] <- spc$number.of.pupils.classified.as.white.british.ethnic.origin
-df <- merge(df, spc[, c(id_cols, new_col)], by = id_cols)
+df <- merge(df, spc[, c(id_cols, new_col)], by = id_cols, all = T)
 
 new_col_p <- "pnumeowb" 
 df[, new_col_p] <- df[, new_col] / df[, "numcompage"] * 100
@@ -307,7 +307,7 @@ df[, new_col_p] <- df[, new_col] / df[, "numcompage"] * 100
 new_col <- "numeobl" 
 tmp <- spc[, grepl("urn|time_period|as.caribbean|as.african|other.black", names(spc))]
 tmp[, new_col] <- rowSums(tmp[, grepl("num", names(tmp))], na.rm = T)
-df <- merge(df, tmp[, c(id_cols, new_col)], by = id_cols)
+df <- merge(df, tmp[, c(id_cols, new_col)], by = id_cols, all = T)
 
 new_col_p <- "pnumeobl" 
 df[, new_col_p] <- df[, new_col] / df[, "numcompage"] * 100
@@ -316,7 +316,7 @@ df[, new_col_p] <- df[, new_col] / df[, "numcompage"] * 100
 new_col <- "numeoas" 
 tmp <- spc[, grepl("urn|time_period|indian|paki|bangl|chin|other.asian", names(spc))]
 tmp[, new_col] <- rowSums(tmp[, grepl("num", names(tmp))], na.rm = T)
-df <- merge(df, tmp[, c(id_cols, new_col)], by = id_cols)
+df <- merge(df, tmp[, c(id_cols, new_col)], by = id_cols, all = T)
 
 new_col_p <- "pnumeoas" 
 df[, new_col_p] <- df[, new_col] / df[, "numcompage"] * 100
