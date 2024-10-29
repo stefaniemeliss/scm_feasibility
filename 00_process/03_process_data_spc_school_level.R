@@ -371,3 +371,31 @@ df <- merge_timelines_across_columns(data_in = spc,
 #### save data ####
 df <- df[with(df, order(urn, time_period)),]
 write.csv(df, file = file.path(dir_data, "data_spc_school_level.csv"), row.names = F)
+
+#### create var dict ####
+dict <- data.frame(variable = names(df)[!grepl("_tag", names(df))])
+dict$explanation <- c("academic year",
+                      "unique reference number",
+                      "headcount pupils",
+                      "FTE pupils",
+                      "number of pupils of compulsary age and above",
+                      "number of pupils eligible for FSM",
+                      "perc of pupils eligible for FSM",
+                      "number of pupils taking FSM",
+                      "perc of pupils taking FSM",
+                      "number of pupils (SPT)",
+                      "number of pupils eligible for FSM (SPT)",
+                      "perc of pupils eligible for FSM (SPT)",
+                      "number of EAL pupils",
+                      "perc of EAL pupils",
+                      "number of pupils classified as white British ethnic origin",
+                      "perc of pupils classified as white British ethnic origin",
+                      "number of pupils classified as Black ethnic origin",
+                      "perc of pupils classified as Black ethnic origin",
+                      "number of pupils classified as Asian ethnic origin",
+                      "perc of pupils classified as Asian ethnic origin",
+                      "number of classes taught by one teacher",
+                      "number of pupils in classes taught by one teacher",
+                      "average class size")
+# save file
+write.csv(dict, file = file.path(dir_misc, "meta_spc_school_level.csv"), row.names = F)
