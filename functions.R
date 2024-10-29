@@ -360,7 +360,7 @@ webscrape_government_data <- function(dir_out = "path_to_directory",
   
   if (grepl("school-pupils-and-their-characteristics", parent_url)) {
     # data not linked there
-    release_links <- sort(c(release_links, "https://www.gov.uk/government/statistics/schools-pupils-and-their-characteristics-january-2018"))
+    release_links <- sort(c(release_links, "https://www.gov.uk/government/statistics/schools-pupils-and-their-characteristics-january-2018", "https://www.gov.uk/government/statistics/schools-pupils-and-their-characteristics-january-2019"))
   }
   
   
