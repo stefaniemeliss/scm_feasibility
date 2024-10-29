@@ -138,7 +138,7 @@ df[, "npupsen2001"] <- df$npupsa + df$npupsap
 # "SEN support" is the current system used in schools to help children with special educational needs who do not have an Education, Health and Care (EHC) plan. 
 new_col <- "npupsen2014"
 sen[, new_col] <- sen$sen.support
-df <- merge(df, sen[, c(id_cols, new_col)], by = id_cols)
+df <- merge(df, sen[, c(id_cols, new_col)], by = id_cols, all = T)
 
 # SEN support: interventions
 # combines "SEN support," "School Action," and "School Action Plus"
@@ -174,7 +174,7 @@ df <- merge_timelines_across_columns(data_in = sen,
 # EHC plans were introduced under the Children and Families Act 2014, replacing the Statements of SEN.
 new_col <- "npupehc"
 sen[, new_col] <- sen$ehc.plan
-df <- merge(df, sen[, c(id_cols, new_col)], by = id_cols)
+df <- merge(df, sen[, c(id_cols, new_col)], by = id_cols, all = T)
 
 
 # statements or EHC plan
