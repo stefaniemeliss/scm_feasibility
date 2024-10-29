@@ -89,8 +89,8 @@ merge_timelines_across_columns <- function(data_in = df_in,
   tmp[, column_vector] <- apply(tmp[, column_vector], 2, function(x) {ifelse(is.na(x), "", x)})
   
   # merge information across cols using paste
-  tmp[, "tmp"] = apply(tmp[, column_vector, drop = F], MARGIN = 1, FUN = function(i) paste(i, collapse = ""))
-  
+  tmp[, "tmp"] <- apply(tmp[, column_vector, drop = F], MARGIN = 1, FUN = function(i) paste(i, collapse = ""))
+
   # create column that contains tag with information about the column data retained
   tmp[, column_vector] <- apply(tmp[, column_vector], 2, function(x) {ifelse(x != "", "true", "")}) # replace values with "true"
   w <- which(tmp=="true",arr.ind=TRUE) # get indices of "true"
@@ -102,6 +102,9 @@ merge_timelines_across_columns <- function(data_in = df_in,
   
   # replace "" with NA
   tmp[, c(-1, -2)] <- apply(tmp[, c(-1, -2)], 2, function(x) {ifelse(x == "", NA, x)})
+  
+  # make new variable numeric
+  tmp[, "tmp"] <- as.numeric(tmp[, "tmp"])
   
   # change names
   names(tmp) <- c(identifier_columns, stem, paste0(stem, "_tag"))
