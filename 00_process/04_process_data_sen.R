@@ -1,5 +1,10 @@
 # Special educational needs in England #
 
+# This publication contains information about pupils with special educational needs. 
+# This information is derived from school census returns, general hospital school census 
+# and school level annual school census (SALSC, independent schools) returns made to the department in January each year. 
+# The school census contains pupil level data covering a wide range of information on the characteristics of schools and the pupils. 
+
 options(scipen = 999)
 # empty work space
 rm(list = ls())
@@ -99,7 +104,7 @@ for (i in seq_along(start:finish)) {
 
 # number of pupils
 cols_to_merge <- c("pupils", "total.pupils")
-new_col <- "npuptot"
+new_col <- "npuptotsen"
 
 df <- merge_timelines_across_columns(data_in = sen, 
                                      identifier_columns = id_cols, 
