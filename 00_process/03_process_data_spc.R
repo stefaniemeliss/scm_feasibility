@@ -165,7 +165,7 @@ for (i in seq_along(start:finish)) {
 # headcount
 # Headcount of pupils	= Full-time + part-time pupils
 cols_to_merge <- c("headcount.of.pupils..unrounded.", "headcount.of.pupils")
-new_col <- "npuptotspc"
+new_col <- "npuptot__spc"
 
 df <- merge_timelines_across_columns(data_in = spc, 
                                      identifier_columns = id_cols, 
@@ -176,7 +176,7 @@ df <- merge_timelines_across_columns(data_in = spc,
 # fte pupils
 # Part-time pupils divided by 2 + full-time pupils
 cols_to_merge <- c("fte.pupils..unrounded.", "fte.pupils")
-new_col <- "fte_pup_spc"
+new_col <- "fte_pup__spc"
 
 df <- merge_timelines_across_columns(data_in = spc, 
                                      identifier_columns = id_cols, 
@@ -189,7 +189,7 @@ df <- merge_timelines_across_columns(data_in = spc,
 
 cols_to_merge <- c("number.of.pupils.of.compulsory.school.age.and.above..rounded.", 
                    "number.of.pupils.of.compulsory.school.age.and.above")
-new_col <- "npupcaa"
+new_col <- "npupcaa__spc"
 
 df <- merge_timelines_across_columns(data_in = spc, 
                                      identifier_columns = id_cols, 
@@ -198,16 +198,32 @@ df <- merge_timelines_across_columns(data_in = spc,
                                      data_out = df)
 
 # number of pupils known to be eligible for free school meals
+cols_to_merge <- c("number.of.pupils.known.to.be.eligible.for.free.school.meals", 
+                   "number.of.pupils.known.to.be.eligible.for.and.claiming.free.school.meals")
 new_col <- "npupfsm_e"
-spc[, new_col] <- spc$number.of.pupils.known.to.be.eligible.for.free.school.meals
-df <- merge(df, spc[, c(id_cols, new_col)], by = id_cols, all = T)
+
+df <- merge_timelines_across_columns(data_in = spc, 
+                                     identifier_columns = id_cols, 
+                                     column_vector = cols_to_merge,
+                                     stem = new_col,
+                                     data_out = df)
 
 # % of pupils known to be eligible for free school meals	
 # Number of pupils know to be eligible for FSM expressed as a percentage of the total number of pupils
-new_col_p <- "pnpupfsm_e"
-# spc[, new_col] <- spc$perc.of.pupils.known.to.be.eligible.for.free.school.meals
-# df <- merge(df, spc[, c(id_cols, new_col)], by = id_cols)
-df[, new_col_p] <- df[, new_col] / df$npuptotspc * 100
+
+cols_to_merge <- c("perc.of.pupils.known.to.be.eligible.for.free.school.meals", 
+                   "perc.of.pupils.known.to.be.eligible.for.and.claiming.free.school.meals")
+new_col <- "pnpupfsm_e"
+
+df <- merge_timelines_across_columns(data_in = spc, 
+                                     identifier_columns = id_cols, 
+                                     column_vector = cols_to_merge,
+                                     stem = new_col,
+                                     data_out = df)
+
+
+# new_col_p <- "pnpupfsm_e"
+# df[, new_col_p] <- df[, new_col] / df$npuptot__spc * 100
 
 # number of pupils taking a free school meal on census day	
 cols_to_merge <- c("number.of.pupils.taking.free.school.meals", 
@@ -222,21 +238,22 @@ df <- merge_timelines_across_columns(data_in = spc,
                                      data_out = df)
 
 # percentage of pupils taking a free school meal on census day	
-new_col_p <- "pnpupfsm_t"
-df[, new_col_p] <- df[, new_col] / df$npuptotspc * 100
+# new_col_p <- "pnpupfsm_t"
+#df[, new_col_p] <- df[, new_col] / df$npuptot__spc * 100
 
-# cols_to_merge <- c("perc.of.pupils.taking.free.school.meals", 
-#                    "perc.of.fsm.eligible.pupils.taking.free.school.meals")
-# new_col <- "pnpupfsm_t"
-# df <- merge_timelines_across_columns(data_in = spc, 
-#                                      identifier_columns = id_cols, 
-#                                      column_vector = cols_to_merge,
-#                                      stem = new_col,
-#                                      data_out = df)
+cols_to_merge <- c("perc.of.pupils.taking.free.school.meals",
+                   "perc.of.fsm.eligible.pupils.taking.free.school.meals",
+                   "perc.of.pupils.taking.free.school.meals.on.census.day")
+new_col <- "pnpupfsm_t"
+df <- merge_timelines_across_columns(data_in = spc,
+                                     identifier_columns = id_cols,
+                                     column_vector = cols_to_merge,
+                                     stem = new_col,
+                                     data_out = df)
 
 
 # Number of pupils (used for FSM calculation in Performance Tables)	
-new_col <- "npup_spt"
+new_col <- "npup_calcspt"
 spc[, new_col] <- spc$number.of.pupils..used.for.fsm.calculation.in.performance.tables.
 df <- merge(df, spc[, c(id_cols, new_col)], by = id_cols, all = T)
 
@@ -247,22 +264,23 @@ df <- merge(df, spc[, c(id_cols, new_col)], by = id_cols, all = T)
 
 # percentage of pupils known to be eligible for free school meals (School Performance Tables)	
 # Number of pupils know to be eligible for FSM (School Performance Tables) expressed as a percentage of the total number of pupils (used for FSM calculation in Performance Tables)
-new_col_p <- "pnpupfsm_e_spt"
-df[, new_col_p] <- df[, new_col] / df[, "npup_spt"] * 100
+new_col <- "pnpupfsm_e_spt"
+spc[, new_col] <- spc$perc.of.pupils.known.to.be.eligible.for.free.school.meals..performance.tables.
+df <- merge(df, spc[, c(id_cols, new_col)], by = id_cols, all = T)
 
 # number of pupils whose first language is known or believed to be other than English	
-new_col <- "numeal"
+new_col <- "npupeal"
 spc[, new_col] <- spc$number.of.pupils.whose.first.language.is.known.or.believed.to.be.other.than.english
 df <- merge(df, spc[, c(id_cols, new_col)], by = id_cols, all = T)
 
 # % of pupils whose first language is known or believed to be other than English
 # First language category expressed as a percentage of the total number of pupils of compulsory school age and above
-new_col_p <- "pnumeal"
-df[, new_col_p] <- df[, new_col] / df[, "npupcaa"] * 100
+# new_col_p <- "pnpupeal"
+# df[, new_col_p] <- df[, new_col] / df[, "npupcaa__spc"] * 100
 
-# new_col <- "pnumeal"
-# spc[, new_col] <- spc$perc.of.pupils.whose.first.language.is.known.or.believed.to.be.other.than.english
-# df <- merge(df, spc[, c(id_cols, new_col)], by = id_cols)
+new_col <- "pnpupeal"
+spc[, new_col] <- spc$perc.of.pupils.whose.first.language.is.known.or.believed.to.be.other.than.english
+df <- merge(df, spc[, c(id_cols, new_col)], by = id_cols)
 
 # ethnic origin #
 # Number of pupils by ethnic group	Includes pupils of compulsory school age and above only
@@ -272,8 +290,12 @@ new_col <- "numeowb"
 spc[, new_col] <- spc$number.of.pupils.classified.as.white.british.ethnic.origin
 df <- merge(df, spc[, c(id_cols, new_col)], by = id_cols, all = T)
 
-new_col_p <- "pnumeowb" 
-df[, new_col_p] <- df[, new_col] / df[, "npupcaa"] * 100
+new_col <- "pnumeowb" 
+spc[, new_col] <- spc$perc.of.pupils.classified.as.white.british.ethnic.origin
+df <- merge(df, spc[, c(id_cols, new_col)], by = id_cols, all = T)
+
+# new_col_p <- "pnumeowb" 
+# df[, new_col_p] <- df[, new_col] / df[, "npupcaa__spc"] * 100
 
 # Black ethnic origin
 new_col <- "numeobl" 
@@ -281,8 +303,8 @@ tmp <- spc[, grepl("urn|time_period|as.caribbean|as.african|other.black", names(
 tmp[, new_col] <- rowSums(tmp[, grepl("num", names(tmp))], na.rm = T)
 df <- merge(df, tmp[, c(id_cols, new_col)], by = id_cols, all = T)
 
-new_col_p <- "pnumeobl" 
-df[, new_col_p] <- df[, new_col] / df[, "npupcaa"] * 100
+# new_col_p <- "pnumeobl" 
+# df[, new_col_p] <- df[, new_col] / df[, "npupcaa__spc"] * 100
 
 # Asian ethnic origin
 new_col <- "numeoas" 
@@ -290,8 +312,8 @@ tmp <- spc[, grepl("urn|time_period|indian|paki|bangl|chin|other.asian", names(s
 tmp[, new_col] <- rowSums(tmp[, grepl("num", names(tmp))], na.rm = T)
 df <- merge(df, tmp[, c(id_cols, new_col)], by = id_cols, all = T)
 
-new_col_p <- "pnumeoas" 
-df[, new_col_p] <- df[, new_col] / df[, "npupcaa"] * 100
+# new_col_p <- "pnumeoas" 
+# df[, new_col_p] <- df[, new_col] / df[, "npupcaa__spc"] * 100
 
 # total number of classes taught by one teacher
 # one teacher classes as taught during a single selected period in each school on the day of the census
@@ -302,7 +324,9 @@ spc[, grepl("classes.taught", names(spc))] <-
 
 cols_to_merge <- c("total.number.of.classes.taught.by.one.teacher",
                    "total.number.of.primary.classes.taught.by.one.teacher",
-                   "total.number.of.secondary.classes.taught.by.one.teacher")
+                   "total.number.of.classes.in.primary.schools.taught.by.one.teacher",
+                   "total.number.of.secondary.classes.taught.by.one.teacher",
+                   "total.number.of.classes.in.secondary.schools.taught.by.one.teacher")
 new_col <- "nclt1t"
 
 df <- merge_timelines_across_columns(data_in = spc, 
@@ -315,7 +339,9 @@ df <- merge_timelines_across_columns(data_in = spc,
 # already replaced all zeros with NAs with call above
 cols_to_merge <- c("total.number.of.pupils.in.classes.taught.by.one.teacher",
                    "total.number.of.pupils.in.primary.classes.taught.by.one.teacher",
-                   "total.number.of.pupils.in.secondary.classes.taught.by.one.teacher")
+                   "total.number.of.pupils.in.classes.in.primary.schools.taught.by.one.teacher",
+                   "total.number.of.pupils.in.secondary.classes.taught.by.one.teacher",
+                   "total.number.of.pupils.in.classes.in.secondary.schools.taught.by.one.teacher")
 new_col <- "npupclt1t"
 
 df <- merge_timelines_across_columns(data_in = spc, 
@@ -331,7 +357,9 @@ spc[, grepl("average", names(spc))] <- apply(spc[, grepl("average", names(spc))]
 
 cols_to_merge <- c("average.size.of.one.teacher.classes", 
                    "average.size.of.one.teacher.primary.classes",
-                   "average.size.of.one.teacher.secondary.classes")
+                   "average.size.of.one.teacher.classes.in.primary.schools",
+                   "average.size.of.one.teacher.secondary.classes",
+                   "average.size.of.one.teacher.classes.in.secondary.schools")
 new_col <- "avgclsize"
 
 df <- merge_timelines_across_columns(data_in = spc, 
@@ -363,12 +391,11 @@ dict$explanation <- c("academic year",
                       "number of pupils classified as white British ethnic origin",
                       "perc of pupils classified as white British ethnic origin",
                       "number of pupils classified as Black ethnic origin",
-                      "perc of pupils classified as Black ethnic origin",
+                      #"perc of pupils classified as Black ethnic origin",
                       "number of pupils classified as Asian ethnic origin",
-                      "perc of pupils classified as Asian ethnic origin",
+                      #"perc of pupils classified as Asian ethnic origin",
                       "number of classes taught by one teacher",
                       "number of pupils in classes taught by one teacher",
                       "average class size")
 # save file
 write.csv(dict, file = file.path(dir_misc, "meta_spc.csv"), row.names = F)
-
