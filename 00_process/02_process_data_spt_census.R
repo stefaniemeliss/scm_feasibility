@@ -1,3 +1,7 @@
+# school performance tables - census data #
+
+# Data source: the DfE’s January school census for 2024.
+
 options(scipen = 999)
 # empty work space
 rm(list = ls())
@@ -42,7 +46,7 @@ for (year in start:finish) {
   
   # determine folder for academic year
   dir_year <- file.path(dir_in, academic_year)
-
+  
   # read in census data
   tmp <- read.csv(file = file.path(dir_year, paste0(academic_year, "_england_census.csv")))
   names(tmp) <- gsub("X...", "", names(tmp), fixed = T)
@@ -92,7 +96,7 @@ write.csv(meta, file = file.path(dir_misc, "meta_spt_census.csv"), row.names = F
 # TOTPUPSENDN - Total number of pupils on roll (all ages) - 2011-11 to 2013/14
 # NOR - Total number of pupils on roll from 2014/15 onwards
 cols_to_merge <- c("totpupsendn", "nor")
-new_col <- "npuptot"
+new_col <- "npuptot__sptcensus"
 
 df <- merge_timelines_across_columns(data_in = census, 
                                      identifier_columns = id_cols, 
@@ -100,44 +104,46 @@ df <- merge_timelines_across_columns(data_in = census,
                                      stem = new_col,
                                      data_out = scaffold)
 
+# NUMFSM - Number of pupils eligible for free school meals
 # PNUMFSM - Percentage of pupils eligible for free school meals
+# NUMFSMEVER - Number of pupils eligible for FSM at any time during the past 6 years
 # PNUMFSMEVER - Percentage of pupils eligible for FSM at any time during the past 6 years
+# TOTPUPFSMDN - Number of pupils used in FSM calculation
+# NUMEAL - Number of pupils with English not as first language
 # PNUMEAL - Percentage of pupils with English not as first language
+# TOTPUPEALDN - Number of pupils of compulsory school age and above
+# TOTPUPSENDN	Total number of pupils on roll (all ages)
 
-df <- merge(df, census[, c(id_cols, "pnumfsm", "pnumfsmever", "pnumeal")], by = id_cols, all.x = T)
+df <- merge(df, census[, c(id_cols, "numfsm", "pnumfsm", 
+                           "numfsmever", "pnumfsmever",
+                           "totpupfsmdn",
+                           "numeal", "pnumeal",
+                           "totpupealdn")], by = id_cols, all = T)
 
-# special educational needs
+# special educational needs #
+
+# TSENA - Number of pupils on roll with SEN on School Action
 # PSENA - Percentage of pupils on roll with SEN on School Action
-# proportion of students enrolled at a school who have been identified as having Special Educational Needs (SEN) and are receiving support through the School Action programme
+# TOTSENAP - Total pupils with school  action+
+# PTOTSENAP - Percentage pupils with school  action+
+# TOTSENST - Total pupils with SEN statement
+# PTOTSENST - Percentage pupils with SEN statement
+# TSENSAP - Number of pupils SEN statement or on School Action Plus 
+# PSENSAP - Percentage of pupils SEN statement or on School Action Plus 
+# TSENELK - Number of eligible pupils with SEN support
 # PSENELK - Percentage of eligible pupils with SEN support
-# The percentage of eligible pupils with SEN support indicates the proportion of students who are receiving this broader range of support, rather than the more narrowly defined 'School Action' category.
-cols_to_merge <- c("psena", "psenelk")
-new_col <- "psen"
+# TSENELSE - Number of SEN pupils with a statement or EHC plan
+# PSENELSE - Percenatge of SEN pupils with a statement or EHC plan
 
-df <- merge_timelines_across_columns(data_in = census, 
-                                     identifier_columns = id_cols, 
-                                     column_vector = cols_to_merge,
-                                     stem = new_col,
-                                     data_out = df)
-
-# PSENELSE - Percentage of SEN pupils with a statement or EHC plan
-# PSENSAP - Percentage of pupils with SEN statement or on School Action Plus
-
-cols_to_merge <- c("psensap", "psenelse")
-new_col <- "psenst"
-
-df <- merge_timelines_across_columns(data_in = census, 
-                                     identifier_columns = id_cols, 
-                                     column_vector = cols_to_merge,
-                                     stem = new_col,
-                                     data_out = df)
-
-
-
-# merge with scaffold
-df <- merge(scaffold, df, by = c("time_period", "urn"), all.x = T)
-df <- df[with(df, order(urn, time_period)),]
-#names(df)[names(df) == "urn"] <- "school_urn"
+df <- merge(df, census[, c(id_cols, 
+                           "tsena", "psena", # pupils on roll with SEN on School Action
+                           "totsenap", "ptotsenap", # pupils on roll with school action plus
+                           "totsenst", "ptotsenst", # pupils on roll with SEN statement
+                           #"tsensap", "psensap", # SEN statement or on School Action Plus - IGNORE?
+                           "tsenelk", "psenelk", # eligible pupils with SEN support
+                           "tsenelse", "psenelse" # SEN pupils with a statement or EHC plan
+                           )], by = id_cols, all = T)
 
 # save data
+df <- df[with(df, order(urn, time_period)),]
 write.csv(df, file = file.path(dir_data, "data_spt_census.csv"), row.names = F)
