@@ -355,7 +355,8 @@ data[, grepl("20", names(data))] <- NULL
 apply(data, 2, FUN = function(x){sum(is.na(x))})
 
 # save file
-write.csv(df, file = file.path(dir_data, "data_pupils.csv"), row.names = F)
+data <- data[with(data, order(urn, time_period)),]
+write.csv(data, file = file.path(dir_data, "data_pupils.csv"), row.names = F)
 
 
 # # code to debug!
