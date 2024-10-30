@@ -425,4 +425,39 @@ webscrape_government_data <- function(dir_out = "path_to_directory",
   
 }
 
+# function to fix roundings
+# rounding applied to nearest 5 in some publications, but not in others
+# this causes inconsistencies across different datasets
+fix_roundings <- function(var_nrd = "variable_not_rounded", var_rd = "variable_rounded",
+                          new_var = "",
+                          identifier_columns = "id_cols",
+                          col_to_filter = "col_name",
+                          filter = vector,
+                          rounding_factor = 5,
+                          data_in = df_in) {
+  # select columns
+  tmp <- data_in[, c(identifier_columns, var_nrd, var_rd)]
+  
+  # compute difference in raw values
+  tmp$diff <- tmp[, var_nrd] - tmp[, var_rd]
+  
+  # round variable currently not rounded
+  tmp$rd <- round(tmp[, var_nrd] / rounding_factor) * rounding_factor
+  
+  # replace any instances of rounded values with unrounded values
+  tmp$test <- ifelse(tmp[, col_to_filter] %in% filter, tmp[, var_nrd], tmp[, var_rd])
+  
+  # compute diff after replacing rounded values with unrounded values
+  tmp$diff2 <- tmp[, var_nrd] - tmp$test
+  
+  # fix rounding issues
+  if (new_var != "") {
+    tmp[, new_var] <- tmp$test
+  } else {
+    tmp[, paste0(var_rd, "_orig")] <- tmp[, var_rd] # copy original unrounded values
+    tmp[, var_rd] <- tmp$test
+  }
+  
+  return(tmp)
+}
 
