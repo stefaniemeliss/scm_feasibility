@@ -104,7 +104,7 @@ for (i in seq_along(start:finish)) {
 
 # number of pupils
 cols_to_merge <- c("pupils", "total.pupils")
-new_col <- "npuptotsen"
+new_col <- "npuptot__sen"
 
 df <- merge_timelines_across_columns(data_in = sen, 
                                      identifier_columns = id_cols, 
@@ -116,7 +116,7 @@ df <- merge_timelines_across_columns(data_in = sen,
 # This stage involved the school providing additional or different support to help the child progress. 
 # SEN Code of Practice 2014 replaced the terms "School Action" and "School Action Plus" with "SEN support."
 cols_to_merge <- c("schoolaction", "school_action")
-new_col <- "npupsa"
+new_col <- "npupsena" # pupils on roll with SEN on School Action
 
 df <- merge_timelines_across_columns(data_in = sen, 
                                      identifier_columns = id_cols, 
@@ -128,7 +128,7 @@ df <- merge_timelines_across_columns(data_in = sen,
 # This stage involved external specialists providing additional advice and support to the school to help meet the child's needs.
 # SEN Code of Practice 2014 replaced the terms "School Action" and "School Action Plus" with "SEN support."
 cols_to_merge <- c("schoolactionplus", "school_action_plus")
-new_col <- "npupsap"
+new_col <- "npupsenap" # pupils on roll with school  action plus
 
 df <- merge_timelines_across_columns(data_in = sen, 
                                      identifier_columns = id_cols, 
@@ -136,55 +136,39 @@ df <- merge_timelines_across_columns(data_in = sen,
                                      stem = new_col,
                                      data_out = df)
 
-# combine School Action and School Action Plus
-df[, "npupsen2001"] <- df$npupsa + df$npupsap
-
-# SEN support (SEN Code of Practice 2014)
-# "SEN support" is the current system used in schools to help children with special educational needs who do not have an Education, Health and Care (EHC) plan. 
-new_col <- "npupsen2014"
-sen[, new_col] <- sen$sen.support
-df <- merge(df, sen[, c(id_cols, new_col)], by = id_cols, all = T)
-
-# SEN support: interventions
+# SEN support = registered pupils with SEN without a statement or EHC plan
 # combines "SEN support," "School Action," and "School Action Plus"
 # encompasses the various levels and types of support provided to children with special educational needs
-# in SPT: TSENELSE stands for "Total number of pupils with Special Educational Needs (SEN) who receive SEN support." 
+# in SPT: TSENEL*K* stands for "Total number of pupils with Special Educational Needs (SEN) who receive SEN support." 
+# K = SEN support
 # This metric indicates the total count of pupils within a school who have been identified as having special educational needs 
 # and are receiving additional support, but do not have an Education, Health and Care (EHC) plan or a Statement of SEN.
 
-cols_to_merge <- c("npupsen2001", "npupsen2014")
-new_col <- "npupsenelse"
+# combine School Action and School Action Plus (SEN Code of Practice 2001)
+df[, "npupsenelk2001"] <- df$npupsena + df$npupsenap
 
-df <- merge_timelines_across_columns(data_in = df, 
-                                     identifier_columns = id_cols, 
-                                     column_vector = cols_to_merge,
-                                     stem = new_col,
-                                     data_out = df)
-
-# statements of SEN
-# A Statement of Special Educational Needs was the previous system used in England to outline the educational needs 
-# and the provision required for children with significant special educational needs.
-cols_to_merge <- c("statements", "statement")
-new_col <- "npupsta"
-
-df <- merge_timelines_across_columns(data_in = sen, 
-                                     identifier_columns = id_cols, 
-                                     column_vector = cols_to_merge,
-                                     stem = new_col,
-                                     data_out = df)
-
-# EHC plan
-# An Education, Health and Care plan is a legal document that describes a child or young person's special educational, health, and social care needs. 
-# It also specifies the support they need and the outcomes they are working towards.
-# EHC plans were introduced under the Children and Families Act 2014, replacing the Statements of SEN.
-new_col <- "npupehc"
-sen[, new_col] <- sen$ehc.plan
+# SEN support (SEN Code of Practice 2014)
+# "SEN support" is the current system used in schools to help children with special educational needs 
+# who do not have an Education, Health and Care (EHC) plan. 
+new_col <- "npupsenelk2014"
+sen[, new_col] <- sen$sen.support
 df <- merge(df, sen[, c(id_cols, new_col)], by = id_cols, all = T)
 
 
-# statements or EHC plan
-cols_to_merge <- c("statement..ehc.plan", "statement...ehc.plan")
-new_col <- "npupstaehc"
+cols_to_merge <- c("npupsenelk2001", "npupsenelk2014")
+new_col <- "npupsenelk" # eligible pupils on roll with SEN support
+
+df <- merge_timelines_across_columns(data_in = df, 
+                                     identifier_columns = id_cols, 
+                                     column_vector = cols_to_merge,
+                                     stem = new_col,
+                                     data_out = df)
+
+# statements of SEN (SEN Code of Practice 2001)
+# A Statement of Special Educational Needs was the previous system used in England to outline the educational needs 
+# and the provision required for children with significant special educational needs.
+cols_to_merge <- c("statements", "statement")
+new_col <- "npupsenst" # pupils on roll with SEN statement
 
 df <- merge_timelines_across_columns(data_in = sen, 
                                      identifier_columns = id_cols, 
@@ -193,20 +177,35 @@ df <- merge_timelines_across_columns(data_in = sen,
                                      data_out = df)
 
 
+# EHC plan (SEN Code of Practice 2014)
+# An Education, Health and Care plan is a legal document that describes a child or young person's special educational, health, and social care needs. 
+# It also specifies the support they need and the outcomes they are working towards.
+# EHC plans were introduced under the Children and Families Act 2014, replacing the Statements of SEN.
+# statements or EHC plan (transfer of statements to an EHC plan is due to take place by April 2018)
+
+cols_to_merge <- c("statement..ehc.plan", "statement...ehc.plan", "ehc.plan")
+new_col <- "npupsenehcst" # pupils on roll with EHC plan or statement
+
+df <- merge_timelines_across_columns(data_in = sen, 
+                                     identifier_columns = id_cols, 
+                                     column_vector = cols_to_merge,
+                                     stem = new_col,
+                                     data_out = df)
+
 # "SEND plan" (Special Educational Needs and Disabilities plan) = statements or EHC plan combined
-# in SPT: TSENELK stands for "Total number of pupils with Special Educational Needs (SEN) with an Education, Health and Care (EHC) plan or a Statement of SEN." 
+# in SPT: TSENEL*SE* = Number of SEN pupils with a statement or EHC plan
+# S = Statement
+# E = Education, Health and Care (EHC) plan
 # This metric indicates the total count of pupils within a school who have significant special educational needs 
 # that require a formal plan or statement to ensure they receive the appropriate support and resources.
-cols_to_merge <- c("npupsta", "npupehc", "npupstaehc")
-new_col <- "npupsenelk"
+cols_to_merge <- c("npupsenst", "npupsenehcst")
+new_col <- "npupsenelse" # pupils on roll with SEN statement or EHC plan
 
 df <- merge_timelines_across_columns(data_in = df, 
                                      identifier_columns = id_cols, 
                                      column_vector = cols_to_merge,
                                      stem = new_col,
                                      data_out = df)
-
-
 
 # pupil SEN status: Plan or intervention
 # SEN provision - EHC plan/Statement of SEN or SEN support/School Action/School Action plus
@@ -227,9 +226,8 @@ dict$explanation <- c("academic year",
                       "number of pupils with SEN on School Action or School Action Plus (SEN Code of Practice 2001)",
                       "number of pupils with SEN support (SEN Code of Practice 2014)",
                       "number of pupils with SEN support/School Action/School Action plus (all years)",
-                      "number of pupils with SEN statememnt",
-                      "number of pupils with EHC plan",
-                      "number of pupils with EHC plan or Statement of SEN",
+                      "number of pupils with SEN statememnt (SEN Code of Practice 2001)",
+                      "number of pupils with EHC plan or Statement of SEN (SEN Code of Practice 2014)",
                       "number of pupils with EHC plan/Statement of SEN (all years)",
                       "number of pupils with SEN provision (EHC plan/Statement of SEN or SEN support/School Action/School Action plus)"
                       )
