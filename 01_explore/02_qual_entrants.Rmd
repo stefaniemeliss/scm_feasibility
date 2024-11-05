@@ -1,0 +1,257 @@
+---
+title: "Qualified entrants"
+author: "Stefanie Meliss"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 4
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+options(scipen = 999)
+# empty work space
+rm(list = ls())
+
+# define directory
+dir <- getwd()
+dir <- gsub("/01_explore", "", dir)
+dir_data <- file.path(dir, "data")
+dir_misc <- file.path(dir, "misc")
+
+
+# load libraries
+library(kableExtra)
+library(dplyr)
+library(ggplot2)
+
+# source ambition theme
+devtools::source_url("https://github.com/stefaniemeliss/scm_feasibility/blob/main/functions.R?raw=TRUE")
+
+# read in workforce data
+entr <- read.csv(file = file.path(dir_data, "school-workforce-in-england", "2023", "data", "workforce_qual_entrants_2011_2023_national.csv"))
+names(entr) <- gsub("X...", "", names(entr), fixed = T)
+
+# subset to focus on school totals 
+entr <- subset(entr, school_type == "Total state-funded schools")
+
+# subset to focus on entrants regardless of reason
+entr <- subset(entr, entrant_type == "Total")
+
+# edit data 
+entr$time_period <- factor(entr$time_period)
+
+# define vars of interest
+vars <- c("gender", "age_group", "ethnicity_major", 
+          "grade", "working_pattern")
+
+# apply sentence case throughout
+entr[, vars] <- apply(entr[, vars], MARGIN = 2, FUN = function(x) {stringr::str_to_sentence(gsub("_", " ", x))})
+
+# fix some casing
+entr$ethnicity_major <- gsub("mixed", "Mixed", entr$ethnicity_major)
+entr$ethnicity_major <- gsub("asian", "Asian", entr$ethnicity_major)
+entr$ethnicity_major <- gsub("black", "Black", entr$ethnicity_major)
+entr$ethnicity_major <- gsub("british", "British", entr$ethnicity_major)
+
+# edit demogs
+entr$gender <- factor(entr$gender, levels = c("Total", "Female", "Male", "Gender unclassified"))
+entr <- subset(entr, gender != "Gender unclassified")
+
+entr$age_group <- factor(entr$age_group, levels = c("Total", "Under 25", "25 to 29", "30 to 39", "40 to 49", "50 to 59", "60 and over", "Age unclassified"))
+entr <- subset(entr, age_group != "Age unclassified")
+
+entr$ethnicity_major <- factor(entr$ethnicity_major, levels = c("Total", "White", "Black or Black British", "Asian or Asian British", "Any other Mixed background", "Any other ethnic group", "Refused", "Information not yet obtained"))
+entr <- subset(entr, ethnicity_major != "Refused" & ethnicity_major != "Information not yet obtained")
+
+# edit work place variables
+entr$grade <- factor(entr$grade, levels = c("Total", "Classroom teacher", "Deputy or assistant head", "Head teacher"))
+entr$working_pattern <- factor(entr$working_pattern, levels = c("Total", "Full-time", "Part-time"))
+
+# reduce columns
+entr <- entr[, c("time_period", "gender", "age_group", "ethnicity_major", "grade", "working_pattern", "fte_entrants", "fte_entrants_percent")]
+
+# get FTE all teachers at national level #
+fte <- read.csv(file = file.path(dir_data, "school-workforce-in-england", "2023", "data", "workforce_2010_2023_fte_hc_nat_reg_la.csv"))
+names(fte) <- gsub("X...", "", names(fte), fixed = T)
+
+# filter for national data
+fte <- fte %>% 
+  filter(geographic_level == "National",
+         school_type == "Total state-funded schools") %>%
+  select(time_period, fte_all_teachers, fte_all_teachers_without_qts) %>%
+  mutate(across(!time_period, as.numeric)) %>%
+  mutate(time_period = as.factor(time_period),
+         fte_all_teachers_with_qts = fte_all_teachers - fte_all_teachers_without_qts) %>%
+  select(time_period, fte_all_teachers_with_qts)
+
+# merge with entrants data
+entr <- merge(entr, fte, all.x = T)
+
+# compute percentage of overall teacher fte
+entr$fte_all_teachers_percent <- round((entr$fte_entrants / entr$fte_all_teachers_with_qts) * 100, 1)
+entr$fte_all_teachers_with_qts <- NULL
+
+
+# read in info about dataset
+dict <- read.csv(file = file.path(dir_misc, "meta_qual_entrants.csv"))
+names(dict) <- gsub("X...", "", names(dict), fixed = T)
+dict[nrow(dict) + 1, ] <- c("fte_all_teachers_percent", "Proportion FTE(entrants) / FTE(all QT)")
+
+```
+
+Qualified entrants to teaching  
+  
+Filename: workforce_qual_entrants_2011_2023_national.csv  
+Geographic levels: National  
+Time period: 2011/12 to 2023/24  
+Content summary: Full time equivalent qualified teacher entrants by category including school type, gender, age group and type of entrant  
+
+
+```{r, results='asis', echo = F}
+dict %>%
+  kbl(row.names = F) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
+  print()
+```
+
+```{r, echo = F, results='asis',fig.align='center', warning=FALSE}
+
+# create timeseries plot for each variable #
+
+vars <- c("gender", "age_group", "ethnicity_major", 
+          "grade", "working_pattern")
+
+cat("\n## Differences by variables\n")
+cat("\n\n")
+
+dep_vars <- c("fte_entrants", "fte_entrants_percent", "fte_all_teachers_percent")
+
+for (var in vars) {
+  # subset data
+  # for all other categories, use total values
+  df <- entr %>%
+    filter_at(vars(-time_period, -fte_entrants, -fte_entrants_percent, -fte_all_teachers_percent, -{var}), all_vars(. == "Total")) 
+  
+  cat("\n\n")
+  cat("\n###", stringr::str_to_sentence(gsub("_", " ", var)))
+  cat("\n\n\n")
+  
+  
+  # create plots for each dv
+  for (dep_var in dep_vars) {
+    
+    y_lab = dict$Variable.description[dict$Variable.name == dep_var]
+    
+    cat("\n\n")
+    cat("\n#### ", y_lab, "\n")
+    cat("\n\n")
+    
+    
+    plt <- ggplot(data = df, aes(x = time_period, y = get(dep_var), group = get(var), col = get(var))) +
+      geom_point() + 
+      geom_line() + 
+      scale_color_manual(values = c(black, ambition_palette)) +
+      ambition_theme + theme(#legend.position = "none",  
+        axis.text.x = element_text(angle = 45, hjust = 1)) +
+      ylab(paste(y_lab)) + xlab("Academic years") + 
+      guides(color = guide_legend(title = stringr::str_to_sentence(gsub("_", " ", var)),
+                                  nrow = 2))
+    print(plt)
+    
+  }
+}
+
+cat("\n\n")
+cat("\n## Interaction between and with demographic variables\n")
+cat("\n\n")
+
+# plot demog interactions #
+vars_demog <- c("gender", "age_group", "ethnicity_major")
+
+for (demog in vars_demog) {
+  
+  cat("\n\n")
+  cat("\n###", stringr::str_to_sentence(gsub("_", " ", demog)))
+  cat("\n\n\n")
+  
+  
+  # create new list of variables to filter
+  vars_tmp <- vars[! vars %in% demog]
+  
+  for (var in vars_tmp) {
+    # subset data
+    # for all other categories, use total values
+    df <- entr %>%
+      filter_at(vars(-time_period, -fte_entrants, -fte_entrants_percent, -fte_all_teachers_percent, -{var}, -{demog}), all_vars(. == "Total")) %>%
+      filter(get(var) != "Total")
+    
+    # create plots for each dv
+    for (dep_var in dep_vars) {
+      
+      y_lab = dict$Variable.description[dict$Variable.name == dep_var]
+      
+      cat("\n\n")
+      cat("\n#### ", y_lab, "\n")
+      cat("\n\n")
+      
+      
+      # create plot
+      plt <- ggplot(data = df, aes(x = time_period, y = get(dep_var), group = get(demog), col = get(demog))) +
+        geom_point() + 
+        geom_line() + 
+        scale_color_manual(values = c(black, ambition_palette)) +
+        #scale_color_manual(values = c(navy, red, blue)) +
+        facet_wrap(~ get(var)) +
+        ambition_theme + theme(#legend.position = "none",  
+          axis.text.x = element_text(angle = 45, hjust = 1)) +
+        ylab(paste(y_lab)) + xlab("Academic years") + 
+        guides(color = guide_legend(title = stringr::str_to_sentence(gsub("_", " ", demog)),
+                                    nrow = 2))
+      print(plt)
+      
+    }
+    
+  }
+  
+}
+
+cat("\n\n")
+cat("\n## Interaction between role-based variables\n")
+cat("\n\n")
+
+# work variable interaction
+df <- entr %>%
+  filter_at(vars(-time_period, -fte_entrants, -fte_entrants_percent, -fte_all_teachers_percent, -grade, -working_pattern), all_vars(. == "Total")) %>%
+  filter(working_pattern != "Total")
+
+# create plots for each dv
+for (dep_var in dep_vars) {
+  
+  y_lab = dict$Variable.description[dict$Variable.name == dep_var]
+  
+  cat("\n\n")
+  cat("\n### ", y_lab, "\n")
+  cat("\n\n")
+  
+  
+  plt <- ggplot(data = df, aes(x = time_period, y = get(dep_var), group = grade, col = grade)) +
+    geom_point() + 
+    geom_line() + 
+    scale_color_manual(values = c(black, ambition_palette)) +
+    #scale_color_manual(values = c(navy, red, blue)) +
+    facet_wrap(~ working_pattern) +
+    ambition_theme + theme(#legend.position = "none",  
+      axis.text.x = element_text(angle = 45, hjust = 1)) +
+    ylab(paste(y_lab)) + xlab("Academic years") + 
+    guides(color = guide_legend(title = "Grade",
+                                nrow = 2))
+  
+  print(plt)
+  
+}
+
+```
