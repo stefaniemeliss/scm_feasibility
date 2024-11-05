@@ -89,17 +89,15 @@ spc <- spc %>% filter(urn %in% urn_list)
 spc_c <- spc_c %>% filter(urn %in% urn_list)
 
 # thin down spc columns
-spc <- spc[, !grepl("time.male|time.female|origin", names(spc))]
-spc_c <- spc_c[, 1:grep("average.size.of.one.teacher.classes", names(spc_c))]
+spc <- spc[, 1:which(names(spc) == "school_size")]
+spc_c <- spc_c[, 1:which(names(spc_c) == "school_postcode")]
 
 # add ICADI data
-spc_c <- merge(spc_c, imd, by = "school_postcode", all.x = T)
+spc <- merge(spc, imd, by = "school_postcode", all.x = T)
 
 # combine spc data
 spc <- merge(spc, spc_c, by = intersect(names(spc), names(spc_c)), all = T)
-names(spc) <- gsub("x.", "percentage", names(spc))
 spc$opendate <- as.Date(spc$opendate, format =  "%d/%m/%Y")
-spc[, grepl("^number|^percentage|boarders|infants", names(spc), perl = T)] <- apply(spc[, grepl("^number|^percentage|boarders|infants", names(spc), perl = T)], MARGIN = 2, FUN = as.numeric)
 
 # combine school list and gias
 df <- merge(school_list, gias, by = intersect(names(gias), names(school_list)), all = T)
@@ -160,6 +158,7 @@ dict$explanation <- c(
   "Admissions Policy",
   "Ofsted rating",
   "Ofsted last inspection date",
+  "School postcode - SPC 2023-24",
   "Time period - SPC 2023-24",
   "Time identifier - SPC 2023-24",
   "Country code - SPC 2023-24",
@@ -187,58 +186,10 @@ dict$explanation <- c(
   "ward_code",
   "ward_name",
   "Urban or rural indicator",
-  "School postcode - SPC 2023-24",
   "geographic_level",
   "Which trust",
   "Academy indicator - Academy or otherwise",
   "School size grouped - SPC 2023-24",
-  "Number of early year pupils (years E1 and E2)",
-  "Number of nursery pupils (years N1 and N2)",
-  "Number of reception pupils (year R)",
-  "Number of key stage 1 pupils (years 1 and 2)",
-  "Number of key stage 2 pupils (years 3 to 6)",
-  "Number of key stage 3 pupils (years 7 to 9)",
-  "Number of key stage 4 pupils (years 10 and 11)",
-  "Number of key stage 5 pupils (years 12 to 14)",
-  "Number of pupils not reception or key stage 1 to 5",
-  "Headcount - female",
-  "Headcount - male",
-  "Full time pupils",
-  "Part time pupils",
-  "Headcount - Total",
-  "FTE pupils",
-  "male boarders",
-  "female boarders",
-  "total boarders",
-  "Number of FSM eligible pupils taking a free school meal on census day",
-  "Percentage of FSM eligible pupils taking free school meals",
-  "Known to be eligible for free school meals",
-  "Percentage known to be eligible for free school meals",
-  "Number of pupils used for FSM calculation in Performance Tables",
-  "Known to be eligible for free school meals (using performance tables methodology)",
-  "Percentage known to be eligible for free school meals (using performance tables methodology)",
-  "Infants taken a free school meal on census day",
-  "Pupils unclassified: Includes pupils where the ethnic group was refused, not obtained or was invalid/not supplied",
-  "Percentage pupils unclassified",
-  "number.of.pupils.of.compulsory.school.age.and.above..rounded",
-  "First language is known or believed to be English",
-  "Percentage first language is known or believed to be English",
-  "First language is known or believed to be other than English",
-  "Percentage first language is known or believed to be other than English",
-  "First language is unclassified",
-  "Percentage first language is unclassified",
-  "Young carer",
-  "Percentage young carer",
-  "number_of_dual_subsidiary_registrations",
-  "Number of classes of size 1 to 30 taught by one teacher",
-  "Number of classes of size 31 to 35 taught by one teacher",
-  "Number of classes of size 36 plus taught by one teacher",
-  "Total number of classes taught by one teacher",
-  "Number of pupils in classes of size 1 to 30 taught by one teacher",
-  "Number of pupils in classes of size 31 to 35 taught by one teacher",
-  "Number of pupils in classes of size 36 plus taught by one teacher",
-  "Total number of pupils of classes taught by one teacher",
-  "Average class size",
   "IDACI Decile for postcode"
 )
 
