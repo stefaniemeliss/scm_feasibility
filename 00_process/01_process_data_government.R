@@ -11,7 +11,9 @@ dir_misc <- file.path(dir, "misc")
 library(kableExtra)
 library(dplyr)
 
-#### ORMISTON ACADEMIES TRUST ####
+#### Get Information about Schools ####
+
+# source: https://get-information-schools.service.gov.uk/
 
 # read in info about OAT schools
 oat_schools <- read.csv(file = file.path(dir_misc, "OAT Linked establishments.csv"))
@@ -47,18 +49,46 @@ lift_schools$laestab <- gsub("/", "", lift_schools$laestab)
 lift_schools$joined.date <- as.Date(lift_schools$joined.date, format =  "%d/%m/%Y")
 lift_schools$linked.establishment <- "LIFT SCHOOLS"
 
-# save school list
-school_list <- rbind(oat_schools, dixons_schools, lift_schools)
+# read in info about MAC schools
+mac_schools <- read.csv(file = file.path(dir_misc, "MAC Linked establishments.csv"))
+
+# fix input data
+names(mac_schools) <- tolower(names(mac_schools))
+names(mac_schools)[names(mac_schools) == "local.authority..name."] <- "laname"
+mac_schools$laestab <- gsub("/", "", mac_schools$laestab)
+mac_schools$joined.date <- as.Date(mac_schools$joined.date, format =  "%d/%m/%Y")
+mac_schools$linked.establishment <- "MAC SCHOOLS"
+
+# combine schools
+school_list <- rbind(oat_schools, dixons_schools, lift_schools, mac_schools)
+
+# define the regular expression for UK postcodes
+pcd_regex <- "\\b[A-Z]{1,2}[0-9R][0-9A-Z]? ?[0-9][A-Z]{2}\\b"
+
+# extract postcodes in Address string
+school_list$postcode <- c(stringr::str_extract_all(school_list$address, pcd_regex, simplify = T))
+
+# save information on schools
 write.csv(school_list, file = file.path(dir_misc, "schools_list.csv"), row.names = F)
 
-# derive URNs
+# derive URNs and postcodes
 urn_list <- school_list$urn
+pcd_list <- unique(school_list$postcode)
+
+# extract postcodes
+tmp <- as.data.frame(unique(school_list$postcode))
+write.table(tmp, file.path(dir_misc, "school_postcodes.csv"), 
+            row.names = F, col.names = F, sep = ",", quote = F)
+
+#### Get education statistics from Schools ####
+
+# source: https://explore-education-statistics.service.gov.uk/
 
 # available information of schools
 gias <- read.csv(file = file.path(dir_data, "performance-tables", "2022-2023", "2022-2023_england_school_information.csv"))
 spc <- read.csv(file = file.path(dir_data, "school-pupils-and-their-characteristics", "2023-24", "supporting-files", "spc_school_level_underlying_data.csv"))
 spc_c <- read.csv(file = file.path(dir_data,"school-pupils-and-their-characteristics", "2023-24", "supporting-files", "spc_school_level_class_size_underlying_data.csv"))
-imd <- read.csv(file = file.path(dir_data, "2019-deprivation-by-postcode.csv"))
+imd <- read.csv(file = file.path(dir_data, "2019-deprivation-by-postcode.csv")) # source: https://imd-by-postcode.opendatacommunities.org/imd/2019
 
 # process gias
 names(gias) <- tolower(names(gias))
@@ -83,11 +113,6 @@ names(spc) <- tolower(names(spc))
 spc_c$admissions_policy <- ifelse(spc_c$admissions_policy == "NULL", "Unknown", spc_c$admissions_policy)
 names(spc_c) <- tolower(names(spc_c))
 
-# subset data to only include OAT schools
-gias <- gias %>% filter(urn %in% urn_list)
-spc <- spc %>% filter(urn %in% urn_list)
-spc_c <- spc_c %>% filter(urn %in% urn_list)
-
 # thin down spc columns
 spc <- spc[, 1:which(names(spc) == "school_size")]
 spc_c <- spc_c[, 1:which(names(spc_c) == "school_postcode")]
@@ -99,25 +124,25 @@ spc <- merge(spc, imd, by = "school_postcode", all.x = T)
 spc <- merge(spc, spc_c, by = intersect(names(spc), names(spc_c)), all = T)
 spc$opendate <- as.Date(spc$opendate, format =  "%d/%m/%Y")
 
+# subset data to only include OAT schools
+gias <- gias %>% filter(urn %in% urn_list)
+spc <- spc %>% filter(urn %in% urn_list)
+
 # combine school list and gias
 df <- merge(school_list, gias, by = intersect(names(gias), names(school_list)), all = T)
 df <- merge(df, spc, by = c("urn", "laestab"), all = T)
-
-# extract postcodes
-tmp <- as.data.frame(unique(df$school_postcode))
-write.table(tmp, file.path(dir_misc, "school_postcodes.csv"), 
-            row.names = F, col.names = F, sep = ",", quote = F)
-
 
 # split data and save
 df_oat <- subset(df, linked.establishment == "ORMISTON ACADEMIES TRUST")
 df_dixons <- subset(df, linked.establishment == "DIXONS ACADEMIES TRUST")
 df_aet <- subset(df, linked.establishment == "LIFT SCHOOLS")
+df_aet <- subset(df, linked.establishment == "MAC SCHOOLS")
 
 # save data
 xlsx::write.xlsx(df_oat, file = file.path(dir_data, "data_government.xlsx"), sheetName = "data_OAT", row.names = F)
 xlsx::write.xlsx(df_dixons, file = file.path(dir_data, "data_government.xlsx"), sheetName = "data_Dixons", append = T, row.names = F)
 xlsx::write.xlsx(df_aet, file = file.path(dir_data, "data_government.xlsx"), sheetName = "data_Lift", append = T, row.names = F)
+xlsx::write.xlsx(df_aet, file = file.path(dir_data, "data_government.xlsx"), sheetName = "data_MAC", append = T, row.names = F)
 
 
 #### data dict ####
@@ -128,6 +153,7 @@ dict$explanation <- c(
   "urn = School unique reference number",
   "laestab = DfE number",
   "laname = Local authority name",
+  "School postcode",
   "Name of school - Linked establishments extract",
   "Address - Linked establishments extract",
   "Phase of school - Linked establishments extract",
@@ -142,7 +168,6 @@ dict$explanation <- c(
   "School address (2)",
   "School address (3)",
   "School town",
-  "School postcode",
   "School open / closed status",
   "Open date of school (if opened on or after 1st September 2022)",
   "Date the school closed",
