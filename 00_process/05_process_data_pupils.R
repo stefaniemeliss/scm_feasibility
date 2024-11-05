@@ -326,7 +326,6 @@ tmp <- merge_timelines_across_columns(data_in = tmp,
                                       stem = col_n,
                                       data_out = tmp)
 
-
 out <- merge(out, tmp[, c(id_cols, col_n)], by = id_cols)
 out[, col_p] <- out[, col_n] / out[, col_tot] * 100
 
