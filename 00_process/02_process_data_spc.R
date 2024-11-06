@@ -144,7 +144,7 @@ for (i in seq_along(start:finish)) {
   tmp_c$time_period <- as.numeric(gsub("-20", "", academic_year))
   
   # combine with data on pupils on roll
-  tmp <- merge(tmp_p, tmp_c, by = id_cols)
+  tmp <- merge(tmp_p, tmp_c, by = id_cols, all = T)
   
   
   # combine across years
