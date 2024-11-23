@@ -1,0 +1,976 @@
+---
+title: "Synth"
+author: "Stefanie Meliss"
+date: '`r Sys.Date()`'
+output: html_document
+---
+
+```{r setup, echo = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list = ls())
+
+library(foreign)
+library(Synth)
+library(xtable)
+library(ggplot2)
+library(dplyr)
+
+# source ambition theme
+devtools::source_url("https://github.com/stefaniemeliss/scm_feasibility/blob/main/functions.R?raw=TRUE")
+
+# data downloaded from https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/24714
+d <- read.dta("repgermany.dta")
+```
+
+Also see this note [here](https://www.r-bloggers.com/2023/07/when-numbers-meet-stories-an-introduction-to-the-synthetic-control-method-in-r/).  
+
+
+[Abadie, Diamond & Hainmueller (2014): Comparative Politics and the Synthetic Control Method](https://onlinelibrary.wiley.com/doi/10.1111/ajps.12116)  
+
+Replication data can be found [here](https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/24714).
+
+
+## Construction of a synthetic version of West Germany
+
+We use a cross-validation technique to choose the weights $V_m$ in Equation (1). We first divide the pretreatment years into a **training period from 1971 to 1980** and a **validation period from 1981 to 1990**. Next, using predictors measured in the training period, we select the weights $V_m$ such that the resulting synthetic control minimizes the root mean square prediction error (RMSPE) over the validation period. Intuitively, the cross-validation technique selects the weights $V_m$ that minimize out-of-sample prediction errors. Finally, we use the set of $V_m$ weights selected in the previous step and predictor data measured in 1981–90 to estimate a synthetic control for West Germany.   
+
+```{r, echo = F}
+## pick v by cross-validation
+# data setup for training model
+dataprep.out <-
+  dataprep(
+    foo = d,
+    predictors    = c("gdp","trade","infrate"),
+    dependent     = "gdp",
+    unit.variable = 1,
+    time.variable = 3,
+    special.predictors = list(
+      list("industry", 1971:1980, c("mean")),
+      list("schooling",c(1970,1975), c("mean")),
+      list("invest70" ,1980, c("mean"))
+    ),
+    treatment.identifier = 7,
+    controls.identifier = unique(d$index)[-7],
+    time.predictors.prior = 1971:1980,
+    time.optimize.ssr = 1981:1990,
+    unit.names.variable = 2,
+    time.plot = 1960:2003
+  )
+
+# fit training model
+synth.out <- 
+  synth(
+    data.prep.obj=dataprep.out,
+    Margin.ipop=.005,Sigf.ipop=7,Bound.ipop=6
+  )
+
+# data prep for main model
+dataprep.out <-
+  dataprep(
+    foo = d,
+    predictors    = c("gdp","trade","infrate"),
+    dependent     = "gdp",
+    unit.variable = 1,
+    time.variable = 3,
+    special.predictors = list(
+      list("industry" ,1981:1990, c("mean")),
+      list("schooling",c(1980,1985), c("mean")),
+      list("invest80" ,1980, c("mean"))
+    ),
+    treatment.identifier = 7,
+    controls.identifier = unique(d$index)[-7],
+    time.predictors.prior = 1981:1990,
+    time.optimize.ssr = 1960:1989,
+    unit.names.variable = 2,
+    time.plot = 1960:2003
+  )
+
+# fit main model with v from training model
+synth.out <- synth(
+  data.prep.obj=dataprep.out,
+  custom.v=as.numeric(synth.out$solution.v)
+)
+
+
+synth.tables <- synth.tab(
+  dataprep.res = dataprep.out,
+  synth.res = synth.out
+)
+synth.tables
+
+
+```
+
+
+
+```{r, warning=F, echo = F, results='asis'}
+df <- rbind(data.frame(year = c(1960:2003),
+                       # compute avg gdp in all other countries
+                       gdp = aggregate(d[d$country != "West Germany", c("gdp")],
+                                       by=list(d[d$country != "West Germany", c("year")]),mean,na.rm=T)[,2],
+                       country = "avg"),
+            data.frame(year = c(1960:2003),
+                       # add synthetic germany
+                       gdp = c(dataprep.out$Y0%*%synth.out$solution.w),
+                       country = "synthetic"),
+            # add country data
+            d[, c("year", "gdp", "country")])
+
+# create columns for subsetting
+df$idx_treat <- ifelse(df$country == "West Germany", TRUE, 
+                       ifelse(df$country == "FRG" | df$country == "synthetic", NA, FALSE))
+df$idx_synth <- ifelse(df$country == "synthetic", TRUE, FALSE)
+df$idx_avg <- ifelse(df$country == "avg", TRUE, FALSE)
+df$idx_sel <- df$country %in% c("synthetic", "Austria", "Japan", "Netherlands", "Switzerland", "USA")
+
+# plot trajectories #
+
+cat("\n\n#### Trajectory of Per-Capita GDP 1960-2003: West Germany vs. all other OECD countries \n\n")
+#### Figure 0: Trajectory of Per-Capita GDP 1960-2003: West Germany vs. all other OECD countries
+ggplot(data = df[!df$idx_treat,], aes(x = year, y = gdp, group = country)) +
+  geom_vline(xintercept = 1990, linetype = "dotted") +
+  geom_line(data = df[!df$idx_treat,], aes(col = "OECD countries")) + 
+  geom_line(data = df[df$idx_treat,], aes(col = "West Germany"), linewidth =.8) +
+  geom_line(data = df[df$idx_avg,], aes(col = "Simple average"), linewidth =.8) +
+  #geom_line(data = df[df$idx_synth,], aes(col = "Synthetic West Germany"), linewidth = .8) +
+  ambition_theme + theme(plot.caption = element_text(size = 8, face = "plain", hjust = 1)) +
+  coord_cartesian(ylim = c(0,33000)) +
+  ylab("Per-capita GDP") + xlab ("Year") +
+  labs(caption = "Data shows 16 OECD countries (USA, GBR, AUT, BEL, DNK, FRA, ITA, NLD, NOR, CHE, JPN, GRC, PRT, ESP, AUS, NZL).") +
+  scale_color_manual(
+    breaks=c("West Germany", "Simple average", "Synthetic West Germany", "OECD countries"),
+    values=c("OECD countries" = navy40, "West Germany" = blue, "Simple average" = navy, "Synthetic West Germany" = red)) +
+  theme(legend.position = c(.01, .99), legend.justification = c(.01, .99), legend.title = element_blank())
+
+cat("\n\n#### Trajectory of Per-Capita GDP 1960-1990: West Germany vs. all other OECD countries \n\n")
+#### Figure 0: Trajectory of Per-Capita GDP 1960-1990: West Germany vs. all other OECD countries
+ggplot(data = df[!df$idx_treat & df$year <= 1990,], aes(x = year, y = gdp, group = country)) +
+  geom_vline(xintercept = 1990, linetype = "dotted") +
+  geom_line(data = df[!df$idx_treat & df$year <= 1990, ], aes(col = "OECD countries")) + 
+  geom_line(data = df[df$idx_treat & df$year <= 1990,], aes(col = "West Germany"), linewidth = .8) +
+  geom_line(data = df[df$idx_avg & df$year <= 1990,], aes(col = "Simple average"), linewidth = .8) +
+  # geom_line(data = df[df$idx_synth & df$year <= 1990,], aes(col = "Synthetic West Germany"), linewidth = .8) +
+  ambition_theme + theme(plot.caption = element_text(size = 8, face = "plain", hjust = 1)) +
+  coord_cartesian(ylim = c(0,33000)) +
+  ylab("Per-capita GDP") + xlab ("Year") +
+  labs(caption = "Data shows 16 OECD countries (USA, GBR, AUT, BEL, DNK, FRA, ITA, NLD, NOR, CHE, JPN, GRC, PRT, ESP, AUS, NZL).") +
+  scale_color_manual(
+    breaks=c("West Germany", "Simple average", "Synthetic West Germany", "OECD countries"),
+    values=c("OECD countries" = navy40, "West Germany" = blue, "Simple average" = navy, "Synthetic West Germany" = red)) +
+  theme(legend.position = c(.01, .99), legend.justification = c(.01, .99), legend.title = element_blank())
+
+cat("\n\n#### Counterfactual for West Germany based on weighted average \n\n")
+#### Figure 0: Counterfactual for West Germany based on weighted average
+ggplot(data = df[!df$idx_treat & df$year <= 1990,], aes(x = year, y = gdp, group = country)) +
+  geom_vline(xintercept = 1990, linetype = "dotted") +
+  geom_line(data = df[df$idx_sel & df$year <= 1990, ], aes(col = "OECD countries")) + 
+  # geom_line(data = df[df$idx_treat & df$year <= 1990,], aes(col = "West Germany"), linewidth = .8) +
+  # geom_line(data = df[df$idx_avg & df$year <= 1990,], aes(col = "Simple average"), linewidth = .8) +
+  geom_line(data = df[df$idx_synth & df$year <= 1990,], aes(col = "Synthetic West Germany"), linewidth = .8) +
+  ambition_theme + theme(plot.caption = element_text(size = 8, face = "plain", hjust = 1)) +
+  coord_cartesian(ylim = c(0,33000)) +
+  ylab("Per-capita GDP") + xlab ("Year") +
+  labs(caption = "Data shows selected five OECD countries (USA, AUT, NLD, CHE & JPN).") +
+  scale_color_manual(
+    breaks=c("West Germany", "Simple average", "Synthetic West Germany", "OECD countries"),
+    values=c("OECD countries" = navy40, "West Germany" = blue, "Simple average" = navy, "Synthetic West Germany" = red)) +
+  theme(legend.position = c(.01, .99), legend.justification = c(.01, .99), legend.title = element_blank())
+
+
+cat("\n\n#### Trajectory of per capita GDP for West Germany and countries composing synthetic West Germany \n\n")
+#### Figure 0: Trajectory of per capita GDP for West Germany and countries composing synthetic West Germany
+ggplot(data = df[!df$idx_treat & df$year <= 1990,], aes(x = year, y = gdp, group = country)) +
+  geom_vline(xintercept = 1990, linetype = "dotted") +
+  geom_line(data = df[df$idx_sel & df$year <= 1990, ], aes(col = "OECD countries")) + 
+  geom_line(data = df[df$idx_treat & df$year <= 1990,], aes(col = "West Germany"), linewidth = .8) +
+  # geom_line(data = df[df$idx_avg & df$year <= 1990,], aes(col = "Simple average"), linewidth = .8) +
+  # geom_line(data = df[df$idx_synth & df$year <= 1990,], aes(col = "Synthetic West Germany"), linewidth = .8) +
+  ambition_theme + theme(plot.caption = element_text(size = 8, face = "plain", hjust = 1)) +
+  coord_cartesian(ylim = c(0,33000)) +
+  ylab("Per-capita GDP") + xlab ("Year") +
+  labs(caption = "Data shows selected five OECD countries (USA, AUT, NLD, CHE & JPN).") +
+  scale_color_manual(
+    breaks=c("West Germany", "Simple average", "Synthetic West Germany", "OECD countries"),
+    values=c("OECD countries" = navy40, "West Germany" = blue, "Simple average" = navy, "Synthetic West Germany" = red)) +
+  theme(legend.position = c(.01, .99), legend.justification = c(.01, .99), legend.title = element_blank())
+
+
+cat("\n\n#### Overlap of trajectory of per capita GDP for West Germany and for a synthetic control \n\n")
+#### Figure 0: Overlap of trajectory of per capita GDP for West Germany and for a synthetic control
+ggplot(data = df[!df$idx_treat & df$year <= 1990,], aes(x = year, y = gdp, group = country)) +
+  geom_vline(xintercept = 1990, linetype = "dotted") +
+  geom_line(data = df[df$idx_sel & df$year <= 1990, ], aes(col = "OECD countries")) + 
+  geom_line(data = df[df$idx_treat & df$year <= 1990,], aes(col = "West Germany"), linewidth = .8) +
+  # geom_line(data = df[df$idx_avg & df$year <= 1990,], aes(col = "Simple average"), linewidth = .8) +
+  geom_line(data = df[df$idx_synth & df$year <= 1990,], aes(col = "Synthetic West Germany"), linewidth = .8) +
+  ambition_theme + theme(plot.caption = element_text(size = 8, face = "plain", hjust = 1)) +
+  coord_cartesian(ylim = c(0,33000)) +
+  ylab("Per-capita GDP") + xlab ("Year") +
+  labs(caption = "Data shows selected five OECD countries (USA, AUT, NLD, CHE & JPN).") +
+  scale_color_manual(
+    breaks=c("West Germany", "Simple average", "Synthetic West Germany", "OECD countries"),
+    values=c("OECD countries" = navy40, "West Germany" = blue, "Simple average" = navy, "Synthetic West Germany" = red)) +
+  theme(legend.position = c(.01, .99), legend.justification = c(.01, .99), legend.title = element_blank())
+
+cat("\n\n#### Trajectory of per capita GDP for West Germany and for a synthetic control following reunification \n\n")
+#### Figure 0: Overlap of trajectory of per capita GDP for West Germany and for a synthetic control
+ggplot(data = df[!df$idx_treat,], aes(x = year, y = gdp, group = country)) +
+  geom_vline(xintercept = 1990, linetype = "dotted") +
+  geom_line(data = df[df$idx_sel, ], aes(col = "OECD countries")) + 
+  geom_line(data = df[df$idx_treat,], aes(col = "West Germany"), linewidth = .8) +
+  # geom_line(data = df[df$idx_avg,], aes(col = "Simple average"), linewidth = .8) +
+  geom_line(data = df[df$idx_synth,], aes(col = "Synthetic West Germany"), linewidth = .8) +
+  ambition_theme + theme(plot.caption = element_text(size = 8, face = "plain", hjust = 1)) +
+  coord_cartesian(ylim = c(0,33000)) +
+  ylab("Per-capita GDP") + xlab ("Year") +
+  labs(caption = "Data shows selected five OECD countries (USA, AUT, NLD, CHE & JPN).") +
+  scale_color_manual(
+    breaks=c("West Germany", "Simple average", "Synthetic West Germany", "OECD countries"),
+    values=c("OECD countries" = navy40, "West Germany" = blue, "Simple average" = navy, "Synthetic West Germany" = red)) +
+  theme(legend.position = c(.01, .99), legend.justification = c(.01, .99), legend.title = element_blank())
+
+
+```
+
+
+```{r}
+synth.tables <- synth.tab(
+  dataprep.res = dataprep.out,
+  synth.res = synth.out
+)
+synth.tables
+
+```
+
+
+```{r, results='asis', echo=F}
+#### Table 1
+# synth weights
+tab1 <- data.frame(synth.tables$tab.w)
+tab1[,1] <- round(tab1[,1],2) 
+write.csv(tab1, "tmp.csv", row.names = F)
+
+# regression weights
+X0 <- cbind(1,t(dataprep.out$X0))
+X1 <- as.matrix(c(1,dataprep.out$X1))
+W     <- X0%*%solve(t(X0)%*%X0)%*%X1
+Wdat  <- data.frame(unit.numbers=as.numeric(rownames(X0)),
+                    regression.w=round(W,2))
+tab1  <- merge(tab1,Wdat,by="unit.numbers")
+tab1  <- tab1[order(tab1[,3]),]
+cat("\n\n#### TABLE 1 Synthetic and Regression Weights for West Germany \n\n")
+print(xtable(cbind(tab1[1:8,c(3,2,4)],
+                   tab1[9:16,c(3,2,4)]
+)
+), type = "html")
+
+
+```
+
+
+```{r, results='asis', echo =F}
+# Replace means for OECD sample (computed externally using proper pop weighting)
+synth.tables$tab.pred[,3]          <- c(8021.1,31.9,7.4,34.2,44.1,25.9)
+colnames(synth.tables$tab.pred)[3] <- "Rest of OECD Sample"
+rownames(synth.tables$tab.pred) <- c("GDP per-capita","Trade openness",
+                                     "Inflation rate","Industry share",
+                                     "Schooling","Investment rate")
+cat("\n\n#### TABLE 2 Economic Growth Predictor Means before German Reunification \n")
+print(xtable(round(synth.tables$tab.pred,1),digits=1), type = "html")
+write.csv(round(synth.tables$tab.pred, digits=1), "tmp.csv")
+
+```
+
+
+### Trajectory of Per-Capita GDP: West Germany vs. Rest of the OECD Sample
+
+```{r, echo =F}
+#### Figure 1: Trajectory of Per-Capita GDP: West Germany vs. Rest of the OECD Sample
+Text.height <- 23000
+Cex.set <- .8
+#pdf(file = "ger_vs_oecd.pdf", width = 5.5, height = 5.5, family = "Times",pointsize = 12)
+plot(1960:2003,dataprep.out$Y1plot,
+     type="l",ylim=c(0,33000),col="black",lty="solid",
+     main = "Trajectory of per Capita GDP: West Germany versus OECD Sample",
+     ylab ="per-capita GDP (PPP, 2002 USD)",
+     xlab ="year",
+     xaxs = "i", yaxs = "i",
+     lwd=2
+)
+lines(1960:2003,aggregate(d[,c("gdp")],by=list(d$year),mean,na.rm=T)[,2]
+      ,col="black",lty="dashed",lwd=2) # mean 2
+abline(v=1990,lty="dotted")
+legend(x="bottomright",
+       legend=c("West Germany","rest of the OECD sample")
+       ,lty=c("solid","dashed"),col=c("black","black")
+       ,cex=.8,bg="white",lwd=c(2,2))
+arrows(1987,Text.height,1989,Text.height,col="black",length=.1)
+text(1982.5,Text.height,"reunification",cex=Cex.set)
+#dev.off()
+
+```
+
+### Trajectory of Per-Capita GDP: West Germany vs. Synthetic West Germany
+
+```{r, echo = F}
+#### Figure 2: Trajectory of Per-Capita GDP: West Germany vs. Synthetic West Germany
+#pdf(file = "ger_vs_synthger2.pdf", width = 5.5, height = 5.5, family = "Times",pointsize = 12)
+synthY0 <- (dataprep.out$Y0%*%synth.out$solution.w)
+plot(1960:2003,dataprep.out$Y1plot,
+     type="l",ylim=c(0,33000),col="black",lty="solid",
+     main = "Trajectory of Per-Capita GDP: West Germany vs. Synthetic West Germany",
+     ylab ="per-capita GDP (PPP, 2002 USD)",
+     xlab ="year",
+     xaxs = "i", yaxs = "i",
+     lwd=2
+)
+lines(1960:2003,synthY0,col="black",lty="dashed",lwd=2)
+abline(v=1990,lty="dotted")
+legend(x="bottomright",
+       legend=c("West Germany","synthetic West Germany")
+       ,lty=c("solid","dashed"),col=c("black","black")
+       ,cex=.8,bg="white",lwd=c(2,2))
+arrows(1987,Text.height,1989,Text.height,col="black",length=.1)
+text(1982.5,Text.height,"reunification",cex=Cex.set)
+#dev.off()
+
+```
+
+###  Per-Capita GDP Gap Between West Germany and Synthetic West Germany
+
+```{r, echo = F}
+### Figure 3: Per-Capita GDP Gap Between West Germany and Synthetic West Germany
+#pdf(file = "ger_vs_synthger_gaps2.pdf", width = 5.5, height = 5.5, family = "Times",pointsize = 12)
+gap <- dataprep.out$Y1-(dataprep.out$Y0%*%synth.out$solution.w)
+plot(1960:2003,gap,
+     type="l",ylim=c(-4500,4500),col="black",lty="solid",
+     main = "Per-Capita GDP Gap Between West Germany and Synthetic West Germany",
+     ylab =c("gap in per-capita GDP (PPP, 2002 USD)"),
+     xlab ="year",
+     xaxs = "i", yaxs = "i",
+     lwd=2
+)
+abline(v=1990,lty="dotted")
+abline(h=0,lty="dotted")
+arrows(1987,1000,1989,1000,col="black",length=.1)
+text(1982.5,1000,"reunification",cex=Cex.set)
+#dev.off()
+
+```
+
+## In-time placebo test  
+
+```{r, include = F}
+### Figure 4: Placebo Reunification 1975 - Trajectory of Per-Capita GDP: West Germany vs. Synthetic West Germany
+
+# data prep for training model
+dataprep.out <-
+  dataprep(
+    foo = d,
+    predictors    = c("gdp","trade","infrate"),
+    dependent     = "gdp",
+    unit.variable = 1,
+    time.variable = 3,
+    special.predictors = list(
+      list("industry",1971, c("mean")),
+      list("schooling",c(1960,1965), c("mean")),
+      list("invest60" ,1980, c("mean"))
+    ),
+    treatment.identifier = 7,
+    controls.identifier = unique(d$index)[-7],
+    time.predictors.prior = 1960:1964,
+    time.optimize.ssr = 1965:1975,
+    unit.names.variable = 2,
+    time.plot = 1960:1990
+  )
+
+# fit training model
+synth.out <- synth(
+  data.prep.obj=dataprep.out,
+  Margin.ipop=.005,Sigf.ipop=7,Bound.ipop=6
+)
+
+
+# data prep for main model
+dataprep.out <-
+  dataprep(
+    foo = d,
+    predictors    = c("gdp","trade","infrate"),
+    dependent     = "gdp",
+    unit.variable = 1,
+    time.variable = 3,
+    special.predictors = list(
+      list("industry" ,1971:1975, c("mean")),
+      list("schooling",c(1970,1975), c("mean")),
+      list("invest70" ,1980, c("mean"))
+    ),
+    treatment.identifier = 7,
+    controls.identifier = unique(d$index)[-7],
+    time.predictors.prior = 1965:1975,
+    time.optimize.ssr = 1960:1975,
+    unit.names.variable = 2,
+    time.plot = 1960:1990
+  )
+
+# fit main model
+synth.out <- synth(
+  data.prep.obj=dataprep.out,
+  custom.v=as.numeric(synth.out$solution.v)
+)
+```
+
+```{r, echo=FALSE}
+### Figure 4: Placebo Reunification 1975 - Trajectory of Per-Capita GDP: West Germany vs. Synthetic West Germany
+
+Cex.set <- 1
+#pdf(file = "2intimeplacebo1975.pdf", width = 5.5, height = 5.5, family = "Times",pointsize = 12)
+plot(1960:1990,dataprep.out$Y1plot,
+     type="l",ylim=c(0,33000),col="black",lty="solid",
+     main = "Placebo Reunification 1975–Trajectory of per Capita GDP",
+     ylab ="per-capita GDP (PPP, 2002 USD)",
+     xlab ="year",
+     xaxs = "i", yaxs = "i",
+     lwd=2
+)
+lines(1960:1990,(dataprep.out$Y0%*%synth.out$solution.w),col="black",lty="dashed",lwd=2)
+abline(v=1975,lty="dotted")
+legend(x="bottomright",
+       legend=c("West Germany","synthetic West Germany")
+       ,lty=c("solid","dashed"),col=c("black","black")
+       ,cex=.8,bg="white",lwd=c(2,2))
+arrows(1973,20000,1974.5,20000,col="black",length=.1)
+text(1967.5,20000,"placebo reunification",cex=Cex.set)
+#dev.off()
+```
+
+
+## Placebo test for every non-treated unit in the donor pool
+
+The RMSPE (root mean square prediction error) measures lack of fit between the path of the outcome variable for any particular country and its synthetic counterpart.  
+
+RMSPE measures the magnitude of the gap in the outcome variable of interest between each country and its synthetic counterpart. A large postintervention RMSPE is not indicative of a large effect of the intervention if the synthetic control does not closely reproduce the outcome of interest prior to the intervention. That is, a large postintervention RMSPE is not indicative of a large effect of the intervention if the preintervention RMSPE is also large. For each country, we divide the postreunification RMSPE by its pre-reunification RMSPE. In Figure 5, West Germany clearly stands out as the country with the highest RMSPE ratio.  
+
+
+```{r, include = F}
+### Figure 5: Ratio of post-reunification RMSPE to pre-reunification RMSPE: West Germany and control countries.
+
+# loop across control units
+storegaps <- 
+  matrix(NA,
+         length(1960:2003),
+         length(unique(d$index))-1
+  )
+rownames(storegaps) <- 1960:2003
+i <- 1
+co <- unique(d$index)
+
+for(k in unique(d$index)[-7]){
+  
+  # data prep for training model
+  dataprep.out <-
+    dataprep(
+      foo = d,
+      predictors    = c("gdp","trade","infrate"),
+      dependent     = "gdp",
+      unit.variable = 1,
+      time.variable = 3,
+      special.predictors = list(
+        list("industry",1971:1980, c("mean")),
+        list("schooling"   ,c(1970,1975), c("mean")),
+        list("invest70" ,1980, c("mean"))
+      ),
+      treatment.identifier = k,
+      controls.identifier = co[-which(co==k)],
+      time.predictors.prior = 1971:1980,
+      time.optimize.ssr = 1981:1990,
+      unit.names.variable = 2,
+      time.plot = 1960:2003
+    )
+  
+  # fit training model
+  synth.out <-
+    synth(
+      data.prep.obj=dataprep.out,
+      Margin.ipop=.005,Sigf.ipop=7,Bound.ipop=6
+    )
+  
+  # data prep for main model
+  dataprep.out <-
+    dataprep(
+      foo = d,
+      predictors    = c("gdp","trade","infrate"),
+      dependent     = "gdp",
+      unit.variable = 1,
+      time.variable = 3,
+      special.predictors = list(
+        list("industry" ,1981:1990, c("mean")),
+        list("schooling",c(1980,1985), c("mean")),
+        list("invest80" ,1980, c("mean"))
+      ),
+      treatment.identifier = k,
+      controls.identifier = co[-which(co==k)],
+      time.predictors.prior = 1981:1990,
+      time.optimize.ssr = 1960:1989,
+      unit.names.variable = 2,
+      time.plot = 1960:2003
+    )
+  
+  # fit main model
+  synth.out <- synth(
+    data.prep.obj=dataprep.out,
+    custom.v=as.numeric(synth.out$solution.v)
+  )
+  
+  storegaps[,i] <-  
+    dataprep.out$Y1-
+    (dataprep.out$Y0%*%synth.out$solution.w)
+  i <- i + 1
+} # close loop over control units
+d <- d[order(d$index,d$year),]
+colnames(storegaps) <- unique(d$country)[-7]
+storegaps <- cbind(gap,storegaps)
+colnames(storegaps)[1] <- c("West Germany")
+
+# compute ratio of post-reunification RMSPE 
+# to pre-reunification RMSPE                                                  
+rmse <- function(x){sqrt(mean(x^2))}
+preloss <- apply(storegaps[1:30,],2,rmse)
+postloss <- apply(storegaps[31:44,],2,rmse)
+
+
+```
+
+
+```{r, echo = F}
+### Figure 5: Ratio of post-reunification RMSPE to pre-reunification RMSPE: West Germany and control countries.
+
+#pdf("2ratio_post_to_preperiod_rmse2a.pdf")
+dotchart(sort(postloss/preloss),
+         main = "Ratio of Postreunification RMSPE to Prereunification RMSPE",
+         xlab="Post-Period RMSE / Pre-Period RMSE",
+         pch=19)
+#dev.off()
+
+```
+
+
+```{r, warning=F, echo = F, results='asis'}
+df_gaps <- as.data.frame(storegaps) %>%
+  mutate(year = as.numeric(row.names(.))) %>%
+  select(year, everything()) %>%
+  tidyr::pivot_longer(., cols = names(.)[-1], names_to = "country", values_to = "gdp") %>%
+  mutate(idx_treat = ifelse(country == "West Germany", TRUE, FALSE))
+
+cat("\n\n#### Magnitude of the estimated treatment effect as gap in the outcome between West Germany and its synthetic control \n\n")
+#### Magnitude of the estimated treatment effect as gap in the outcome between West Germany and its synthetic control
+ggplot(data = df_gaps, aes(x = year, y = gdp, group = country)) +
+  geom_vline(xintercept = 1990, linetype = "dotted") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  # geom_line(data = df_gaps[df_gaps$idx_sel, ], aes(col = "OECD countries")) + 
+  geom_line(data = df_gaps[df_gaps$idx_treat,], aes(col = "West Germany"), linewidth = .8) +
+  ambition_theme + theme(plot.caption = element_text(size = 8, face = "plain", hjust = 1)) +
+  coord_cartesian(ylim = c(-4500, 4500)) +
+  ylab("Per-capita GDP") + xlab ("Year") +
+  labs(caption = "Data shows difference between treated unit and synthetic control for West Germany.") +
+  scale_color_manual(
+    breaks=c("West Germany", "Simple average", "Synthetic West Germany", "OECD countries"),
+    values=c("OECD countries" = navy40, "West Germany" = blue, "Simple average" = navy, "Synthetic West Germany" = red)) +
+  theme(legend.position = c(.01, .99), legend.justification = c(.01, .99), legend.title = element_blank())
+
+cat("\n\n#### Magnitute of estimated placebo effects as gaps in the outcome between donor units and their synthetic control \n\n")
+### Magnitute of estimated placebo effects as gaps in the outcome between donor units and their synthetic control 
+ggplot(data = df_gaps, aes(x = year, y = gdp, group = country)) +
+  geom_vline(xintercept = 1990, linetype = "dotted") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  geom_line(data = df_gaps[!df_gaps$idx_treat, ], aes(col = "OECD countries")) +
+  geom_line(data = df_gaps[df_gaps$idx_treat,], aes(col = "West Germany"), linewidth = .8) +
+  ambition_theme + theme(plot.caption = element_text(size = 8, face = "plain", hjust = 1)) +
+  coord_cartesian(ylim = c(-4500, 4500)) +
+  ylab("Per-capita GDP") + xlab ("Year") +
+  labs(caption = "16 OECD countries (USA, GBR, AUT, BEL, DNK, FRA, ITA, NLD, NOR, CHE, JPN, GRC, PRT, ESP, AUS, NZL) were used as placebo, respectively.") +
+  scale_color_manual(
+    breaks=c("West Germany", "Simple average", "Synthetic West Germany", "OECD countries"),
+    values=c("OECD countries" = navy40, "West Germany" = blue, "Simple average" = navy, "Synthetic West Germany" = red)) +
+  theme(legend.position = c(.01, .99), legend.justification = c(.01, .99), legend.title = element_blank())
+
+```
+
+## Robustness test  
+
+Here we iteratively reestimate the baseline model to construct a synthetic West Germany omitting in each iteration one of the countries that received a positive weight (Austria, the United States, Japan, Switzerland, and the Netherlands, with weights decreasing in this order). By excluding countries that received a positive weight we sacrifice some goodness of fit, but this sensitivity check allows us to evaluate to what extent our results are driven by any particular control country.
+
+```{r, include = F}
+### Figure 6: Leave-one-out distribution of the synthetic control for West Germany
+
+# loop over leave one outs
+storegaps <- 
+  matrix(NA,
+         length(1960:2003),
+         5)
+colnames(storegaps) <- c(1,3,9,12,14)
+co <- unique(d$index)[-7]
+
+for(k in 1:5){
+  
+  # data prep for training model
+  omit <- c(1,3,9,12,14)[k]  
+  dataprep.out <-
+    dataprep(
+      foo = d,
+      predictors    = c("gdp","trade","infrate"),
+      dependent     = "gdp",
+      unit.variable = 1,
+      time.variable = 3,
+      special.predictors = list(
+        list("industry",1971:1980, c("mean")),
+        list("schooling"   ,c(1970,1975), c("mean")),
+        list("invest70" ,1980, c("mean"))
+      ),
+      treatment.identifier = 7,
+      controls.identifier = co[-which(co==omit)],
+      time.predictors.prior = 1971:1980,
+      time.optimize.ssr = 1981:1990,
+      unit.names.variable = 2,
+      time.plot = 1960:2003
+    )
+  
+  # fit training model
+  synth.out <- synth(
+    data.prep.obj=dataprep.out,
+    Margin.ipop=.005,Sigf.ipop=7,Bound.ipop=6
+  )
+  
+  # data prep for main model
+  dataprep.out <-
+    dataprep(
+      foo = d,
+      predictors    = c("gdp","trade","infrate"),
+      dependent     = "gdp",
+      unit.variable = 1,
+      time.variable = 3,
+      special.predictors = list(
+        list("industry" ,1981:1990, c("mean")),
+        list("schooling",c(1980,1985), c("mean")),
+        list("invest80" ,1980, c("mean"))
+      ),
+      treatment.identifier = 7,
+      controls.identifier = co[-which(co==omit)],
+      time.predictors.prior = 1981:1990,
+      time.optimize.ssr = 1960:1989,
+      unit.names.variable = 2,
+      time.plot = 1960:2003
+    )
+  
+  # fit main model 
+  synth.out <- synth(
+    data.prep.obj=dataprep.out,
+    custom.v=as.numeric(synth.out$solution.v)
+  )
+  storegaps[,k] <- (dataprep.out$Y0%*%synth.out$solution.w)
+} # close loop over leave one outs
+
+```
+
+```{r, echo = F}
+
+### Figure 6: Leave-one-out distribution of the synthetic control for West Germany
+
+Text.height <- 23000
+Cex.set <- .8
+#pdf(file = "1jackknife2.pdf", width = 5.5, height = 5.5, family = "Times",pointsize = 12)
+plot(1960:2003,dataprep.out$Y1plot,
+     type="l",ylim=c(0,33000),col="black",lty="solid",
+     main = "Leave-One-Out Distribution of the Synthetic Control for West Germany",
+     ylab ="per-capita GDP (PPP, 2002 USD)",
+     xlab ="year",
+     xaxs = "i", yaxs = "i",lwd=2
+)
+
+abline(v=1990,lty="dotted")
+arrows(1987,23000,1989,23000,col="black",length=.1)
+for(i in 1:5){
+  lines(1960:2003,storegaps[,i],col=navy40,lty="solid")
+}
+lines(1960:2003,synthY0,col="black",lty="dashed",lwd=2)
+lines(1960:2003,dataprep.out$Y1plot,col="black",lty="solid",lwd=2)
+text(1982.5,23000,"reunification",cex=.8)
+legend(x="bottomright",
+       legend=c("West Germany",
+                "synthetic West Germany",
+                "synthetic West Germany (leave-one-out)")
+       ,lty=c("solid","dashed","solid"),
+       col=c("black","black",navy40)
+       ,cex=.8,bg="white",lwdc(2,2,1))
+#dev.off()
+```
+
+
+```{r, warning=F, echo = F, results='asis'}
+df_loo <- as.data.frame(storegaps) %>%
+  `colnames<-`(c(unique(d$country)[unique(d$index) %in%  c(1,3,9,12,14)])) %>%
+  mutate(`West Germany` = dataprep.out$Y1plot,
+         `Synthetic West Germany` = synthY0,
+    year = 1960:2003) %>%
+  select(year, everything()) %>%
+  tidyr::pivot_longer(., cols = names(.)[-1], names_to = "country", values_to = "gdp") %>%
+  mutate(idx_treat = ifelse(country == "West Germany", TRUE, FALSE),
+         idx_synth = ifelse(country == "Synthetic West Germany", TRUE, FALSE),
+         idx_loo = ifelse(country %in%  c(unique(d$country)[unique(d$index) %in%  c(1,3,9,12,14)]), TRUE, FALSE))
+
+ggplot(data = df_loo, aes(x = year, y = gdp, group = country)) +
+  geom_vline(xintercept = 1990, linetype = "dotted") +
+  geom_line(data = df_loo[df_loo$idx_loo,], aes(col = "Synthetic West Germany (LOO)")) + 
+  geom_line(data = df_loo[df_loo$idx_treat,], aes(col = "West Germany"), linewidth =.8) +
+  geom_line(data = df_loo[df_loo$idx_synth,], aes(col = "Synthetic West Germany"), linewidth = .8) +
+  ambition_theme + theme(plot.caption = element_text(size = 8, face = "plain", hjust = 1)) +
+  coord_cartesian(ylim = c(0,33000)) +
+  ylab("Per-capita GDP") + xlab ("Year") +
+  labs(caption = "Data shows the effect of the exclusion of any selected OECD country (USA, AUT, NLD, CHE & JPN).") +
+  scale_color_manual(
+    breaks=c("West Germany", "Simple average", "Synthetic West Germany", "Synthetic West Germany (LOO)"),
+    values=c("Synthetic West Germany (LOO)" = navy40, "West Germany" = blue, "Simple average" = navy, "Synthetic West Germany" = red)) +
+  theme(legend.position = c(.01, .99), legend.justification = c(.01, .99), legend.title = element_blank())
+
+
+```
+
+
+## Reducing the Number of Units in a Synthetic Control
+
+For this example, the countries contributing to the sparse versions of the synthetic control for West Germany are subsets of the set of five countries contributing to the synthetic control in the baseline specification.
+
+
+```{r, include = F}
+### Table 3: Synthetic Weights from Combinations of Control Countries
+rm(list=ls())
+library(gtools)
+library(kernlab)
+
+# data prep for training model
+d <- read.dta("repgermany.dta")
+dataprep.out <-
+  dataprep(
+    foo = d,
+    predictors    = c("gdp","trade","infrate"),
+    dependent     = "gdp",
+    unit.variable = 1,
+    time.variable = 3,
+    special.predictors = list(
+      list("industry", 1971:1980, c("mean")),
+      list("schooling",c(1970,1975), c("mean")),
+      list("invest70" ,1980, c("mean"))
+    ),
+    treatment.identifier = 7,
+    controls.identifier = unique(d$index)[-7],
+    time.predictors.prior = 1971:1980,
+    time.optimize.ssr = 1981:1990,
+    unit.names.variable = 2,
+    time.plot = 1960:2003
+  )
+
+# fit training model
+synth.out <- 
+  synth(
+    data.prep.obj=dataprep.out,
+    Margin.ipop=.005,Sigf.ipop=7,Bound.ipop=6
+  )
+
+# data prep for main model
+dataprep.out <-
+  dataprep(
+    foo = d,
+    predictors    = c("gdp","trade","infrate"),
+    dependent     = "gdp",
+    unit.variable = 1,
+    time.variable = 3,
+    special.predictors = list(
+      list("industry" ,1981:1990, c("mean")),
+      list("schooling",c(1980,1985), c("mean")),
+      list("invest80" ,1980, c("mean"))
+    ),
+    treatment.identifier = 7,
+    controls.identifier = unique(d$index)[-7],
+    time.predictors.prior = 1981:1990,
+    time.optimize.ssr = 1960:1989,
+    unit.names.variable = 2,
+    time.plot = 1960:2003
+  )
+
+# fit main model with v from training model
+synth.out <- synth(
+  data.prep.obj=dataprep.out,
+  custom.v=as.numeric(synth.out$solution.v)
+)
+
+synth.tables <- synth.tab(
+  dataprep.res = dataprep.out,
+  synth.res = synth.out
+)
+
+table3 <- list()
+synth.tables$tab.w[,1] <- round(synth.tables$tab.w[,1],2)
+table3[[5]] <-synth.tables$tab.w[order(-1*synth.tables$tab.w[,1]),2:1][1:5,]
+
+# compute loss for all combinations 
+# of 4, 3, 2, 1 sized donor pools
+
+# get W and v
+solution.w <- round(synth.out$solution.w,3)
+V <- diag(as.numeric(synth.out$solution.v))
+
+# compute scaled Xs
+nvarsV <- dim(dataprep.out$X0)[1]
+big.dataframe <- cbind(dataprep.out$X0, dataprep.out$X1)
+divisor <- sqrt(apply(big.dataframe, 1, var))
+scaled.matrix <-
+  t(t(big.dataframe) %*% ( 1/(divisor) *
+                             diag(rep(dim(big.dataframe)[1], 1)) ))
+X0.scaled <- scaled.matrix[,c(1:(dim(dataprep.out$X0)[2]))]
+X1.scaled <- as.matrix(scaled.matrix[,dim(scaled.matrix)[2]])
+
+dn <- d[d$year==1970,c("country","index")]
+dn <- dn[order(dn$index),]
+dn <- dn[-7,]
+
+table2store <- matrix(NA,nrow(dataprep.out$X1),4)
+fig7store   <- matrix(NA,length(1960:2003),4)  
+
+# loop through number of controls
+for(pp in 4:1){
+  store       <- combinations(length(unique(d$index)[-7]),
+                              r=pp, v=unique(d$index)[-7])
+  store.loss  <- matrix(NA,nrow=nrow(store),1)
+  store.w     <- matrix(NA,nrow=nrow(store),pp)
+  store.c     <- store.w
+  
+  # loop through combinations 
+  for(k in 1:nrow(store)){
+    # index positions of control units
+    posvector <- c()
+    for(i in 1:pp){
+      posvector <- c(posvector,which(dn$index==store[k,i]))
+    }
+    
+    # run quad optimization  
+    X0temp <- X0.scaled[ , posvector ]
+    H <- t(X0temp) %*% V %*% (X0temp)
+    c <- -1*c(t(X1.scaled) %*% V %*% (X0temp) )
+    
+    if(pp == 1){
+      solution.w <- matrix(1)
+    } else {      
+      res <- ipop(c = c, H = H, A = t(rep(1, length(c))),
+                  b = 1, l = rep(0, length(c)),
+                  u = rep(1, length(c)), r = 0,
+                  margin = 0.005,sigf = 7, bound = 6)
+      solution.w <- as.matrix(primal(res))
+    }
+    loss.w <- t(X1.scaled - X0temp %*% solution.w) %*% V %*% (X1.scaled - X0temp %*% solution.w)
+    
+    store.loss[k] <- loss.w
+    store.w[k,]   <- t(solution.w)
+    store.c[k,]   <- dn$country[posvector]
+  } # close loop over combinations
+  
+  # get best fitting combination
+  dat <- data.frame(store.loss,
+                    store,
+                    store.c,
+                    store.w
+  )
+  colnames(dat) <- c("loss",
+                     paste("CNo",1:pp,sep=""),
+                     paste("CNa",1:pp,sep=""),
+                     paste("W",1:pp,sep="")
+  )
+  dat <- dat[order(dat$loss),]
+  Countries <- dat[1,paste("CNo",1:pp,sep="")]
+  Cweights  <- as.numeric(dat[1,paste("W",1:pp,sep="")])
+  
+  outdat <-  data.frame(unit.names=as.vector(
+    (t(as.vector(dat[1,paste("CNa",1:pp,sep="")])))),
+    w.weights=round(Cweights,2))
+  
+  table3[[pp]]<- outdat[order(-1*outdat$w.weights),]
+  
+  # get posvector for fitting
+  posvector <- c()
+  if(pp == 1 ){
+    posvector <- c(posvector,which(dn$index==Countries))
+  } else {
+    for(i in 1:pp){
+      posvector <- c(posvector,which(dn$index==Countries[1,i]))
+    }
+  }
+  
+  X0t <- as.matrix(dataprep.out$X0[,posvector])%*% as.matrix(Cweights)
+  table2store[,(4:1)[pp]] <- X0t
+  
+  fig7store[,(4:1)[pp]] <- 
+    dataprep.out$Y0[,posvector]%*%as.matrix(Cweights)
+  
+} # close loop over number of countries
+
+
+```
+
+#### Synthetic Weights from Combinations of Control Countries
+
+```{r, echo = F}
+# Table 3
+table3
+
+```
+
+
+```{r, results='asis', echo = F}
+# Table 4
+synth.tables$tab.pred[,3] <- c(8021.1,31.9,7.4,34.2,44.1,25.9)
+table4 <- round(
+  cbind(synth.tables$tab.pred[,1:2],
+        table2store,
+        synth.tables$tab.pred[,3]),1)
+rownames(table4) <- c("GDP per-capita","Trade openness",
+                      "Inflation rate","Industry share",
+                      "Schooling","Investment rate")
+colnames(table4)[2:7] <- c(5:1,"OECD Sample")
+
+cat("\n\n#### Economic Growth Predictor Means before the German Reunification for Combinations of Control Countries \n\n")
+print(xtable(table4), type = "html")
+
+```
+
+#### Per-Capita GDP Gaps Between West Germany and Sparse Synthetic Controls
+
+```{r, echo = F}
+## Figure 7: Per-Capita GDP Gaps Between West Germany and Sparse Synthetic Controls
+Text.height <- 23000
+Cex.set <- .8
+
+par(mfrow=c(2,2)) 
+for(pp in 4:1){
+  #pdf(file = paste("2ger_vs_synth","CValt",pp,".pdf",sep=""), width = 5.5, height = 5.5, family = "Times",pointsize = 12)
+  plot(1960:2003,dataprep.out$Y1,
+       type="l",ylim=c(0,33000),col="black",lty="solid",
+       ylab ="per-capita GDP (PPP, 2002 USD)",
+       xlab ="year",
+       xaxs = "i", yaxs = "i",
+       lwd=2,
+       main=paste("No. of control countries: ",pp,sep="")
+  )
+  lines(1960:2003,fig7store[,c(4:1)[pp]],col="black",lty="dashed",lwd=2)
+  abline(v=1990,lty="dotted")
+  legend(x="bottomright",
+         legend=c("West Germany","synthetic West Germany")
+         ,lty=c("solid","dashed"),col=c("black","black")
+         ,cex=.8,bg="white",lwd=c(2,2))
+  arrows(1987,Text.height,1989,Text.height,col="black",length=.1)
+  text(1982.5,Text.height,"reunification",cex=Cex.set)
+  #dev.off()
+}
+
+
+```
+
+
+
