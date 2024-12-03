@@ -33,13 +33,17 @@ library(ggplot2)
 # source ambition theme
 devtools::source_url("https://github.com/stefaniemeliss/scm_feasibility/blob/main/functions.R?raw=TRUE")
 
+# Function to insert "/" in the format "YYYYYY" to "YYYY/YY"
+insert_slash <- function(number) {
+  sub("(\\d{4})(\\d{2})", "\\1/\\2", number)
+}
 
 # # read in misc info about OAT schools
 # misc <- read.csv(file = file.path(dir_misc, "OAT Linked establishments.csv"))
 # misc <- xlsx::read.xlsx(file = file.path(dir_data, "data_government.xlsx"), sheetName = "data_OAT")
 
 # read in workforce data
-leav <- read.csv(file = file.path(dir_data, "school-workforce-in-england", "2023", "data", "workforce_qual_leavers_2010_2022_national.csv"))
+leav <- read.csv(file = file.path(gsub("scm_feasibility", "edu_stats", dir_data), "school-workforce-in-england", "2023", "data", "workforce_qual_leavers_2010_2022_national.csv"))
 names(leav) <- gsub("X...", "", names(leav), fixed = T)
 
 # subset to focus on school totals 
@@ -49,6 +53,7 @@ leav <- subset(leav, school_type == "Total state-funded schools")
 leav <- subset(leav, leaver_type == "Total")
 
 # edit data 
+leav$time_period <- insert_slash(leav$time_period)
 leav$time_period <- factor(leav$time_period)
 
 # edit demogs
@@ -69,7 +74,7 @@ leav$working_pattern <- factor(leav$working_pattern, levels = c("Total", "Full-t
 leav <- leav[, c("time_period", "gender", "age_group", "ethnicity_major", "grade", "working_pattern", "fte_leavers", "fte_leavers_percent")]
 
 # get FTE all teachers at national level #
-fte <- read.csv(file = file.path(dir_data, "school-workforce-in-england", "2023", "data", "workforce_2010_2023_fte_hc_nat_reg_la.csv"))
+fte <- read.csv(file = file.path(gsub("scm_feasibility", "edu_stats", dir_data), "school-workforce-in-england", "2023", "data", "workforce_2010_2023_fte_hc_nat_reg_la.csv"))
 names(fte) <- gsub("X...", "", names(fte), fixed = T)
 
 # filter for national data
@@ -91,8 +96,13 @@ leav$fte_all_teachers_with_qts <- NULL
 
 
 # read in info about dataset
-dict <- read.csv(file = file.path(dir_misc, "meta_qual_leavers.csv"))
-names(dict) <- gsub("X...", "", names(dict), fixed = T)
+dict <- structure(list(Variable.name = c("age_group", "ethnicity_major", 
+                                         "fte_leavers", "fte_leavers_percent", "gender", "grade", "leaver_type", 
+                                         "school_type", "working_pattern"), Variable.description = c("Age group", 
+                                                                                                     "Ethnicity major", "FTE number of leavers", "Leavers rate", "Gender", 
+                                                                                                     "Post on leaving", "Type of leaver", "Type of school", "Working pattern"
+                                         )), class = "data.frame", row.names = c(NA, -9L))
+
 dict[nrow(dict) + 1, ] <- c("fte_all_teachers_percent", "Proportion FTE(leavers) / FTE(all QT)")
 
 ```
@@ -152,10 +162,12 @@ for (var in vars) {
       geom_line() + 
       scale_color_manual(values = c(black, ambition_palette)) +
       ambition_theme + theme(#legend.position = "none",  
-        axis.text.x = element_text(angle = 45, hjust = 1)) +
-      ylab(paste(y_lab)) + xlab("Academic years") + 
-      guides(color = guide_legend(title = stringr::str_to_sentence(gsub("_", " ", var)),
-                                  nrow = 2))
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.text = element_text(size = 10)) +
+      ylab(paste(y_lab)) + xlab("Academic year") + 
+      guides(color = guide_legend(title = stringr::str_to_sentence(gsub("_", " ", var))#,
+                                  #nrow = 2)
+      ))
     print(plt)
     
   }
@@ -203,10 +215,12 @@ for (demog in vars_demog) {
         #scale_color_manual(values = c(navy, red, blue)) +
         facet_wrap(~ get(var)) +
         ambition_theme + theme(#legend.position = "none",  
-          axis.text.x = element_text(angle = 45, hjust = 1)) +
-        ylab(paste(y_lab)) + xlab("Academic years") + 
-        guides(color = guide_legend(title = stringr::str_to_sentence(gsub("_", " ", demog)),
-                                    nrow = 2))
+          axis.text.x = element_text(angle = 45, hjust = 1),
+          axis.text = element_text(size = 10)) +
+        ylab(paste(y_lab)) + xlab("Academic year") + 
+        guides(color = guide_legend(title = stringr::str_to_sentence(gsub("_", " ", var))#,
+                                    #nrow = 2)
+        ))
       print(plt)
       
     }
@@ -240,11 +254,13 @@ for (dep_var in dep_vars) {
     scale_color_manual(values = c(black, ambition_palette)) +
     #scale_color_manual(values = c(navy, red, blue)) +
     facet_wrap(~ working_pattern) +
-    ambition_theme + theme(#legend.position = "none",  
-      axis.text.x = element_text(angle = 45, hjust = 1)) +
-    ylab(paste(y_lab)) + xlab("Academic years") + 
-    guides(color = guide_legend(title = "Grade",
-                                nrow = 2))
+      ambition_theme + theme(#legend.position = "none",  
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.text = element_text(size = 10)) +
+      ylab(paste(y_lab)) + xlab("Academic year") + 
+      guides(color = guide_legend(title = stringr::str_to_sentence(gsub("_", " ", var))#,
+                                  #nrow = 2)
+             ))
   
   print(plt)
   
