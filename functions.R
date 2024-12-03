@@ -37,3 +37,16 @@ is_outlier_iqr <- function(x) {
 insert_slash <- function(number) {
   sub("(\\d{4})(\\d{2})", "\\1/\\2", number)
 }
+
+# rbind all columns
+rbind.all.columns <- function(x, y) {
+  
+  x.diff <- setdiff(colnames(x), colnames(y))
+  y.diff <- setdiff(colnames(y), colnames(x))
+  
+  x[, c(as.character(y.diff))] <- NA
+  
+  y[, c(as.character(x.diff))] <- NA
+  
+  return(rbind(x, y))
+}
