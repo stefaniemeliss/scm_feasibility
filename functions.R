@@ -32,3 +32,8 @@ is_outlier_iqr <- function(x) {
   # +/- 1.5*IQR
   return(x < quantile(x, 0.25, na.rm = T) - 1.5 * IQR(x, na.rm = T) | x > quantile(x, 0.75, na.rm = T) + 1.5 * IQR(x, na.rm = T))
 }
+
+# Function to insert "/" in the format "YYYYYY" to "YYYY/YY"
+insert_slash <- function(number) {
+  sub("(\\d{4})(\\d{2})", "\\1/\\2", number)
+}
