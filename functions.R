@@ -109,17 +109,6 @@ modify_special_predictors <- function(special_predictors, op) {
   })
 }
 
-# Create aligned param_grid
-param_grid <- do.call(rbind, lapply(predictors_op_options, function(op) {
-  expand.grid(
-    predictors = I(predictors_options),
-    predictors_op = op,
-    special_predictors = I(modify_special_predictors(special_predictors_options, op)),
-    time_predictors_prior = I(time_predictors_prior_options),
-    stringsAsFactors = FALSE
-  )
-}))
-
 # Create function to run grid search
 grid_search_scm <- function(df, param_grid, treatment_identifier, dependent_var, 
                             unit_var, time_var, unit_names_var) {
