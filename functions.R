@@ -152,7 +152,7 @@ grid_search_scm <- function(df, param_grid, treatment_identifier, dependent_var,
       return(NULL)
     })
     
-    if (is.null(dataprep.out)) return(list(rmspe = 0, sd_treated = NA, mspe = NA, params = params))
+    if (is.null(dataprep.out)) return(list(rmspe = "dataprep() failed", sd_treated = NA, mspe = NA, params = params))
     
     synth.out <- tryCatch({
       synth(
@@ -167,7 +167,7 @@ grid_search_scm <- function(df, param_grid, treatment_identifier, dependent_var,
       return(NULL)
     })
     
-    if (is.null(synth.out)) return(list(rmspe = 1, sd_treated = NA, mspe = NA, params = params))
+    if (is.null(synth.out)) return(list(rmspe = "synth() failed", sd_treated = NA, mspe = NA, params = params))
     
     actual <- dataprep.out$Y1plot
     synthetic <- dataprep.out$Y0plot %*% synth.out$solution.w
@@ -192,7 +192,7 @@ grid_search_scm <- function(df, param_grid, treatment_identifier, dependent_var,
     result <- tryCatch({
       run_scm(df, params)
     }, error = function(e) {
-      list(rmspe = 999, sd_treated = NA, mspe = NA, params = params)
+      list(rmspe = "run_scm() failed", sd_treated = NA, mspe = NA, params = params)
     })
     
     # Create a list to store the results
