@@ -176,7 +176,7 @@ grid_search_scm <- function(df, param_grid, treatment_identifier, dependent_var,
     sd_treated <- sd(actual, na.rm = TRUE)
     mspe <- mean((actual - synthetic)^2, na.rm = TRUE)
     
-    return(list(rmspe = rmspe, sd_treated = sd_treated, mspe = mspe, params = params))
+    return(list(rmspe = round(rmspe, 3), sd_treated = round(sd_treated, 3), mspe = round(mspe, 3), params = params))
   }
   
   # Register parallel backend
