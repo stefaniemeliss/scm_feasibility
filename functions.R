@@ -96,3 +96,143 @@ create_status_df <- function(data, start_year, end_year) {
   
   return(status_df)
 }
+
+# Define the modify_special_predictors function
+modify_special_predictors <- function(special_predictors, op) {
+  lapply(special_predictors, function(predictor_list) {
+    if (is.null(predictor_list)) {
+      return(NULL)
+    }
+    lapply(predictor_list, function(predictor) {
+      c(predictor, op)
+    })
+  })
+}
+
+# Create aligned param_grid
+param_grid <- do.call(rbind, lapply(predictors_op_options, function(op) {
+  expand.grid(
+    predictors = I(predictors_options),
+    predictors_op = op,
+    special_predictors = I(modify_special_predictors(special_predictors_options, op)),
+    time_predictors_prior = I(time_predictors_prior_options),
+    stringsAsFactors = FALSE
+  )
+}))
+
+# Create function to run grid search
+grid_search_scm <- function(df, param_grid, treatment_identifier, dependent_var, 
+                            unit_var, time_var, unit_names_var) {
+  
+  # Define default values for parameters
+  default_values <- data.frame(
+    predictors = I(list(c("pnpupfsm_e", "pnpupeal"))),
+    predictors_op = "median",
+    special_predictors = I(list(NULL)),
+    time_predictors_prior = I(list(2014:2023)),
+    optimxmethod = "BFGS",
+    Margin.ipop = 0.0005,
+    Sigf.ipop = 5,
+    Bound.ipop = 10,
+    stringsAsFactors = FALSE
+  )
+  
+  run_scm <- function(df, params) {
+    
+    tmp <- default_values[, setdiff(names(default_values), names(params))]
+    params <- merge(params, tmp, by = 0)
+    
+    dataprep.out <- tryCatch({
+      dataprep(
+        foo = df,
+        predictors = params$predictors[[1]],
+        predictors.op = params$predictors_op,
+        special.predictors = params$special_predictors[[1]],
+        dependent = dependent_var,
+        unit.variable = unit_var,
+        time.variable = time_var,
+        treatment.identifier = treatment_identifier,
+        controls.identifier = unique(df[[unit_var]][df[[unit_var]] != treatment_identifier]),
+        time.predictors.prior = params$time_predictors_prior[[1]],
+        time.optimize.ssr = params$time_predictors_prior[[1]],
+        unit.names.variable = unit_names_var,
+        time.plot = 2010:2023
+      )
+    }, error = function(e) {
+      message("Error in dataprep: ", e$message)
+      return(NULL)
+    })
+    
+    if (is.null(dataprep.out)) return(list(rmspe = 0, sd_treated = NA, mspe = NA, params = params))
+    
+    synth.out <- tryCatch({
+      synth(
+        data.prep.obj = dataprep.out,
+        optimxmethod = params$optimxmethod,
+        Margin.ipop = params$Margin.ipop,
+        Sigf.ipop = params$Sigf.ipop,
+        Bound.ipop = params$Bound.ipop
+      )
+    }, error = function(e) {
+      message("Error in synth: ", e$message)
+      return(NULL)
+    })
+    
+    if (is.null(synth.out)) return(list(rmspe = 1, sd_treated = NA, mspe = NA, params = params))
+    
+    actual <- dataprep.out$Y1plot
+    synthetic <- dataprep.out$Y0plot %*% synth.out$solution.w
+    
+    rmspe <- sqrt(mean((actual - synthetic)^2, na.rm = TRUE))
+    sd_treated <- sd(actual, na.rm = TRUE)
+    mspe <- mean((actual - synthetic)^2, na.rm = TRUE)
+    
+    return(list(rmspe = rmspe, sd_treated = sd_treated, mspe = mspe, params = params))
+  }
+  
+  # Register parallel backend
+  num_cores <- detectCores() - 1
+  cl <- makeCluster(num_cores)
+  registerDoParallel(cl)
+  
+  # Perform grid search with parallel processing
+  results <- foreach(i = 1:nrow(param_grid), .combine = rbind, .packages = c("Synth", "dplyr")) %dopar% {
+    params <- param_grid[i, ]
+    row.names(params) <- 1
+    
+    result <- tryCatch({
+      run_scm(df, params)
+    }, error = function(e) {
+      list(rmspe = 999, sd_treated = NA, mspe = NA, params = params)
+    })
+    
+    # Create a list to store the results
+    result_list <- list(
+      predictors = ifelse(!is.null(result$params$predictors[[1]]), paste(result$params$predictors[[1]], collapse = ", "), NA),
+      predictors_op = ifelse(!is.null(result$params$predictors_op), result$params$predictors_op, NA),
+      special_predictors = ifelse(!is.null(result$params$special_predictors[[1]]), 
+                                  paste(sapply(result$params$special_predictors[[1]], function(x) paste(x, collapse = ",")), collapse = ";"), 
+                                  NA),
+      time_predictors_prior = ifelse(!is.null(result$params$time_predictors_prior[[1]]), 
+                                     paste(result$params$time_predictors_prior[[1]], collapse = ", "), 
+                                     NA),
+      optimxmethod = ifelse(!is.null(result$params$optimxmethod), result$params$optimxmethod, NA),
+      Margin.ipop = ifelse(!is.null(result$params$Margin.ipop), result$params$Margin.ipop, NA),
+      Sigf.ipop = ifelse(!is.null(result$params$Sigf.ipop), result$params$Sigf.ipop, NA),
+      Bound.ipop = ifelse(!is.null(result$params$Bound.ipop), result$params$Bound.ipop, NA),
+      rmspe = result$rmspe,
+      sd_treated = result$sd_treated,
+      mspe = result$mspe
+    )
+    
+    # Convert the list to a data frame
+    result_df <- as.data.frame(result_list, stringsAsFactors = FALSE)
+    
+    return(result_df)
+  }
+  
+  # Stop the cluster
+  stopCluster(cl)
+  
+  return(results)
+}
