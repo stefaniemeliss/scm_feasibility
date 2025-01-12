@@ -111,7 +111,7 @@ modify_special_predictors <- function(special_predictors, op) {
 
 # Create function to run grid search
 grid_search_scm <- function(df, param_grid, treatment_identifier, dependent_var, 
-                            unit_var, time_var, unit_names_var) {
+                            unit_var, time_var, unit_names_var, use_parallel = TRUE) {
   
   # Define default values for parameters
   default_values <- data.frame(
@@ -179,49 +179,87 @@ grid_search_scm <- function(df, param_grid, treatment_identifier, dependent_var,
     return(list(rmspe = round(rmspe, 3), sd_treated = round(sd_treated, 3), mspe = round(mspe, 3), params = params))
   }
   
-  # Register parallel backend
-  num_cores <- detectCores() - 1
-  cl <- makeCluster(num_cores)
-  registerDoParallel(cl)
-  
-  # Perform grid search with parallel processing
-  results <- foreach(i = 1:nrow(param_grid), .combine = rbind, .packages = c("Synth", "dplyr")) %dopar% {
-    params <- param_grid[i, ]
-    row.names(params) <- 1
+  if (use_parallel) {
+    # Register parallel backend
+    num_cores <- detectCores() - 1
+    cl <- makeCluster(num_cores)
+    registerDoParallel(cl)
     
-    result <- tryCatch({
-      run_scm(df, params)
-    }, error = function(e) {
-      list(rmspe = "run_scm() failed", sd_treated = NA, mspe = NA, params = params)
-    })
+    # Perform grid search with parallel processing
+    results <- foreach(i = 1:nrow(param_grid), .combine = rbind, .packages = c("Synth", "dplyr")) %dopar% {
+      params <- param_grid[i, ]
+      row.names(params) <- 1
+      
+      result <- tryCatch({
+        run_scm(df, params)
+      }, error = function(e) {
+        list(rmspe = "run_scm() failed", sd_treated = NA, mspe = NA, params = params)
+      })
+      
+      # Create a list to store the results
+      result_list <- list(
+        predictors = ifelse(!is.null(result$params$predictors[[1]]), paste(result$params$predictors[[1]], collapse = ", "), NA),
+        predictors_op = ifelse(!is.null(result$params$predictors_op), result$params$predictors_op, NA),
+        special_predictors = ifelse(!is.null(result$params$special_predictors[[1]]), 
+                                    paste(sapply(result$params$special_predictors[[1]], function(x) paste(x, collapse = ", ")), collapse = "; \n"), 
+                                    NA),
+        time_predictors_prior = ifelse(!is.null(result$params$time_predictors_prior[[1]]), 
+                                       paste(result$params$time_predictors_prior[[1]], collapse = ", "), 
+                                       NA),
+        optimxmethod = ifelse(!is.null(result$params$optimxmethod), result$params$optimxmethod, NA),
+        Margin.ipop = ifelse(!is.null(result$params$Margin.ipop), result$params$Margin.ipop, NA),
+        Sigf.ipop = ifelse(!is.null(result$params$Sigf.ipop), result$params$Sigf.ipop, NA),
+        Bound.ipop = ifelse(!is.null(result$params$Bound.ipop), result$params$Bound.ipop, NA),
+        rmspe = result$rmspe,
+        sd_treated = result$sd_treated,
+        mspe = result$mspe
+      )
+      
+      # Convert the list to a data frame
+      result_df <- as.data.frame(result_list, stringsAsFactors = FALSE)
+      
+      return(result_df)
+    }
     
-    # Create a list to store the results
-    result_list <- list(
-      predictors = ifelse(!is.null(result$params$predictors[[1]]), paste(result$params$predictors[[1]], collapse = ", "), NA),
-      predictors_op = ifelse(!is.null(result$params$predictors_op), result$params$predictors_op, NA),
-      special_predictors = ifelse(!is.null(result$params$special_predictors[[1]]), 
-                                  paste(sapply(result$params$special_predictors[[1]], function(x) paste(x, collapse = ", ")), collapse = "; \n"), 
-                                  NA),
-      time_predictors_prior = ifelse(!is.null(result$params$time_predictors_prior[[1]]), 
-                                     paste(result$params$time_predictors_prior[[1]], collapse = ", "), 
-                                     NA),
-      optimxmethod = ifelse(!is.null(result$params$optimxmethod), result$params$optimxmethod, NA),
-      Margin.ipop = ifelse(!is.null(result$params$Margin.ipop), result$params$Margin.ipop, NA),
-      Sigf.ipop = ifelse(!is.null(result$params$Sigf.ipop), result$params$Sigf.ipop, NA),
-      Bound.ipop = ifelse(!is.null(result$params$Bound.ipop), result$params$Bound.ipop, NA),
-      rmspe = result$rmspe,
-      sd_treated = result$sd_treated,
-      mspe = result$mspe
-    )
-    
-    # Convert the list to a data frame
-    result_df <- as.data.frame(result_list, stringsAsFactors = FALSE)
-    
-    return(result_df)
+    # Stop the cluster
+    stopCluster(cl)
+  } else {
+    # Perform grid search without parallel processing
+    results <- do.call(rbind, lapply(1:nrow(param_grid), function(i) {
+      params <- param_grid[i, ]
+      row.names(params) <- 1
+      
+      result <- tryCatch({
+        run_scm(df, params)
+      }, error = function(e) {
+        list(rmspe = "run_scm() failed", sd_treated = NA, mspe = NA, params = params)
+      })
+      
+      # Create a list to store the results
+      result_list <- list(
+        predictors = ifelse(!is.null(result$params$predictors[[1]]), paste(result$params$predictors[[1]], collapse = ", "), NA),
+        predictors_op = ifelse(!is.null(result$params$predictors_op), result$params$predictors_op, NA),
+        special_predictors = ifelse(!is.null(result$params$special_predictors[[1]]), 
+                                    paste(sapply(result$params$special_predictors[[1]], function(x) paste(x, collapse = ", ")), collapse = "; \n"), 
+                                    NA),
+        time_predictors_prior = ifelse(!is.null(result$params$time_predictors_prior[[1]]), 
+                                       paste(result$params$time_predictors_prior[[1]], collapse = ", "), 
+                                       NA),
+        optimxmethod = ifelse(!is.null(result$params$optimxmethod), result$params$optimxmethod, NA),
+        Margin.ipop = ifelse(!is.null(result$params$Margin.ipop), result$params$Margin.ipop, NA),
+        Sigf.ipop = ifelse(!is.null(result$params$Sigf.ipop), result$params$Sigf.ipop, NA),
+        Bound.ipop = ifelse(!is.null(result$params$Bound.ipop), result$params$Bound.ipop, NA),
+        rmspe = result$rmspe,
+        sd_treated = result$sd_treated,
+        mspe = result$mspe
+      )
+      
+      # Convert the list to a data frame
+      result_df <- as.data.frame(result_list, stringsAsFactors = FALSE)
+      
+      return(result_df)
+    }))
   }
-  
-  # Stop the cluster
-  stopCluster(cl)
   
   return(results)
 }
