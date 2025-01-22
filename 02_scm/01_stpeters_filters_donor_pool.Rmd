@@ -1,0 +1,379 @@
+---
+title: "Donor pool filtering"
+author: "Stefanie Meliss"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+Following initial SCMs computed using the *Synth* package, the definition of the donor pool is re-evaluated. This file summarises the effect of removing the region filter and/or urbanicity filter.  
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Set scientific notation penalty to avoid scientific notation in outputs
+options(scipen = 999)
+
+# Clear the workspace and run garbage collection
+# rm(list = ls())
+gc()
+
+# Load necessary libraries
+library(kableExtra)
+library(dplyr)
+library(data.table)
+
+# Define directories based on the current working directory
+dir <- getwd()
+dir <- gsub("02_scm", "", dir)
+dir <- normalizePath(dir, winslash = "/")
+dir_data <- file.path(dir, "data")
+dir_misc <- file.path(dir, "misc")
+
+# Copy data files from the source directory to the target directory
+file.copy(
+  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_pupils.csv"),
+  dir_data,
+  overwrite = TRUE
+)
+file.copy(
+  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_establishments_search.csv"),
+  dir_data,
+  overwrite = TRUE
+)
+
+# Load data from CSV files into data tables
+swf <- fread(file = file.path(dir_data, "data_swf.csv"))
+est <- fread(file = file.path(dir_data, "data_establishments_search.csv"), na.strings = "")
+
+#### PROCESS DATA FOR ESTABLISHMENTS ####
+
+# Get data for the treated school based on the ID
+id_treated <- 3344650
+est_treated <- est %>%
+  filter(laestab == id_treated) %>%
+  mutate(status = "treated") %>%
+  as.data.frame()
+
+
+```
+
+## Initial filters
+
+Donor pool equal to St Peters with respect to:  
+
+- Phase of education  
+- Region  
+- Level of urbanicity (Urban or Rural)  
+- Denomination  
+- Completeness of observations on the outcome measure  
+- Note: Boarding schools are excluded from donor pool
+
+```{r, echo=FALSE}
+# Get donor pool data excluding the treated school
+est_cont <- est %>%
+  filter(
+    ! grepl("Boarding school", boarders_name),
+    laestab != id_treated,
+    phaseofeducation_name %in% unique(c(est_treated$phaseofeducation_name)),
+    gor_name %in% unique(c(est_treated$gor_name)),
+    urbanicity %in% c(unique(est_treated$urbanicity)), # coded as urban vs rural
+    religiouscharacter_christian %in% unique(c(est_treated$religiouscharacter_christian))
+  ) %>%
+  mutate(status = "untreated") %>%
+  as.data.frame()
+
+# Save unique lists of laestab and urn
+list_laestab <- c(unique(est_cont[, "laestab"]), unique(est_treated[, "laestab"]))
+list_urn <- c(unique(est_cont[, "urn"]), unique(est_treated[, "urn"]))
+
+#### CREATE OUTCOME DATASET ####
+
+# Filter SWF data to create outcome dataset
+z <- swf[laestab %in% list_laestab]
+z[, status := fifelse(laestab %in% unique(est_treated[, "laestab"]), "treated", "untreated")]
+z[, idx_treat := fifelse(laestab %in% unique(est_treated[, "laestab"]), TRUE, FALSE)]
+z[, idx_donor := fifelse(laestab %in% unique(est_treated[, "laestab"]), FALSE, TRUE)]
+
+# Remove rows with NA for the dependent variable and add observation count
+var <- "pupil_to_qual_teacher_ratio"
+z <- z %>%
+  filter(!is.na(get(var))) %>%
+  group_by(laestab) %>%
+  mutate(
+    obs_count = sum(!is.na(get(var)))
+  ) %>%
+  ungroup() %>%
+  select(-one_of(c("region_code", "new_la_code", "old_la_code")))
+
+# Filter for rows where observation count matches the treated ID and select columns
+z <- z %>%
+  filter(obs_count == unique(z$obs_count[z$laestab == id_treated])) %>%
+  select(time_period, laestab, school, pupil_to_qual_teacher_ratio) %>%
+  group_by(laestab) %>%
+  arrange(laestab, desc(time_period)) %>%
+  mutate(school = first(school)) %>%
+  arrange(laestab, time_period) %>%
+  ungroup() %>%
+  as.data.frame()
+
+# Update list of laestab numbers based on the dependent variable
+list_laestab_dv <- unique(z$laestab)
+
+cat("Schools in donor pool:", length(list_laestab_dv))
+```
+
+## Exclude region
+
+Donor pool equal to St Peters with respect to:  
+
+- Phase of education  
+- Level of urbanicity (Urban or Rural)  
+- Denomination  
+- Completeness of observations on the outcome measure  
+- Note: Boarding schools are excluded from donor pool
+
+```{r, echo=FALSE}
+# Get donor pool data excluding the treated school
+est_cont <- est %>%
+  filter(
+    ! grepl("Boarding school", boarders_name),
+    laestab != id_treated,
+    phaseofeducation_name %in% unique(c(est_treated$phaseofeducation_name)),
+    # gor_name %in% unique(c(est_treated$gor_name)),
+    urbanicity %in% c(unique(est_treated$urbanicity)), # coded as urban vs rural
+    religiouscharacter_christian %in% unique(c(est_treated$religiouscharacter_christian))
+  ) %>%
+  mutate(status = "untreated") %>%
+  as.data.frame()
+
+# Save unique lists of laestab and urn
+list_laestab <- c(unique(est_cont[, "laestab"]), unique(est_treated[, "laestab"]))
+list_urn <- c(unique(est_cont[, "urn"]), unique(est_treated[, "urn"]))
+
+#### CREATE OUTCOME DATASET ####
+
+# Filter SWF data to create outcome dataset
+z <- swf[laestab %in% list_laestab]
+z[, status := fifelse(laestab %in% unique(est_treated[, "laestab"]), "treated", "untreated")]
+z[, idx_treat := fifelse(laestab %in% unique(est_treated[, "laestab"]), TRUE, FALSE)]
+z[, idx_donor := fifelse(laestab %in% unique(est_treated[, "laestab"]), FALSE, TRUE)]
+
+# Remove rows with NA for the dependent variable and add observation count
+var <- "pupil_to_qual_teacher_ratio"
+z <- z %>%
+  filter(!is.na(get(var))) %>%
+  group_by(laestab) %>%
+  mutate(
+    obs_count = sum(!is.na(get(var)))
+  ) %>%
+  ungroup() %>%
+  select(-one_of(c("region_code", "new_la_code", "old_la_code")))
+
+# Filter for rows where observation count matches the treated ID and select columns
+z <- z %>%
+  filter(obs_count == unique(z$obs_count[z$laestab == id_treated])) %>%
+  select(time_period, laestab, school, pupil_to_qual_teacher_ratio) %>%
+  group_by(laestab) %>%
+  arrange(laestab, desc(time_period)) %>%
+  mutate(school = first(school)) %>%
+  arrange(laestab, time_period) %>%
+  ungroup() %>%
+  as.data.frame()
+
+# Update list of laestab numbers based on the dependent variable
+list_laestab_dv <- unique(z$laestab)
+
+cat("Schools in donor pool:", length(list_laestab_dv))
+```
+
+## Exclude region but remove London
+
+Donor pool equal to St Peters with respect to:  
+
+- Phase of education  
+- Level of urbanicity (Urban or Rural)  
+- Denomination  
+- Completeness of observations on the outcome measure  
+- Note: Boarding schools are excluded from donor pool
+
+```{r, echo=FALSE}
+# Get donor pool data excluding the treated school
+est_cont <- est %>%
+  filter(
+    ! grepl("Boarding school", boarders_name),
+    laestab != id_treated,
+    phaseofeducation_name %in% unique(c(est_treated$phaseofeducation_name)),
+    ! grepl("London", gor_name),
+    urbanicity %in% c(unique(est_treated$urbanicity)), # coded as urban vs rural
+    religiouscharacter_christian %in% unique(c(est_treated$religiouscharacter_christian))
+  ) %>%
+  mutate(status = "untreated") %>%
+  as.data.frame()
+
+# Save unique lists of laestab and urn
+list_laestab <- c(unique(est_cont[, "laestab"]), unique(est_treated[, "laestab"]))
+list_urn <- c(unique(est_cont[, "urn"]), unique(est_treated[, "urn"]))
+
+#### CREATE OUTCOME DATASET ####
+
+# Filter SWF data to create outcome dataset
+z <- swf[laestab %in% list_laestab]
+z[, status := fifelse(laestab %in% unique(est_treated[, "laestab"]), "treated", "untreated")]
+z[, idx_treat := fifelse(laestab %in% unique(est_treated[, "laestab"]), TRUE, FALSE)]
+z[, idx_donor := fifelse(laestab %in% unique(est_treated[, "laestab"]), FALSE, TRUE)]
+
+# Remove rows with NA for the dependent variable and add observation count
+var <- "pupil_to_qual_teacher_ratio"
+z <- z %>%
+  filter(!is.na(get(var))) %>%
+  group_by(laestab) %>%
+  mutate(
+    obs_count = sum(!is.na(get(var)))
+  ) %>%
+  ungroup() %>%
+  select(-one_of(c("region_code", "new_la_code", "old_la_code")))
+
+# Filter for rows where observation count matches the treated ID and select columns
+z <- z %>%
+  filter(obs_count == unique(z$obs_count[z$laestab == id_treated])) %>%
+  select(time_period, laestab, school, pupil_to_qual_teacher_ratio) %>%
+  group_by(laestab) %>%
+  arrange(laestab, desc(time_period)) %>%
+  mutate(school = first(school)) %>%
+  arrange(laestab, time_period) %>%
+  ungroup() %>%
+  as.data.frame()
+
+# Update list of laestab numbers based on the dependent variable
+list_laestab_dv <- unique(z$laestab)
+
+cat("Schools in donor pool:", length(list_laestab_dv))
+```
+
+## Exclude urbanicity
+
+Donor pool equal to St Peters with respect to:  
+
+- Phase of education  
+- Region  
+- Denomination  
+- Completeness of observations on the outcome measure  
+- Note: Boarding schools are excluded from donor pool
+
+```{r, echo=FALSE}
+# Get donor pool data excluding the treated school
+est_cont <- est %>%
+  filter(
+    ! grepl("Boarding school", boarders_name),
+    laestab != id_treated,
+    phaseofeducation_name %in% unique(c(est_treated$phaseofeducation_name)),
+    gor_name %in% unique(c(est_treated$gor_name)),
+    # urbanicity %in% c(unique(est_treated$urbanicity)), # coded as urban vs rural
+    religiouscharacter_christian %in% unique(c(est_treated$religiouscharacter_christian))
+  ) %>%
+  mutate(status = "untreated") %>%
+  as.data.frame()
+
+# Save unique lists of laestab and urn
+list_laestab <- c(unique(est_cont[, "laestab"]), unique(est_treated[, "laestab"]))
+list_urn <- c(unique(est_cont[, "urn"]), unique(est_treated[, "urn"]))
+
+#### CREATE OUTCOME DATASET ####
+
+# Filter SWF data to create outcome dataset
+z <- swf[laestab %in% list_laestab]
+z[, status := fifelse(laestab %in% unique(est_treated[, "laestab"]), "treated", "untreated")]
+z[, idx_treat := fifelse(laestab %in% unique(est_treated[, "laestab"]), TRUE, FALSE)]
+z[, idx_donor := fifelse(laestab %in% unique(est_treated[, "laestab"]), FALSE, TRUE)]
+
+# Remove rows with NA for the dependent variable and add observation count
+var <- "pupil_to_qual_teacher_ratio"
+z <- z %>%
+  filter(!is.na(get(var))) %>%
+  group_by(laestab) %>%
+  mutate(
+    obs_count = sum(!is.na(get(var)))
+  ) %>%
+  ungroup() %>%
+  select(-one_of(c("region_code", "new_la_code", "old_la_code")))
+
+# Filter for rows where observation count matches the treated ID and select columns
+z <- z %>%
+  filter(obs_count == unique(z$obs_count[z$laestab == id_treated])) %>%
+  select(time_period, laestab, school, pupil_to_qual_teacher_ratio) %>%
+  group_by(laestab) %>%
+  arrange(laestab, desc(time_period)) %>%
+  mutate(school = first(school)) %>%
+  arrange(laestab, time_period) %>%
+  ungroup() %>%
+  as.data.frame()
+
+# Update list of laestab numbers based on the dependent variable
+list_laestab_dv <- unique(z$laestab)
+
+cat("Schools in donor pool:", length(list_laestab_dv))
+```
+
+## Exclude region and urbanicity
+
+Donor pool equal to St Peters with respect to:  
+
+- Phase of education  
+- Denomination  
+- Completeness of observations on the outcome measure  
+- Note: Boarding schools are excluded from donor pool  
+
+```{r, echo=FALSE}
+# Get donor pool data excluding the treated school
+est_cont <- est %>%
+  filter(
+    ! grepl("Boarding school", boarders_name),
+    laestab != id_treated,
+    phaseofeducation_name %in% unique(c(est_treated$phaseofeducation_name)),
+    # gor_name %in% unique(c(est_treated$gor_name)),
+    # urbanicity %in% c(unique(est_treated$urbanicity)), # coded as urban vs rural
+    religiouscharacter_christian %in% unique(c(est_treated$religiouscharacter_christian))
+  ) %>%
+  mutate(status = "untreated") %>%
+  as.data.frame()
+
+# Save unique lists of laestab and urn
+list_laestab <- c(unique(est_cont[, "laestab"]), unique(est_treated[, "laestab"]))
+list_urn <- c(unique(est_cont[, "urn"]), unique(est_treated[, "urn"]))
+
+#### CREATE OUTCOME DATASET ####
+
+# Filter SWF data to create outcome dataset
+z <- swf[laestab %in% list_laestab]
+z[, status := fifelse(laestab %in% unique(est_treated[, "laestab"]), "treated", "untreated")]
+z[, idx_treat := fifelse(laestab %in% unique(est_treated[, "laestab"]), TRUE, FALSE)]
+z[, idx_donor := fifelse(laestab %in% unique(est_treated[, "laestab"]), FALSE, TRUE)]
+
+# Remove rows with NA for the dependent variable and add observation count
+var <- "pupil_to_qual_teacher_ratio"
+z <- z %>%
+  filter(!is.na(get(var))) %>%
+  group_by(laestab) %>%
+  mutate(
+    obs_count = sum(!is.na(get(var)))
+  ) %>%
+  ungroup() %>%
+  select(-one_of(c("region_code", "new_la_code", "old_la_code")))
+
+# Filter for rows where observation count matches the treated ID and select columns
+z <- z %>%
+  filter(obs_count == unique(z$obs_count[z$laestab == id_treated])) %>%
+  select(time_period, laestab, school, pupil_to_qual_teacher_ratio) %>%
+  group_by(laestab) %>%
+  arrange(laestab, desc(time_period)) %>%
+  mutate(school = first(school)) %>%
+  arrange(laestab, time_period) %>%
+  ungroup() %>%
+  as.data.frame()
+
+# Update list of laestab numbers based on the dependent variable
+list_laestab_dv <- unique(z$laestab)
+
+cat("Schools in donor pool:", length(list_laestab_dv))
+```
+
