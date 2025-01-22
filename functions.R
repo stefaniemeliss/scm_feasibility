@@ -116,7 +116,7 @@ grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_va
   # Define default values for parameters
   default_values <- data.frame(
     predictors = I(list(c("pnpupfsm_e", "pnpupeal"))),
-    predictors_op = "median",
+    predictors_op = "mean",
     special_predictors = I(list(NULL)),
     time_predictors_prior = I(list(2014:2023)),
     optimxmethod = "BFGS",
@@ -167,16 +167,21 @@ grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_va
       return(NULL)
     })
     
-    if (is.null(synth.out)) return(list(rmspe = "synth() failed", sd_treated = NA, mspe = NA, params = params))
+    if (is.null(synth.out)) return(list(sd_treated = NA, sd_gap = NA, rmspe = "synth() failed", mspe = NA, params = params))
     
     actual <- dataprep.out$Y1plot
     synthetic <- dataprep.out$Y0plot %*% synth.out$solution.w
+    gap <- actual - synthetic # compute gap as difference between both
     
-    rmspe <- sqrt(mean((actual - synthetic)^2, na.rm = TRUE))
     sd_treated <- sd(actual, na.rm = TRUE)
+    sd_gap <- sd(gap, na.rm = TRUE)
+    rmspe <- sqrt(mean((actual - synthetic)^2, na.rm = TRUE))
     mspe <- mean((actual - synthetic)^2, na.rm = TRUE)
     
-    return(list(rmspe = round(rmspe, 3), sd_treated = round(sd_treated, 3), mspe = round(mspe, 3), params = params))
+    # overwrite optimethod
+    params$optimxmethod <- row.names(synth.out$rgV.optim$par)
+    
+    return(list(sd_treated = round(sd_treated, 3), sd_gap = round(sd_gap, 3), rmspe = round(rmspe, 3), mspe = round(mspe, 3), params = params))
   }
   
   if (use_parallel) {
@@ -193,7 +198,8 @@ grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_va
       result <- tryCatch({
         run_scm(df, params)
       }, error = function(e) {
-        list(rmspe = "run_scm() failed", sd_treated = NA, mspe = NA, params = params)
+        
+        list(sd_treated = NA, sd_gap = NA, rmspe = "synth() failed", mspe = NA, params = params)
       })
       
       # Create a list to store the results
@@ -210,8 +216,9 @@ grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_va
         Margin.ipop = ifelse(!is.null(result$params$Margin.ipop), result$params$Margin.ipop, NA),
         Sigf.ipop = ifelse(!is.null(result$params$Sigf.ipop), result$params$Sigf.ipop, NA),
         Bound.ipop = ifelse(!is.null(result$params$Bound.ipop), result$params$Bound.ipop, NA),
-        rmspe = result$rmspe,
         sd_treated = result$sd_treated,
+        sd_gap = result$sd_gap,
+        rmspe = result$rmspe,
         mspe = result$mspe
       )
       
@@ -232,7 +239,7 @@ grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_va
       result <- tryCatch({
         run_scm(df, params)
       }, error = function(e) {
-        list(rmspe = "run_scm() failed", sd_treated = NA, mspe = NA, params = params)
+        list(sd_treated = NA, sd_gap = NA, rmspe = "synth() failed", mspe = NA, params = params)
       })
       
       # Create a list to store the results
