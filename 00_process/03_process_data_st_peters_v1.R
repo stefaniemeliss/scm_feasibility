@@ -93,7 +93,7 @@ z <- z %>%
 # Filter for rows where observation count matches the treated ID and select columns
 z <- z %>%
   filter(obs_count == unique(z$obs_count[z$laestab == id_treated])) %>%
-  select(time_period, laestab, school, pupil_to_qual_teacher_ratio) %>%
+  select(time_period, laestab, school, pupil_to_qual_teacher_ratio, fte_avg_age, fte_perc_age_under_25, fte_perc_age_60_and_over) %>%
   group_by(laestab) %>%
   arrange(laestab, desc(time_period)) %>%
   mutate(school = first(school)) %>%
@@ -217,7 +217,9 @@ x <- x %>%
          urban_city_town, urban_minor_conurbation, urban_major_conurbation,
          single_academy_trust, multi_academy_trust,
          # other covariates
-         pnpupfsm_e, pnpupeal, pnpupeowb, pnpupeobl, pnpupeoas, pnpupsen, ks2a_zscore 
+         pnpupfsm_e, pnpupfsm_ever_spt,
+         pnpupeal, pnpupeowb, pnpupeobl, pnpupeoas, 
+         pnpupsen, ks2a_zscore 
   )
 
 
