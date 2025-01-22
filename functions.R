@@ -110,7 +110,7 @@ modify_special_predictors <- function(special_predictors, op) {
 }
 
 # Create function to run grid search
-grid_search_scm <- function(df, param_grid, treatment_identifier, dependent_var, 
+grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_var, 
                             unit_var, time_var, unit_names_var, use_parallel = TRUE) {
   
   # Define default values for parameters
