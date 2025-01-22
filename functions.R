@@ -119,7 +119,7 @@ grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_va
     predictors_op = "mean",
     special_predictors = I(list(NULL)),
     time_predictors_prior = I(list(2014:2023)),
-    optimxmethod = "BFGS",
+    optimxmethod = "All",
     Margin.ipop = 0.0005,
     Sigf.ipop = 5,
     Bound.ipop = 10,
