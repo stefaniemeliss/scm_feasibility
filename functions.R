@@ -188,8 +188,8 @@ grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_va
     rmspe <- sqrt(mean((gap)^2, na.rm = TRUE))
     mspe <- mean((gap)^2, na.rm = TRUE)
     mae <- mean(abs(gap), na.rm = TRUE)
-    loss_v <- synth.out$loss.v
-    loss_w <- synth.out$loss.w
+    loss_v <- synth.out$loss.v[1]
+    loss_w <- synth.out$loss.w[1]
     
     # overwrite optimxmethod from "All" to best one
     params$optimxmethod <- row.names(synth.out$rgV.optim$par)
