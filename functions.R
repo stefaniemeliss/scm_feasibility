@@ -214,8 +214,8 @@ grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_va
         run_scm(df, params)
       }, error = function(e) {
         
-        list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
-             rmspe = "synth() failed", mspe = NA, mae = NA, loss_v= NA, loss_w = NA,
+        list(sd_treated = sd_treated, m_gap = m_gap, sd_gap = sd_gap, min_gap = min_gap, max_gap = max_gap, cor = cor,
+             rmspe = rmspe, mspe = mspe, mae = mae, loss_v= loss_v, loss_w = loss_w,
              params = params)
       })
       
