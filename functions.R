@@ -152,7 +152,9 @@ grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_va
       return(NULL)
     })
     
-    if (is.null(synth.out)) return(list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, rmspe = "synth() failed", mspe = NA, params = params))
+    if (is.null(synth.out)) return(list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
+                                        rmspe = "synth() failed", mspe = NA, mae = NA, loss_v= NA, loss_w = NA,
+                                        params = params))
     
     synth.out <- tryCatch({
       synth(
@@ -167,7 +169,9 @@ grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_va
       return(NULL)
     })
     
-    if (is.null(synth.out)) return(list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, rmspe = "synth() failed", mspe = NA, params = params))
+    if (is.null(synth.out)) return(list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
+                                        rmspe = "synth() failed", mspe = NA, mae = NA, loss_v= NA, loss_w = NA,
+                                        params = params))
     
     # Extract the actual and synthetic control outcomes for all years
     actual <- dataprep.out$Y1plot
@@ -180,13 +184,19 @@ grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_va
     sd_gap <- sd(gap, na.rm = TRUE)
     min_gap <- min(gap, na.rm = TRUE)
     max_gap <- max(gap, na.rm = TRUE)
-    rmspe <- sqrt(mean((actual - synthetic)^2, na.rm = TRUE))
-    mspe <- mean((actual - synthetic)^2, na.rm = TRUE)
+    cor <- cor(actual, synthetic)[1]
+    rmspe <- sqrt(mean((gap)^2, na.rm = TRUE))
+    mspe <- mean((gap)^2, na.rm = TRUE)
+    mae <- mean(abs(gap))
+    loss_v <- synth.out$loss.v
+    loss_w <- synth.out$loss.w
     
     # overwrite optimxmethod from "All" to best one
     params$optimxmethod <- row.names(synth.out$rgV.optim$par)
     
-    return(list(sd_treated = sd_treated, m_gap = m_gap, sd_gap = sd_gap, min_gap = min_gap, max_gap = max_gap, rmspe = rmspe, mspe = mspe, params = params))
+    return(list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
+                rmspe = "synth() failed", mspe = NA, mae = NA, loss_v= NA, loss_w = NA,
+                params = params))
   }
   
   if (use_parallel) {
@@ -204,7 +214,9 @@ grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_va
         run_scm(df, params)
       }, error = function(e) {
         
-        list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, rmspe = "synth() failed", mspe = NA, params = params)
+        list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
+             rmspe = "synth() failed", mspe = NA, mae = NA, loss_v= NA, loss_w = NA,
+             params = params)
       })
       
       # Create a list to store the results
@@ -226,8 +238,12 @@ grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_va
         sd_gap = result$sd_gap,
         min_gap = result$min_gap,
         max_gap = result$max_gap,
+        cor = result$cor,
         rmspe = result$rmspe,
-        mspe = result$mspe
+        mspe = result$mspe,
+        mae = result$mae,
+        loss_v = result$loss_v,
+        loss_w = result$loss_w
       )
       
       # Convert the list to a data frame
@@ -247,7 +263,9 @@ grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_va
       result <- tryCatch({
         run_scm(df, params)
       }, error = function(e) {
-        list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, rmspe = "synth() failed", mspe = NA, params = params)
+        list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
+             rmspe = "synth() failed", mspe = NA, mae = NA, loss_v= NA, loss_w = NA,
+             params = params)
       })
       
       # Create a list to store the results
@@ -269,8 +287,12 @@ grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_va
         sd_gap = result$sd_gap,
         min_gap = result$min_gap,
         max_gap = result$max_gap,
+        cor = result$cor,
         rmspe = result$rmspe,
-        mspe = result$mspe
+        mspe = result$mspe,
+        mae = result$mae,
+        loss_v = result$loss_v,
+        loss_w = result$loss_w
       )
       
       # Convert the list to a data frame
