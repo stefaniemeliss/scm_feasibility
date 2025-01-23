@@ -152,8 +152,8 @@ grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_va
       return(NULL)
     })
     
-    if (is.null(synth.out)) return(list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
-                                        rmspe = "synth() failed", mspe = NA, mae = NA, loss_v= NA, loss_w = NA,
+    if (is.null(dataprep.out)) return(list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
+                                        rmspe = "dataprep() failed", mspe = NA, mae = NA, loss_v= NA, loss_w = NA,
                                         params = params))
     
     synth.out <- tryCatch({
@@ -187,7 +187,7 @@ grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_va
     cor <- cor(actual, synthetic)[1]
     rmspe <- sqrt(mean((gap)^2, na.rm = TRUE))
     mspe <- mean((gap)^2, na.rm = TRUE)
-    mae <- mean(abs(gap))
+    mae <- mean(abs(gap), na.rm = TRUE)
     loss_v <- synth.out$loss.v
     loss_w <- synth.out$loss.w
     
@@ -214,8 +214,8 @@ grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_va
         run_scm(df, params)
       }, error = function(e) {
         
-        list(sd_treated = sd_treated, m_gap = m_gap, sd_gap = sd_gap, min_gap = min_gap, max_gap = max_gap, cor = cor,
-             rmspe = rmspe, mspe = mspe, mae = mae, loss_v= loss_v, loss_w = loss_w,
+        list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
+             rmspe = "run_scm() failed", mspe = NA, mae = NA, loss_v= NA, loss_w = NA,
              params = params)
       })
       
@@ -254,6 +254,7 @@ grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_va
     
     # Stop the cluster
     stopCluster(cl)
+    
   } else {
     # Perform grid search without parallel processing
     results <- do.call(rbind, lapply(1:nrow(param_grid), function(i) {
@@ -264,7 +265,7 @@ grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_va
         run_scm(df, params)
       }, error = function(e) {
         list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
-             rmspe = "synth() failed", mspe = NA, mae = NA, loss_v= NA, loss_w = NA,
+             rmspe = "run_scm() failed", mspe = NA, mae = NA, loss_v= NA, loss_w = NA,
              params = params)
       })
       
