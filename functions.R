@@ -111,7 +111,7 @@ modify_special_predictors <- function(special_predictors, op) {
 
 # Create function to run grid search
 grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_var, 
-                            unit_var, time_var, unit_names_var, use_parallel = TRUE) {
+                              unit_var, time_var, unit_names_var, use_parallel = TRUE) {
   
   # Define default values for parameters
   default_values <- data.frame(
@@ -152,7 +152,7 @@ grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_va
       return(NULL)
     })
     
-    if (is.null(dataprep.out)) return(list(rmspe = "dataprep() failed", sd_treated = NA, mspe = NA, params = params))
+    if (is.null(synth.out)) return(list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, rmspe = "synth() failed", mspe = NA, params = params))
     
     synth.out <- tryCatch({
       synth(
@@ -167,21 +167,26 @@ grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_va
       return(NULL)
     })
     
-    if (is.null(synth.out)) return(list(sd_treated = NA, sd_gap = NA, rmspe = "synth() failed", mspe = NA, params = params))
+    if (is.null(synth.out)) return(list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, rmspe = "synth() failed", mspe = NA, params = params))
     
+    # Extract the actual and synthetic control outcomes for all years
     actual <- dataprep.out$Y1plot
     synthetic <- dataprep.out$Y0plot %*% synth.out$solution.w
     gap <- actual - synthetic # compute gap as difference between both
     
+    # compute performance parameters
     sd_treated <- sd(actual, na.rm = TRUE)
+    m_gap <- mean(gap, na.rm = TRUE)
     sd_gap <- sd(gap, na.rm = TRUE)
+    min_gap <- min(gap, na.rm = TRUE)
+    max_gap <- max(gap, na.rm = TRUE)
     rmspe <- sqrt(mean((actual - synthetic)^2, na.rm = TRUE))
     mspe <- mean((actual - synthetic)^2, na.rm = TRUE)
     
-    # overwrite optimethod
+    # overwrite optimxmethod from "All" to best one
     params$optimxmethod <- row.names(synth.out$rgV.optim$par)
     
-    return(list(sd_treated = round(sd_treated, 3), sd_gap = round(sd_gap, 3), rmspe = round(rmspe, 3), mspe = round(mspe, 3), params = params))
+    return(list(sd_treated = sd_treated, m_gap = m_gap, sd_gap = sd_gap, min_gap = min_gap, max_gap = max_gap, rmspe = rmspe, mspe = mspe, params = params))
   }
   
   if (use_parallel) {
@@ -199,7 +204,7 @@ grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_va
         run_scm(df, params)
       }, error = function(e) {
         
-        list(sd_treated = NA, sd_gap = NA, rmspe = "synth() failed", mspe = NA, params = params)
+        list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, rmspe = "synth() failed", mspe = NA, params = params)
       })
       
       # Create a list to store the results
@@ -217,7 +222,10 @@ grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_va
         Sigf.ipop = ifelse(!is.null(result$params$Sigf.ipop), result$params$Sigf.ipop, NA),
         Bound.ipop = ifelse(!is.null(result$params$Bound.ipop), result$params$Bound.ipop, NA),
         sd_treated = result$sd_treated,
+        m_gap = result$m_gap,
         sd_gap = result$sd_gap,
+        min_gap = result$min_gap,
+        max_gap = result$max_gap,
         rmspe = result$rmspe,
         mspe = result$mspe
       )
@@ -239,7 +247,7 @@ grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_va
       result <- tryCatch({
         run_scm(df, params)
       }, error = function(e) {
-        list(sd_treated = NA, sd_gap = NA, rmspe = "synth() failed", mspe = NA, params = params)
+        list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, rmspe = "synth() failed", mspe = NA, params = params)
       })
       
       # Create a list to store the results
@@ -256,8 +264,12 @@ grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_va
         Margin.ipop = ifelse(!is.null(result$params$Margin.ipop), result$params$Margin.ipop, NA),
         Sigf.ipop = ifelse(!is.null(result$params$Sigf.ipop), result$params$Sigf.ipop, NA),
         Bound.ipop = ifelse(!is.null(result$params$Bound.ipop), result$params$Bound.ipop, NA),
-        rmspe = result$rmspe,
         sd_treated = result$sd_treated,
+        m_gap = result$m_gap,
+        sd_gap = result$sd_gap,
+        min_gap = result$min_gap,
+        max_gap = result$max_gap,
+        rmspe = result$rmspe,
         mspe = result$mspe
       )
       
