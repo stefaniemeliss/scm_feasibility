@@ -153,8 +153,8 @@ grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_va
     })
     
     if (is.null(dataprep.out)) return(list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
-                                        rmspe = "dataprep() failed", mspe = NA, mae = NA, loss_v= NA, loss_w = NA,
-                                        params = params))
+                                           rmspe = "dataprep() failed", mspe = NA, mae = NA, loss_v= NA, loss_w = NA,
+                                           params = params))
     
     synth.out <- tryCatch({
       synth(
@@ -294,6 +294,212 @@ grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_va
         mae = result$mae,
         loss_v = result$loss_v,
         loss_w = result$loss_w
+      )
+      
+      # Convert the list to a data frame
+      result_df <- as.data.frame(result_list, stringsAsFactors = FALSE)
+      
+      return(result_df)
+    }))
+  }
+  
+  return(results)
+}
+
+
+# Create function to run grid search
+grid_search_scpi <- function(df, param_grid, use_parallel = TRUE) {
+  
+  # Define default values for parameters
+  default_values <- data.frame(
+    id.var = "laestab", # ID variable
+    time.var = "time_period", # Time variable
+    period.pre = I(list(2014:2023)), # Pre-treatment period
+    period.post = I(list(2024)), # Post-treatment period
+    outcome.var = "pupil_to_qual_teacher_ratio", # Outcome variable
+    anticipation = 0, # No anticipation
+    constant = FALSE, # No constant term
+    unit.tr = id_treated, # Treated unit (in terms of id.var)
+    unit.co = I(list(id_cont)), # Donors pool
+    features = I(list(NULL)), # No features other than outcome
+    cov.adj = I(list(NULL)), # Covariates for adjustment
+    cointegrated.data = FALSE, # don't belief that the data are cointegrated
+    stringsAsFactors = FALSE
+  )
+  
+  run_scm <- function(df, params) {
+    
+    # debug
+    # params <- param_grid[1, ]
+    
+    tmp <- default_values[, setdiff(names(default_values), names(params))]
+    params <- merge(params, tmp, by = 0)
+    
+    if(! "w.constr" %in% names(params)) (params$w.constr <- I(list(name = "simplex")))
+    
+    scdata.out <- tryCatch({
+      # data preparation
+      scdata(df = df, 
+             id.var = params$id.var, 
+             time.var = params$time.var, 
+             outcome.var = params$outcome.var, 
+             period.pre = params$period.pre[[1]], 
+             period.post = params$period.post[[1]], 
+             unit.tr = params$unit.tr[[1]], 
+             unit.co = params$unit.co[[1]], 
+             features = params$features[[1]], 
+             cov.adj = params$cov.adj[[1]], 
+             cointegrated.data = params$cointegrated.data[[1]], 
+             anticipation = params$anticipation[[1]], 
+             constant = params$constant[[1]], 
+             verbose = T)
+    }, error = function(e) {
+      message("Error in scdata: ", e$message)
+      return(NULL)
+    })
+    
+    if (is.null(scdata.out)) return(list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
+                                         rmspe = "scdata() failed", mspe = NA, mae = NA, #loss_v= NA, loss_w = NA,
+                                         params = params))
+    
+    scest.out <- tryCatch({
+      # estimate synthetic control
+      scest(data = scdata.out, 
+            w.constr = params$w.constr[[1]]
+      )
+    }, error = function(e) {
+      message("Error in scest: ", e$message)
+      return(NULL)
+    })
+    
+    if (is.null(scest.out)) return(list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
+                                        rmspe = "scest() failed", mspe = NA, mae = NA, #loss_v= NA, loss_w = NA,
+                                        params = params))
+    
+    # Extract the actual and synthetic control outcomes for all years
+    actual <- scdata.out$Y.pre
+    synthetic <- scest.out$est.results$Y.pre.fit
+    gap <- actual - synthetic # compute gap as difference between both
+    
+    # compute performance parameters
+    sd_treated <- sd(actual, na.rm = TRUE)
+    m_gap <- mean(gap, na.rm = TRUE)
+    sd_gap <- sd(gap, na.rm = TRUE)
+    min_gap <- min(gap, na.rm = TRUE)
+    max_gap <- max(gap, na.rm = TRUE)
+    cor <- cor(actual, synthetic)[1]
+    rmspe <- sqrt(mean((gap)^2, na.rm = TRUE))
+    mspe <- mean((gap)^2, na.rm = TRUE)
+    mae <- mean(abs(gap), na.rm = TRUE)
+    # loss_v <- synth.out$loss.v[1]
+    # loss_w <- synth.out$loss.w[1]
+    
+    rm(actual, synthetic, gap)
+
+    return(list(sd_treated = sd_treated, m_gap = m_gap, sd_gap = sd_gap, min_gap = min_gap, max_gap = max_gap, cor = cor,
+                rmspe = rmspe, mspe = mspe, mae = mae, #loss_v= loss_v, loss_w = loss_w,
+                params = params))
+  }
+  
+  if (use_parallel) {
+    # Register parallel backend
+    num_cores <- detectCores() - 3
+    cl <- makeCluster(num_cores)
+    registerDoParallel(cl)
+    
+    # Perform grid search with parallel processing
+    results <- foreach(i = 1:nrow(param_grid), .combine = rbind, .packages = c("scpi", "dplyr")) %dopar% {
+      params <- param_grid[i, ]
+      row.names(params) <- 1
+      
+      result <- tryCatch({
+        run_scm(df, params)
+      }, error = function(e) {
+        
+        list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
+             rmspe = "run_scm() failed", mspe = NA, mae = NA, #loss_v= NA, loss_w = NA,
+             params = params)
+      })
+      
+      # Create a list to store the results
+      result_list <- list(
+        features = ifelse(!is.null(result$params$features[[1]]), paste(result$params$features[[1]], collapse = ", "), NA),
+        cov.adj = ifelse(!is.null(result$params$cov.adj[[1]]), 
+                                    paste(sapply(result$params$cov.adj[[1]], function(x) paste(x, collapse = ", ")), collapse = "; \n"), 
+                                    NA),
+        cointegrated.data = ifelse(!is.null(result$params$cointegrated.data), result$params$cointegrated.data, NA),
+        period.pre = ifelse(!is.null(result$params$period.pre[[1]]), 
+                                       paste(result$params$period.pre[[1]], collapse = ", "), 
+                                       NA),
+        period.post = ifelse(!is.null(result$params$period.post[[1]]), 
+                                       paste(result$params$period.post[[1]], collapse = ", "), 
+                                       NA),
+        w.constr = ifelse(!is.null(result$params$w.constr[[1]][[1]]), result$params$w.constr[[1]][[1]], NA),
+        anticipation = ifelse(!is.null(result$params$anticipation), result$params$anticipation, NA),
+        constant = ifelse(!is.null(result$params$constant), result$params$constant, NA),
+        sd_treated = result$sd_treated,
+        m_gap = result$m_gap,
+        sd_gap = result$sd_gap,
+        min_gap = result$min_gap,
+        max_gap = result$max_gap,
+        cor = result$cor,
+        rmspe = result$rmspe,
+        mspe = result$mspe,
+        mae = result$mae#,
+        # loss_v = result$loss_v,
+        # loss_w = result$loss_w
+      )
+      
+      # Convert the list to a data frame
+      result_df <- as.data.frame(result_list, stringsAsFactors = FALSE)
+      
+      return(result_df)
+    }
+    
+    # Stop the cluster
+    stopCluster(cl)
+    
+  } else {
+    # Perform grid search without parallel processing
+    results <- do.call(rbind, lapply(1:nrow(param_grid), function(i) {
+      params <- param_grid[i, ]
+      row.names(params) <- 1
+      
+      result <- tryCatch({
+        run_scm(df, params)
+      }, error = function(e) {
+        list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
+             rmspe = "run_scm() failed", mspe = NA, mae = NA, #loss_v= NA, loss_w = NA,
+             params = params)
+      })
+      
+      # Create a list to store the results
+      result_list <- list(
+        features = ifelse(!is.null(result$params$features[[1]]), paste(result$params$features[[1]], collapse = ", "), NA),
+        cov.adj = ifelse(!is.null(result$params$cov.adj[[1]]), 
+                         paste(sapply(result$params$cov.adj[[1]], function(x) paste(x, collapse = ", ")), collapse = "; \n"), 
+                         NA),
+        cointegrated.data = ifelse(!is.null(result$params$cointegrated.data), result$params$cointegrated.data, NA),
+        period.pre = ifelse(!is.null(result$params$period.pre[[1]]), 
+                            paste(result$params$period.pre[[1]], collapse = ", "), 
+                            NA),
+        period.post = ifelse(!is.null(result$params$period.post[[1]]), 
+                             paste(result$params$period.post[[1]], collapse = ", "), 
+                             NA),
+        w.constr = ifelse(!is.null(result$params$w.constr[[1]][[1]]), result$params$w.constr[[1]][[1]], NA),
+        anticipation = ifelse(!is.null(result$params$anticipation), result$params$anticipation, NA),
+        constant = ifelse(!is.null(result$params$constant), result$params$constant, NA),
+        sd_treated = result$sd_treated,
+        m_gap = result$m_gap,
+        sd_gap = result$sd_gap,
+        min_gap = result$min_gap,
+        max_gap = result$max_gap,
+        cor = result$cor,
+        rmspe = result$rmspe,
+        mspe = result$mspe,
+        mae = result$mae#,
+        # loss_v = result$loss_v,
+        # loss_w = result$loss_w
       )
       
       # Convert the list to a data frame
