@@ -511,3 +511,23 @@ grid_search_scpi <- function(df, param_grid, use_parallel = TRUE) {
   
   return(results)
 }
+
+# Create a function to compute pairwise correlations for each school
+compute_pairwise_correlations <- function(data, vars, new_names) {
+  cor_values <- combn(vars, 2, function(x) {
+    test_result <- cor.test(data[[x[1]]], data[[x[2]]], use = "complete.obs")
+    cor_val <- test_result$estimate
+    ci_lower <- test_result$conf.int[1]
+    ci_upper <- test_result$conf.int[2]
+    return(c(cor_val, ci_lower, ci_upper))
+  })
+  
+  # change output structure to have length(vars) * 3 columns
+  cor_df <- as.data.frame(t(as.vector(t(cor_values))))
+  # Create column names
+  cor_names <- combn(new_names, 2, function(x) paste(x, collapse = " ~ "))
+  colnames(cor_df) <- c(paste0(cor_names, " - COR"), paste0(cor_names, " - CI L"), paste0(cor_names, " - CI U"))
+  
+  return(cor_df)
+}
+
