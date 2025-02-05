@@ -1,19 +1,14 @@
 # source ambition theme
-functions_plt <- tryCatch({
-  devtools::source_url("https://github.com/stefaniemeliss/scm_feasibility/blob/main/functions.R?raw=TRUE")
-}, error = function(e) {
-  message("Error in source_url: ", e$message)
-  return(NULL)
-})
+tempp_file <- tempfile(fileext = ".R")
+message <- curl::curl_download("https://raw.githubusercontent.com/stefaniemeliss/ambition_theme/main/ambition_theme.R", tempp_file, quiet = F)
 
-if (is.null(functions_plt)) {
-  functions_plt <- source(file = file.path(gsub("scm_feasibility", "ambition_theme", dir), "ambition_theme.R"))
-  rm(functions_plt)
+if(!grepl("Error", message)) {
+  source(tempp_file)
+  remove(tempp_file)
+} else {
+  source(file.path(gsub("scm_feasibility", "ambition_theme", dir), "ambition_theme.R"), local = T) 
 }
 
-#"C:/Users/stefanie.meliss/OneDrive - Ambition Institute/code/ambition_theme/ambition_theme.R"
-
-#devtools::source_url("https://github.com/stefaniemeliss/ambition_theme/blob/main/ambition_theme.R?raw=TRUE")
 
 # combine to palette
 ambition_palette_bright <- c(cyan, coral, teal, purple, orange) # bright palette
