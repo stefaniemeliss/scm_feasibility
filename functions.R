@@ -1,5 +1,19 @@
 # source ambition theme
-devtools::source_url("https://github.com/stefaniemeliss/ambition_theme/blob/main/ambition_theme.R?raw=TRUE")
+functions_plt <- tryCatch({
+  devtools::source_url("https://github.com/stefaniemeliss/scm_feasibility/blob/main/functions.R?raw=TRUE")
+}, error = function(e) {
+  message("Error in source_url: ", e$message)
+  return(NULL)
+})
+
+if (is.null(functions_plt)) {
+  functions_plt <- source(file = file.path(gsub("scm_feasibility", "ambition_theme", dir), "ambition_theme.R"))
+  rm(functions_plt)
+}
+
+#"C:/Users/stefanie.meliss/OneDrive - Ambition Institute/code/ambition_theme/ambition_theme.R"
+
+#devtools::source_url("https://github.com/stefaniemeliss/ambition_theme/blob/main/ambition_theme.R?raw=TRUE")
 
 # combine to palette
 ambition_palette_bright <- c(cyan, coral, teal, purple, orange) # bright palette
@@ -308,7 +322,7 @@ grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_va
 
 
 # Create function to run grid search
-grid_search_scpi <- function(df, param_grid, use_parallel = TRUE) {
+grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
   
   # Define default values for parameters
   default_values <- data.frame(
@@ -317,13 +331,13 @@ grid_search_scpi <- function(df, param_grid, use_parallel = TRUE) {
     period.pre = I(list(2014:2023)), # Pre-treatment period
     period.post = I(list(2024)), # Post-treatment period
     outcome.var = "pupil_to_qual_teacher_ratio", # Outcome variable
-    anticipation = 0, # No anticipation
-    constant = FALSE, # No constant term
     unit.tr = id_treated, # Treated unit (in terms of id.var)
     unit.co = I(list(id_cont)), # Donors pool
     features = I(list(NULL)), # No features other than outcome
     cov.adj = I(list(NULL)), # Covariates for adjustment
     cointegrated.data = FALSE, # don't belief that the data are cointegrated
+    anticipation = 0, # No anticipation
+    constant = FALSE, # No constant term
     stringsAsFactors = FALSE
   )
   
@@ -376,10 +390,18 @@ grid_search_scpi <- function(df, param_grid, use_parallel = TRUE) {
                                         rmspe = "scest() failed", mspe = NA, mae = NA, #loss_v= NA, loss_w = NA,
                                         params = params))
     
-    # Extract the actual and synthetic control outcomes for all years
-    actual <- scdata.out$Y.pre
-    synthetic <- scest.out$est.results$Y.pre.fit
+    if (cv) {
+      # Extract the actual and synthetic control outcomes for all years
+      actual <- scdata.out$Y.post
+      synthetic <- scest.out$est.results$Y.post.fit
+    } else {
+      # Extract the actual and synthetic control outcomes for all years
+      actual <- scdata.out$Y.pre
+      synthetic <- scest.out$est.results$Y.pre.fit
+    }
+    
     gap <- actual - synthetic # compute gap as difference between both
+    
     
     # compute performance parameters
     sd_treated <- sd(actual, na.rm = TRUE)
@@ -395,7 +417,7 @@ grid_search_scpi <- function(df, param_grid, use_parallel = TRUE) {
     # loss_w <- synth.out$loss.w[1]
     
     rm(actual, synthetic, gap)
-
+    
     return(list(sd_treated = sd_treated, m_gap = m_gap, sd_gap = sd_gap, min_gap = min_gap, max_gap = max_gap, cor = cor,
                 rmspe = rmspe, mspe = mspe, mae = mae, #loss_v= loss_v, loss_w = loss_w,
                 params = params))
@@ -425,15 +447,15 @@ grid_search_scpi <- function(df, param_grid, use_parallel = TRUE) {
       result_list <- list(
         features = ifelse(!is.null(result$params$features[[1]]), paste(result$params$features[[1]], collapse = ", "), NA),
         cov.adj = ifelse(!is.null(result$params$cov.adj[[1]]), 
-                                    paste(sapply(result$params$cov.adj[[1]], function(x) paste(x, collapse = ", ")), collapse = "; \n"), 
-                                    NA),
+                         paste(sapply(result$params$cov.adj[[1]], function(x) paste(x, collapse = ", ")), collapse = "; \n"), 
+                         NA),
         cointegrated.data = ifelse(!is.null(result$params$cointegrated.data), result$params$cointegrated.data, NA),
         period.pre = ifelse(!is.null(result$params$period.pre[[1]]), 
-                                       paste(result$params$period.pre[[1]], collapse = ", "), 
-                                       NA),
+                            paste(result$params$period.pre[[1]], collapse = ", "), 
+                            NA),
         period.post = ifelse(!is.null(result$params$period.post[[1]]), 
-                                       paste(result$params$period.post[[1]], collapse = ", "), 
-                                       NA),
+                             paste(result$params$period.post[[1]], collapse = ", "), 
+                             NA),
         w.constr = ifelse(!is.null(result$params$w.constr[[1]][[1]]), result$params$w.constr[[1]][[1]], NA),
         anticipation = ifelse(!is.null(result$params$anticipation), result$params$anticipation, NA),
         constant = ifelse(!is.null(result$params$constant), result$params$constant, NA),
