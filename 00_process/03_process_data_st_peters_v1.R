@@ -14,9 +14,9 @@ options(scipen = 999)
 gc()
 
 # Load necessary libraries
-library(kableExtra)
 library(dplyr)
 library(data.table)
+library(kableExtra)
 
 # Define directories based on the current working directory
 dir <- normalizePath(dir, winslash = "/")
@@ -114,10 +114,11 @@ x[, idx_donor := fifelse(laestab %in% unique(est_treated[, "laestab"]), FALSE, T
 x[, idaci_decile := NULL] # Remove idaci_decile
 
 # Create temporary data frame with unique laestab and idaci decile
-tmp <- est[, .(laestab, idaci_decile)]
+tmp <- est[, .(laestab, idaci_decile_2015, idaci_decile_2019)]
 tmp <- tmp[laestab %in% list_laestab_dv]
 tmp <- tmp[!duplicated(tmp)]
-tmp$time_period <- 201920 # Add time_period column
+tmp <- reshape2::melt(tmp, id.vars = "laestab", variable.name = "time_period", value.name = "idaci_decile")
+tmp$time_period <- ifelse(grepl("2015", tmp$time_period), 201516, 201920)
 
 # Merge temporary data with predictor dataset
 x <- merge(x, tmp, by = c("laestab", "time_period"), all.x = TRUE)
