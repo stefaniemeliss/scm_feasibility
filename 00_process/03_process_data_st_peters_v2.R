@@ -19,8 +19,6 @@ library(dplyr)
 library(data.table)
 
 # Define directories based on the current working directory
-dir <- getwd()
-dir <- gsub("02_scm", "", dir)
 dir <- normalizePath(dir, winslash = "/")
 dir_data <- file.path(dir, "data")
 dir_misc <- file.path(dir, "misc")
@@ -59,11 +57,12 @@ est_treated <- est %>%
 # Get donor pool data excluding the treated school
 est_cont <- est %>%
   filter(
-    ! grepl("Boarding school", boarders_name),
     laestab != id_treated,
     phaseofeducation_name %in% unique(c(est_treated$phaseofeducation_name)),
-    urbanicity %in% c(unique(est_treated$urbanicity)), # coded as urban vs rural
-    religiouscharacter_christian %in% unique(c(est_treated$religiouscharacter_christian))
+    gor_name %in% unique(c(est_treated$gor_name, "East Midlands")),
+    ! parliamentaryconstituency_name %in% unique(c(est_treated$parliamentaryconstituency_name)),
+    ! grepl("Boarding school", boarders_name),
+    admissionspolicy_name != "Selective"
   ) %>%
   mutate(status = "untreated") %>%
   as.data.frame()
@@ -94,7 +93,7 @@ z <- z %>%
 # Filter for rows where observation count matches the treated ID and select columns
 z <- z %>%
   filter(obs_count == unique(z$obs_count[z$laestab == id_treated])) %>%
-  select(time_period, laestab, school, pupil_to_qual_teacher_ratio) %>%
+  select(time_period, laestab, school, pupil_to_qual_teacher_ratio, fte_avg_age, fte_perc_age_under_25, fte_perc_age_60_and_over) %>%
   group_by(laestab) %>%
   arrange(laestab, desc(time_period)) %>%
   mutate(school = first(school)) %>%
@@ -116,23 +115,6 @@ x[, status := fifelse(laestab %in% unique(est_treated[, "laestab"]), "treated", 
 x[, idx_treat := fifelse(laestab %in% unique(est_treated[, "laestab"]), TRUE, FALSE)]
 x[, idx_donor := fifelse(laestab %in% unique(est_treated[, "laestab"]), FALSE, TRUE)]
 x[, idaci_decile := NULL] # Remove idaci_decile
-
-# Create temporary data frame with unique laestab and idaci decile
-tmp <- est[, .(laestab, idaci_decile)] # select cols
-tmp <- tmp[laestab %in% list_laestab_dv] # filter relevant estabs
-tmp <- tmp[!duplicated(tmp)] # remove duplicates
-tmp$time_period <- 201920 # Add time_period column
-
-check <- tmp %>% group_by(laestab) %>% summarise(n = n()) # identify estabs with more than 1 idaci decile (school has moved locations)
-id_remove <- check$laestab[check$n != 1] # identify estab numbers
-list_laestab_dv <- setdiff(list_laestab_dv, id_remove)# update list_laestab_dv to exclude the ids that should be removed
-tmp <- tmp[laestab %in% list_laestab_dv, ] # update idaci data
-x <- x[laestab %in% list_laestab_dv, ] # remove from x
-z <- z[z$laestab %in% list_laestab_dv, ] # remove from z
-
-# Merge temporary data with predictor dataset
-x <- merge(x, tmp, by = c("laestab", "time_period"), all.x = TRUE)
-rm(tmp)
 
 # Add more variables as predictors from establishment data
 tmp <- est[, .(laestab, sex_students, urbanrural_name, lat, long)]
@@ -252,7 +234,7 @@ vars <- names(x)[
   grepl("time_per|laestab|idaci|pnpupf|pnpupe|pnpupsen|coed|urban|academy_trust|region_dummy|ks2a_zscore|lat|long", 
         names(x))]
 
-vars <- setdiff(vars, c("pnpupfsm_t", "pnpupfsm_e_spt", "pnpupfsm_ever_spt", "urban_rural"))
+vars <- setdiff(vars, c("pnpupfsm_t", "pnpupfsm_e_spt", "urban_rural"))
 
 x <- x %>% 
   select(all_of(vars))
@@ -280,3 +262,45 @@ id_cont <- unique(df$laestab[df$laestab != 3344650])
 
 # change name to include laestab to navigate duplicates
 df$school <- paste(df$laestab, df$school)
+
+# compute time series average per school #
+
+# pre-treatment outcome average and sd for treated school
+mean_treated <- mean(df[df$laestab == id_treated, var])
+sd_treated <- sd(df[df$laestab == id_treated, var])
+
+# pre-treatment outcome average and sd for control schools
+school_ave <- df %>% 
+  filter(laestab != id_treated) %>%
+  group_by(laestab) %>%
+  summarise(
+    mean_dv = mean(get(var)),
+    sd_dv = sd(get(var))
+    ) %>%
+  mutate(
+    # check if average pre-treatment outcome is within [X] SDs of the average for treated school 
+    crit_sd_1.0 = ifelse(mean_dv > (mean_treated + 1.0 * sd_treated) | mean_dv < (mean_treated - 1.0 * sd_treated), FALSE, TRUE),
+    crit_sd_.90 = ifelse(mean_dv > (mean_treated + .90 * sd_treated) | mean_dv < (mean_treated - .90 * sd_treated), FALSE, TRUE),
+    crit_sd_.80 = ifelse(mean_dv > (mean_treated + .80 * sd_treated) | mean_dv < (mean_treated - .80 * sd_treated), FALSE, TRUE),
+    crit_sd_.75 = ifelse(mean_dv > (mean_treated + .75 * sd_treated) | mean_dv < (mean_treated - .75 * sd_treated), FALSE, TRUE),
+    crit_sd_.70 = ifelse(mean_dv > (mean_treated + .70 * sd_treated) | mean_dv < (mean_treated - .70 * sd_treated), FALSE, TRUE),
+    crit_sd_.60 = ifelse(mean_dv > (mean_treated + .60 * sd_treated) | mean_dv < (mean_treated - .60 * sd_treated), FALSE, TRUE),
+    crit_sd_.50 = ifelse(mean_dv > (mean_treated + .50 * sd_treated) | mean_dv < (mean_treated - .50 * sd_treated), FALSE, TRUE),
+    crit_sd_.40 = ifelse(mean_dv > (mean_treated + .40 * sd_treated) | mean_dv < (mean_treated - .40 * sd_treated), FALSE, TRUE),
+    crit_sd_.30 = ifelse(mean_dv > (mean_treated + .30 * sd_treated) | mean_dv < (mean_treated - .30 * sd_treated), FALSE, TRUE),
+    crit_sd_.25 = ifelse(mean_dv > (mean_treated + .25 * sd_treated) | mean_dv < (mean_treated - .25 * sd_treated), FALSE, TRUE),
+    crit_sd_.20 = ifelse(mean_dv > (mean_treated + .20 * sd_treated) | mean_dv < (mean_treated - .20 * sd_treated), FALSE, TRUE),
+    crit_sd_.10 = ifelse(mean_dv > (mean_treated + .10 * sd_treated) | mean_dv < (mean_treated - .10 * sd_treated), FALSE, TRUE),
+    )
+
+# summarise results: numbers show count kept
+colSums(school_ave[, c(-1:-3)])
+
+# determine schools not passing threshold
+id_remove <- school_ave$laestab[school_ave$crit_sd_1.0 == F]
+
+# remove from df
+df <- df[!df$laestab %in% id_remove, ]
+
+# determine ids of control schools
+id_cont <- unique(df$laestab[df$laestab != 3344650])
