@@ -613,8 +613,6 @@ summarise_scest <- function(object, ...) {
   }
   
   print(coef(object))
-  cat("\n\n")
-  
   
   cat("\n")
   cat("Synthetic Control Prediction - Fit\n")
@@ -639,20 +637,17 @@ summarise_scest <- function(object, ...) {
   # RMSPE is in the same units as the dependent variable
   rmspe <- sqrt(mean((gap)^2))
   cat(paste("\nRMSPE (Root Mean Squared Prediction Error; in unit of DV):", round(rmspe, 3), "\n"))
-  cat("\n\n")
-  
+
   # Calculate the MSPE for all years
   # MSPE is in the squared units of the dependent variable
   mspe <- mean((gap)^2)
   cat(paste("\nMSPE (Mean Squared Prediction Error; in squared units of DV):", round(mspe, 3), "\n"))
-  cat("\n\n")
-  
+
   # Calculate the MAE for all years
   # MAE is in the squared units of the dependent variable
   mae <- mean(abs(gap))
   cat(paste("\nMAE (Mean Absolute Error; in units of DV):", round(mae, 3), "\n"))
-  cat("\n\n")
-  
+
   ## path plot
   years <- as.numeric(gsub(paste0(id_treated, "."), "", row.names(actual)))
   
