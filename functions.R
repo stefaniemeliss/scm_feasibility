@@ -548,3 +548,66 @@ compute_pairwise_correlations <- function(data, vars, new_names) {
   return(cor_df)
 }
 
+# get scpi summary of estimation 
+summarise_scest <- function(object, ...) {
+  
+  J       <- object$data$specs$J
+  M       <- object$data$specs$M
+  K       <- object$data$specs$K
+  KM      <- object$data$specs$KM
+  T0      <- object$data$specs$T0.features
+  tr.unit <- colnames(object$data$A)
+  pt.in   <- strsplit(rownames(object$data$Y.pre)[1], "\\.")[[1]][2]
+  pt.fi   <- strsplit(rownames(object$data$Y.pre)[length(object$data$Y.pre)], "\\.")[[1]][2]  
+  pt   <- paste(object$data$specs$period.pre, collapse = ", ")  
+  w.cons  <- object$est.results$w.constr[["name"]]
+  if (is.null(object$est.results$w.constr[["Q"]])) {
+    w.size <- "-"
+  } else {
+    w.size  <- round(object$est.results$w.constr[["Q"]], 3)
+  }
+  cat("\n")
+  cat(paste0("Synthetic Control Prediction - Setup\n"))
+  cat("\n")
+  
+  cat(paste("Constraint Type:                           ", w.cons, "\n", sep = ""))
+  cat(paste("Constraint Size (Q):                       ", w.size, "\n", sep = ""))
+  cat(paste("Treated Unit:                              ", tr.unit,"\n", sep = ""))
+  cat(paste("Size of the donor pool:                    ", J,"\n", sep = ""))
+  cat(paste("Outcome variable:                          ", object$data$specs$outcome.var,"\n", sep = ""))
+  cat(paste("Number of features included:               ", M,"\n", sep = ""))
+  cat(paste("Name(s) of features:                       ", object$data$specs$features,"\n", sep = ""))
+  cat(paste("Pre-treatment period:                      ", pt.in,"-",pt.fi,"\n", sep = ""))
+  cat(paste("Years included:                            ", pt,"\n", sep = ""))
+  
+  if (M == 1) {
+    cat(paste("Pre-treatment periods used in prediction:  ",T0,"\n", sep = ""))
+    cat(paste("Covariates used for adjustment:            ",KM,"\n", sep = ""))
+    
+  } else {
+    cat("Pre-treatment periods used in prediction per feature:\n")
+    print(T0)
+    cat("Covariates used for adjustment per feature:\n")
+    print(K)
+  }
+  cat(paste("Cointegrated data:                         ", object$data$specs$cointegrated.data,"\n", sep = ""))
+  cat(paste("Constant:                                  ", object$data$specs$constant,"\n", sep = ""))
+  cat(paste("Outcome in features:                       ", object$data$specs$out.in.features,"\n", sep = ""))
+  
+  Weights    <- round(object$est.results$w, digits = 3)
+  
+  if (length(object$est.results$r) > 0) {
+    Covariates <- round(object$est.results$r, digits = 3)
+  }
+  active.w  <- sum(abs(Weights) > 0)
+  
+  cat("\n")
+  cat("Synthetic Control Prediction - Results\n")
+  cat("\n")
+  cat(paste("Active donors:", active.w,"\n"))
+  cat("\n")
+  if (length(object$est.results$r) > 0) {
+    cat("Coefficients:\n")
+    print(cbind(Covariates), col.names = FALSE)
+  }
+}
