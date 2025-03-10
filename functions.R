@@ -333,7 +333,8 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
     cointegrated.data = FALSE, # don't belief that the data are cointegrated
     anticipation = 0, # No anticipation
     constant = FALSE, # No constant term
-    stringsAsFactors = FALSE
+    stringsAsFactors = FALSE,
+    w.constr = list(name = "simplex")
   )
   
   run_scm <- function(df, params) {
@@ -343,8 +344,6 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
     
     tmp <- default_values[, setdiff(names(default_values), names(params))]
     params <- merge(params, tmp, by = 0)
-    
-    if(! "w.constr" %in% names(params)) (params$w.constr <- I(list(name = "simplex")))
     
     scdata.out <- tryCatch({
       # data preparation
