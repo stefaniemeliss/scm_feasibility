@@ -611,4 +611,24 @@ summarise_scest <- function(object, ...) {
     cat("Coefficients:\n")
     print(cbind(Covariates), col.names = FALSE)
   }
+  
+  cat("\n")
+  cat("Synthetic Control Prediction - Fit\n")
+  cat("\n")
+  
+  
+  # Extract the actual and synthetic control outcomes for all years
+  actual <- object$data$Y.pre
+  synthetic <- est.sc$est.results$Y.pre.fit
+  gap <- actual - synthetic # compute gap as difference between both
+  
+  
+  # compute descriptive stats
+  rbind(psych::describe(actual), psych::describe(synthetic), psych::describe(gap)) %>%
+    as.data.frame(row.names = c("Treated unit", "Synthetic unit", "Gap")) %>%
+    select(-vars) %>%
+    mutate(across(where(is.numeric), ~ round(., digits = 2))) %>%
+    print()
+  cat("\n\n")
+  
 }
