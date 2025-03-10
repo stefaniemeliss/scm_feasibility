@@ -612,6 +612,10 @@ summarise_scest <- function(object, ...) {
     print(cbind(Covariates), col.names = FALSE)
   }
   
+  print(coef(object))
+  cat("\n\n")
+  
+  
   cat("\n")
   cat("Synthetic Control Prediction - Fit\n")
   cat("\n")
@@ -619,16 +623,69 @@ summarise_scest <- function(object, ...) {
   
   # Extract the actual and synthetic control outcomes for all years
   actual <- object$data$Y.pre
-  synthetic <- est.sc$est.results$Y.pre.fit
+  synthetic <- object$est.results$Y.pre.fit
   gap <- actual - synthetic # compute gap as difference between both
   
   
   # compute descriptive stats
-  rbind(psych::describe(actual), psych::describe(synthetic), psych::describe(gap)) %>%
+  rbind(psych::describe(actual, fast = T), psych::describe(synthetic, fast = T), psych::describe(gap, fast = T)) %>%
     as.data.frame(row.names = c("Treated unit", "Synthetic unit", "Gap")) %>%
     select(-vars) %>%
     mutate(across(where(is.numeric), ~ round(., digits = 2))) %>%
     print()
+  cat("\n\n")
+  
+  # Calculate the RMSPE for all years
+  # RMSPE is in the same units as the dependent variable
+  rmspe <- sqrt(mean((gap)^2))
+  cat(paste("\nRMSPE (Root Mean Squared Prediction Error; in unit of DV):", round(rmspe, 3), "\n"))
+  cat("\n\n")
+  
+  # Calculate the MSPE for all years
+  # MSPE is in the squared units of the dependent variable
+  mspe <- mean((gap)^2)
+  cat(paste("\nMSPE (Mean Squared Prediction Error; in squared units of DV):", round(mspe, 3), "\n"))
+  cat("\n\n")
+  
+  # Calculate the MAE for all years
+  # MAE is in the squared units of the dependent variable
+  mae <- mean(abs(gap))
+  cat(paste("\nMAE (Mean Absolute Error; in units of DV):", round(mae, 3), "\n"))
+  cat("\n\n")
+  
+  ## path plot
+  years <- as.numeric(gsub(paste0(id_treated, "."), "", row.names(actual)))
+  
+  plot(years, actual, 
+       t = "l", col = "black", lwd = 2, 
+       xaxs = "i", yaxs = "i",
+       main = "Outcome trajectories for treated school and its Synthetic Control Unit",
+       ylab = "Ratio of pupils to qualified teachers",
+       xlab = "Start of academic year",
+       ylim = c((min(c(actual, synthetic)) - 0.3 * min(c(actual, synthetic))), (0.3 * max(c(actual, synthetic)) + max(c(actual, synthetic)))))
+  
+  lines(years, synthetic, col = "black", 
+        lty = "dashed", lwd = 2, cex = 4/5)
+  
+  legend("bottomright", legend=c(id_name, "Synthetic school"),
+         col=c("black", "black"), lty=1:2)
+  
+  ## gaps plot
+  plot(years, gap, t = "l", 
+       col = "black", lwd = 2, 
+       main = "Gap in outcome trajectories",
+       ylab = "Gap in ratio of pupils to qualified teachers",
+       xlab = "Start of academic year",
+       ylim = c(-5, 5), xaxs = "i", yaxs = "i")
+  abline(h = 0, col = "black", lty = "dashed", 
+         lwd = 2)
+  
+  # calculate correlation 
+  cat(paste("\nIntercorrelation matrix (entries above the diagonal adjusted for multiple tests) \n"))
+  tmp <- psych::corr.test(data.frame(actual = actual[,1], synthetic = synthetic[,1], gap = gap[,1]))
+  corrplot::corrplot(tmp$r,
+                     p.mat = tmp$p,
+                     method = "number", tl.pos = "d")
   cat("\n\n")
   
 }
