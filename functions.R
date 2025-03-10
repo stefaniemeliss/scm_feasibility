@@ -560,6 +560,7 @@ summarise_scest <- function(object, ...) {
   pt.in   <- strsplit(rownames(object$data$Y.pre)[1], "\\.")[[1]][2]
   pt.fi   <- strsplit(rownames(object$data$Y.pre)[length(object$data$Y.pre)], "\\.")[[1]][2]  
   pt   <- paste(object$data$specs$period.pre, collapse = ", ")  
+  names   <- paste(object$data$specs$features, collapse = ", ")  
   w.cons  <- object$est.results$w.constr[["name"]]
   if (is.null(object$est.results$w.constr[["Q"]])) {
     w.size <- "-"
@@ -576,7 +577,7 @@ summarise_scest <- function(object, ...) {
   cat(paste("Size of the donor pool:                    ", J,"\n", sep = ""))
   cat(paste("Outcome variable:                          ", object$data$specs$outcome.var,"\n", sep = ""))
   cat(paste("Number of features included:               ", M,"\n", sep = ""))
-  cat(paste("Name(s) of features:                       ", object$data$specs$features,"\n", sep = ""))
+  cat(paste("Name(s) of features:                       ", names,"\n", sep = ""))
   cat(paste("Pre-treatment period:                      ", pt.in,"-",pt.fi,"\n", sep = ""))
   cat(paste("Years included:                            ", pt,"\n", sep = ""))
   
