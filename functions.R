@@ -570,23 +570,23 @@ summarise_scest <- function(object, ...) {
   } else {
     w.size  <- round(object$est.results$w.constr[["Q"]], 3)
   }
-  cat("\n")
+  cat("\n\n")
   cat(paste0("Synthetic Control Prediction - Setup\n"))
-  cat("\n")
+  cat("\n\n")
   
-  cat(paste("Constraint Type:                           ", w.cons, "\n", sep = ""))
-  cat(paste("Constraint Size (Q):                       ", w.size, "\n", sep = ""))
-  cat(paste("Treated Unit:                              ", tr.unit,"\n", sep = ""))
-  cat(paste("Size of the donor pool:                    ", J,"\n", sep = ""))
-  cat(paste("Outcome variable:                          ", object$data$specs$outcome.var,"\n", sep = ""))
-  cat(paste("Number of features included:               ", M,"\n", sep = ""))
-  cat(paste("Name(s) of features:                       ", names,"\n", sep = ""))
-  cat(paste("Pre-treatment period:                      ", pt.in,"-",pt.fi,"\n", sep = ""))
-  cat(paste("Years included:                            ", pt,"\n", sep = ""))
+  cat(paste("Constraint Type:                           ", w.cons, "\n\n", sep = ""))
+  cat(paste("Constraint Size (Q):                       ", w.size, "\n\n", sep = ""))
+  cat(paste("Treated Unit:                              ", tr.unit,"\n\n", sep = ""))
+  cat(paste("Size of the donor pool:                    ", J,"\n\n", sep = ""))
+  cat(paste("Outcome variable:                          ", object$data$specs$outcome.var,"\n\n", sep = ""))
+  cat(paste("Number of features included:               ", M,"\n\n", sep = ""))
+  cat(paste("Name(s) of features:                       ", names,"\n\n", sep = ""))
+  cat(paste("Pre-treatment period:                      ", pt.in,"-",pt.fi,"\n\n", sep = ""))
+  cat(paste("Years included:                            ", pt,"\n\n", sep = ""))
   
   if (M == 1) {
-    cat(paste("Pre-treatment periods used in prediction:  ",T0,"\n", sep = ""))
-    cat(paste("Covariates used for adjustment:            ",KM,"\n", sep = ""))
+    cat(paste("Pre-treatment periods used in prediction:  ",T0,"\n\n", sep = ""))
+    cat(paste("Covariates used for adjustment:            ",KM,"\n\n", sep = ""))
     
   } else {
     cat("Pre-treatment periods used in prediction per feature:\n")
@@ -594,9 +594,9 @@ summarise_scest <- function(object, ...) {
     cat("Covariates used for adjustment per feature:\n")
     print(K)
   }
-  cat(paste("Cointegrated data:                         ", object$data$specs$cointegrated.data,"\n", sep = ""))
-  cat(paste("Constant:                                  ", object$data$specs$constant,"\n", sep = ""))
-  cat(paste("Outcome in features:                       ", object$data$specs$out.in.features,"\n", sep = ""))
+  cat(paste("Cointegrated data:                         ", object$data$specs$cointegrated.data,"\n\n", sep = ""))
+  cat(paste("Constant:                                  ", object$data$specs$constant,"\n\n", sep = ""))
+  cat(paste("Outcome in features:                       ", object$data$specs$out.in.features,"\n\n", sep = ""))
   
   Weights    <- round(object$est.results$w, digits = 3)
   
@@ -605,21 +605,23 @@ summarise_scest <- function(object, ...) {
   }
   active.w  <- sum(abs(Weights) > 0)
   
-  cat("\n")
+  cat("\n\n")
   cat("Synthetic Control Prediction - Results\n")
-  cat("\n")
-  cat(paste("Active donors:", active.w,"\n"))
-  cat("\n")
+  cat("\n\n")
+  cat(paste("Active donors:", active.w,"\n\n"))
+  cat("\n\n")
   if (length(object$est.results$r) > 0) {
     cat("Coefficients:\n")
     print(cbind(Covariates), col.names = FALSE)
   }
   
   print(coef(object))
+  cat("\n\n")
   
-  cat("\n")
+  
+  cat("\n\n")
   cat("Synthetic Control Prediction - Fit\n")
-  cat("\n")
+  cat("\n\n")
   
   
   # Extract the actual and synthetic control outcomes for all years
@@ -639,18 +641,21 @@ summarise_scest <- function(object, ...) {
   # Calculate the RMSPE for all years
   # RMSPE is in the same units as the dependent variable
   rmspe <- sqrt(mean((gap)^2))
-  cat(paste("\nRMSPE (Root Mean Squared Prediction Error; in unit of DV):", round(rmspe, 3), "\n"))
-
+  cat(paste("\nRMSPE (Root Mean Squared Prediction Error; in unit of DV):", round(rmspe, 3), "\n\n"))
+  cat("\n\n")
+  
   # Calculate the MSPE for all years
   # MSPE is in the squared units of the dependent variable
   mspe <- mean((gap)^2)
-  cat(paste("\nMSPE (Mean Squared Prediction Error; in squared units of DV):", round(mspe, 3), "\n"))
-
+  cat(paste("\nMSPE (Mean Squared Prediction Error; in squared units of DV):", round(mspe, 3), "\n\n"))
+  cat("\n\n")
+  
   # Calculate the MAE for all years
   # MAE is in the squared units of the dependent variable
   mae <- mean(abs(gap))
-  cat(paste("\nMAE (Mean Absolute Error; in units of DV):", round(mae, 3), "\n"))
-
+  cat(paste("\nMAE (Mean Absolute Error; in units of DV):", round(mae, 3), "\n\n"))
+  cat("\n\n")
+  
   ## path plot
   years <- as.numeric(gsub(paste0(id_treated, "."), "", row.names(actual)))
   
