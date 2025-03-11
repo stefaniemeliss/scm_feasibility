@@ -333,17 +333,20 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
     cointegrated.data = FALSE, # don't belief that the data are cointegrated
     anticipation = 0, # No anticipation
     constant = FALSE, # No constant term
-    stringsAsFactors = FALSE,
-    w.constr = list(name = "simplex")
+    stringsAsFactors = FALSE
   )
   
   run_scm <- function(df, params) {
     
     # debug
     # params <- param_grid[1, ]
+    # row.names(params) <- 1
     
     tmp <- default_values[, setdiff(names(default_values), names(params))]
     params <- merge(params, tmp, by = 0)
+    
+    if(! "w.constr" %in% names(params)) (params$w.constr <- I(list(name = "simplex")))
+    
     
     scdata.out <- tryCatch({
       # data preparation
@@ -373,7 +376,7 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
     scest.out <- tryCatch({
       # estimate synthetic control
       scest(data = scdata.out, 
-            w.constr = params$w.constr[[1]]
+            w.constr = params$w.constr#[[1]]
       )
     }, error = function(e) {
       message("Error in scest: ", e$message)
@@ -491,6 +494,7 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
       
       # Create a list to store the results
       result_list <- list(
+        outcome.var = ifelse(!is.null(result$params$outcome.var[[1]]), paste(result$params$outcome.var[[1]], collapse = ", "), NA),
         features = ifelse(!is.null(result$params$features[[1]]), paste(result$params$features[[1]], collapse = ", "), NA),
         cov.adj = ifelse(!is.null(result$params$cov.adj[[1]]), 
                          paste(sapply(result$params$cov.adj[[1]], function(x) paste(x, collapse = ", ")), collapse = "; \n"), 
