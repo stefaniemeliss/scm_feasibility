@@ -614,7 +614,7 @@ summarise_scest <- function(object, ...) {
   cat("\n\n")
   if (length(object$est.results$r) > 0) {
     cat("Coefficients:\n")
-    print(cbind(Covariates), col.names = FALSE)
+    cbind(Covariates) %>% kbl() %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% print()
   }
   
   print(coef(object))
