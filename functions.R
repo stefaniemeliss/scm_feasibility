@@ -571,32 +571,34 @@ summarise_scest <- function(object, ...) {
     w.size  <- round(object$est.results$w.constr[["Q"]], 3)
   }
   cat("\n\n")
-  cat(paste0("Synthetic Control Prediction - Setup\n"))
+  cat(paste0("#### Synthetic Control Prediction - Setup \n"))
   cat("\n\n")
   
-  cat(paste("Constraint Type:                           ", w.cons, "\n\n", sep = ""))
-  cat(paste("Constraint Size (Q):                       ", w.size, "\n\n", sep = ""))
-  cat(paste("Treated Unit:                              ", tr.unit,"\n\n", sep = ""))
-  cat(paste("Size of the donor pool:                    ", J,"\n\n", sep = ""))
-  cat(paste("Outcome variable:                          ", object$data$specs$outcome.var,"\n\n", sep = ""))
-  cat(paste("Number of features included:               ", M,"\n\n", sep = ""))
-  cat(paste("Name(s) of features:                       ", names,"\n\n", sep = ""))
-  cat(paste("Pre-treatment period:                      ", pt.in,"-",pt.fi,"\n\n", sep = ""))
-  cat(paste("Years included:                            ", pt,"\n\n", sep = ""))
+  cat(paste("Constraint Type:                           ", w.cons, "\n\n"))
+  cat(paste("Constraint Size (Q):                       ", w.size, "\n\n"))
+  cat(paste("Treated Unit:                              ", tr.unit,"\n\n"))
+  cat(paste("Size of the donor pool:                    ", J,"\n\n"))
+  cat(paste("Outcome variable:                          ", object$data$specs$outcome.var,"\n\n"))
+  cat(paste("Number of features included:               ", M,"\n\n"))
+  cat(paste("Name(s) of features:                       ", names,"\n\n"))
+  cat(paste("Pre-treatment period:                      ", pt.in,"-",pt.fi,"\n\n"))
+  cat(paste("Years included:                            ", pt,"\n\n"))
   
   if (M == 1) {
-    cat(paste("Pre-treatment periods used in prediction:  ",T0,"\n\n", sep = ""))
-    cat(paste("Covariates used for adjustment:            ",KM,"\n\n", sep = ""))
+    cat(paste("Pre-treatment periods used in prediction:  ",T0,"\n\n"))
+    cat(paste("Covariates used for adjustment:            ",KM,"\n\n"))
     
   } else {
-    cat("Pre-treatment periods used in prediction per feature:\n")
-    print(T0)
-    cat("Covariates used for adjustment per feature:\n")
-    print(K)
+    cat("Pre-treatment periods used in prediction per feature:\n\n")
+    kbl(T0) %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% print()
+    cat("\n\n")
+    cat("Covariates used for adjustment per feature:\n\n")
+    kbl(K) %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% print()
+    cat("\n\n")
   }
-  cat(paste("Cointegrated data:                         ", object$data$specs$cointegrated.data,"\n\n", sep = ""))
-  cat(paste("Constant:                                  ", object$data$specs$constant,"\n\n", sep = ""))
-  cat(paste("Outcome in features:                       ", object$data$specs$out.in.features,"\n\n", sep = ""))
+  cat(paste("Cointegrated data:                         ", object$data$specs$cointegrated.data,"\n\n"))
+  cat(paste("Constant:                                  ", object$data$specs$constant,"\n\n"))
+  cat(paste("Outcome in features:                       ", object$data$specs$out.in.features,"\n\n"))
   
   Weights    <- round(object$est.results$w, digits = 3)
   
@@ -606,7 +608,7 @@ summarise_scest <- function(object, ...) {
   active.w  <- sum(abs(Weights) > 0)
   
   cat("\n\n")
-  cat("Synthetic Control Prediction - Results\n")
+  cat("#### Synthetic Control Prediction - Results \n")
   cat("\n\n")
   cat(paste("Active donors:", active.w,"\n\n"))
   cat("\n\n")
@@ -620,7 +622,7 @@ summarise_scest <- function(object, ...) {
   
   
   cat("\n\n")
-  cat("Synthetic Control Prediction - Fit\n")
+  cat("#### Synthetic Control Prediction - Fit \n")
   cat("\n\n")
   
   
@@ -635,6 +637,8 @@ summarise_scest <- function(object, ...) {
     as.data.frame(row.names = c("Treated unit", "Synthetic unit", "Gap")) %>%
     select(-vars) %>%
     mutate(across(where(is.numeric), ~ round(., digits = 2))) %>%
+    kbl() %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>%
     print()
   cat("\n\n")
   
@@ -684,7 +688,8 @@ summarise_scest <- function(object, ...) {
          lwd = 2)
   
   # calculate correlation 
-  cat(paste("\nIntercorrelation matrix (entries above the diagonal adjusted for multiple tests) \n"))
+  cat("\n\n")
+  cat(paste("\n##### Intercorrelation matrix (entries above the diagonal adjusted for multiple tests) \n"))
   tmp <- psych::corr.test(data.frame(actual = actual[,1], synthetic = synthetic[,1], gap = gap[,1]))
   corrplot::corrplot(tmp$r,
                      p.mat = tmp$p,
