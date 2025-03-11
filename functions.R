@@ -1,3 +1,5 @@
+#### AMBITION THEME ####
+
 # source ambition theme
 tempp_file <- tempfile(fileext = ".R")
 message <- curl::curl_download("https://raw.githubusercontent.com/stefaniemeliss/ambition_theme/main/ambition_theme.R", tempp_file, quiet = F)
@@ -9,7 +11,6 @@ if(!grepl("Error", message)) {
   source(file.path(gsub("scm_feasibility", "ambition_theme", dir), "ambition_theme.R"), local = T) 
 }
 
-
 # combine to palette
 ambition_palette_bright <- c(cyan, coral, teal, purple, orange) # bright palette
 ambition_palette_accent <- c(yellow, blue, red)
@@ -19,49 +20,27 @@ ambition_palette <- c(coral, teal, purple, orange, blue, red, cyan, yellow) # de
 dominant_col <- coral
 nondominant_col <- navy
 
-# functions for data display #
+#### ALL-PURPOSE HELPER FUNCTIONS ####
 
-table_desc <- function(data = df, group_var = "group", dep_var = "variable"){
-  
-  out <- rbind(
-    psych::describe(data[, dep_var]), # get descriptives whole sample
-    do.call("rbind",psych::describeBy(data[, dep_var], group = data[, group_var])) # get descriptives per group
-  )
-  # edit output
-  out$vars <- NULL
-  rownames(out)[1] <- "all"
-  out <- round(out, 3)
-  # print output
-  kbl(out, caption = paste0("Descriptives of variable '", dep_var,"' for whole sample and within each group")) %>%
-    kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
-    print()
-  cat("\n")
+# source ambition theme
+tempp_file <- tempfile(fileext = ".R")
+message <- curl::curl_download("https://raw.githubusercontent.com/stefaniemeliss/helper_functions/main/functions.R", tempp_file, quiet = F)
+
+if(!grepl("Error", message)) {
+  source(tempp_file)
+  remove(tempp_file)
+} else {
+  source(file.path(gsub("scm_feasibility", "helper_functions", dir), "functions.R"), local = T) 
 }
+
+
+#### PROJECT-SPECIFIC FUNCTIONS ####
 
 # functions for data processing #
-
-# function to determine outliers
-is_outlier_iqr <- function(x) {
-  # +/- 1.5*IQR
-  return(x < quantile(x, 0.25, na.rm = T) - 1.5 * IQR(x, na.rm = T) | x > quantile(x, 0.75, na.rm = T) + 1.5 * IQR(x, na.rm = T))
-}
 
 # Function to insert "/" in the format "YYYYYY" to "YYYY/YY"
 insert_slash <- function(number) {
   sub("(\\d{4})(\\d{2})", "\\1/\\2", number)
-}
-
-# rbind all columns
-rbind.all.columns <- function(x, y) {
-  
-  x.diff <- setdiff(colnames(x), colnames(y))
-  y.diff <- setdiff(colnames(y), colnames(x))
-  
-  x[, c(as.character(y.diff))] <- NA
-  
-  y[, c(as.character(x.diff))] <- NA
-  
-  return(rbind(x, y))
 }
 
 # Function to determine the status of an establishment in a given academic year
@@ -532,25 +511,6 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
   return(results)
 }
 
-# Create a function to compute pairwise correlations for each school
-compute_pairwise_correlations <- function(data, vars, new_names) {
-  cor_values <- combn(vars, 2, function(x) {
-    test_result <- cor.test(data[[x[1]]], data[[x[2]]], use = "complete.obs")
-    cor_val <- test_result$estimate
-    ci_lower <- test_result$conf.int[1]
-    ci_upper <- test_result$conf.int[2]
-    return(c(cor_val, ci_lower, ci_upper))
-  })
-  
-  # change output structure to have length(vars) * 3 columns
-  cor_df <- as.data.frame(t(as.vector(t(cor_values))))
-  # Create column names
-  cor_names <- combn(new_names, 2, function(x) paste(x, collapse = " ~ "))
-  colnames(cor_df) <- c(paste0(cor_names, " - COR"), paste0(cor_names, " - CI L"), paste0(cor_names, " - CI U"))
-  
-  return(cor_df)
-}
-
 # get scpi summary of estimation 
 summarise_scest <- function(object, ...) {
   
@@ -697,3 +657,23 @@ summarise_scest <- function(object, ...) {
   cat("\n\n")
   
 }
+
+# Create a function to compute pairwise correlations for each school
+compute_pairwise_correlations <- function(data, vars, new_names) {
+  cor_values <- combn(vars, 2, function(x) {
+    test_result <- cor.test(data[[x[1]]], data[[x[2]]], use = "complete.obs")
+    cor_val <- test_result$estimate
+    ci_lower <- test_result$conf.int[1]
+    ci_upper <- test_result$conf.int[2]
+    return(c(cor_val, ci_lower, ci_upper))
+  })
+  
+  # change output structure to have length(vars) * 3 columns
+  cor_df <- as.data.frame(t(as.vector(t(cor_values))))
+  # Create column names
+  cor_names <- combn(new_names, 2, function(x) paste(x, collapse = " ~ "))
+  colnames(cor_df) <- c(paste0(cor_names, " - COR"), paste0(cor_names, " - CI L"), paste0(cor_names, " - CI U"))
+  
+  return(cor_df)
+}
+
