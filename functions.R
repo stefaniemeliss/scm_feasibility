@@ -318,7 +318,8 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
     })
     
     if (is.null(scdata.out)) return(list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
-                                         rmspe = "scdata() failed", mspe = NA, mae = NA, #loss_v= NA, loss_w = NA,
+                                         rmspe_pre = "scdata() failed", mspe_pre = NA, mae_pre = NA, 
+                                         rmspe_post = NA, mspe_post = NA, mae_post = NA, 
                                          params = params))
     
     scest.out <- tryCatch({
@@ -332,7 +333,8 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
     })
     
     if (is.null(scest.out)) return(list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
-                                        rmspe = "scest() failed", mspe = NA, mae = NA, #loss_v= NA, loss_w = NA,
+                                        rmspe_pre = "scest() failed", mspe_pre = NA, mae_pre = NA, 
+                                        rmspe_post = NA, mspe_post = NA, mae_post = NA, 
                                         params = params))
     
     if (cv) {
@@ -408,7 +410,8 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
       }, error = function(e) {
         
         list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
-             rmspe = "run_scm() failed", mspe = NA, mae = NA, #loss_v= NA, loss_w = NA,
+             rmspe_pre = "run_scm() failed", mspe_pre = NA, mae_pre = NA, 
+             rmspe_post = NA, mspe_post = NA, mae_post = NA, 
              params = params)
       })
       
@@ -461,7 +464,8 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
         run_scm(df, params)
       }, error = function(e) {
         list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
-             rmspe = "run_scm() failed", mspe = NA, mae = NA, #loss_v= NA, loss_w = NA,
+             rmspe_pre = "run_scm() failed", mspe_pre = NA, mae_pre = NA, 
+             rmspe_post = NA, mspe_post = NA, mae_post = NA, 
              params = params)
       })
       
