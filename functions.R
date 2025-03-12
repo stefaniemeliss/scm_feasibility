@@ -1,38 +1,7 @@
-#### AMBITION THEME ####
-
-# source ambition theme
-tempp_file <- tempfile(fileext = ".R")
-message <- curl::curl_download("https://raw.githubusercontent.com/stefaniemeliss/ambition_theme/main/ambition_theme.R", tempp_file, quiet = F)
-
-if(!grepl("Error", message)) {
-  source(tempp_file)
-  remove(tempp_file)
-} else {
-  source(file.path(gsub("scm_feasibility", "ambition_theme", dir), "ambition_theme.R"), local = T) 
-}
-
-# combine to palette
-ambition_palette_bright <- c(cyan, coral, teal, purple, orange) # bright palette
-ambition_palette_accent <- c(yellow, blue, red)
-ambition_palette <- c(coral, teal, purple, orange, blue, red, cyan, yellow) # de-prioritise cyan and yellow
-
-# declare dominant and non-dominant colour in plots
-dominant_col <- coral
-nondominant_col <- navy
-
 #### ALL-PURPOSE HELPER FUNCTIONS ####
 
-# source ambition theme
-tempp_file <- tempfile(fileext = ".R")
-message <- curl::curl_download("https://raw.githubusercontent.com/stefaniemeliss/helper_functions/main/functions.R", tempp_file, quiet = F)
-
-if(!grepl("Error", message)) {
-  source(tempp_file)
-  remove(tempp_file)
-} else {
-  source(file.path(gsub("scm_feasibility", "helper_functions", dir), "functions.R"), local = T) 
-}
-
+# source code
+source_code(target_repo = "helper_functions", file_name = "functions.R")
 
 #### PROJECT-SPECIFIC FUNCTIONS ####
 
