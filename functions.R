@@ -293,7 +293,7 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
     tmp <- default_values[, setdiff(names(default_values), names(params))]
     params <- merge(params, tmp, by = 0)
     
-    if(! "w.constr" %in% names(params)) (params$w.constr <- I(list(name = "simplex")))
+    if(! "w.constr" %in% names(params)) (params$w.constr <- I(list(list(name = "simplex"))))
     
     
     scdata.out <- tryCatch({
@@ -325,7 +325,7 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
     scest.out <- tryCatch({
       # estimate synthetic control
       scest(data = scdata.out, 
-            w.constr = params$w.constr#[[1]]
+            w.constr = params$w.constr[[1]]
       )
     }, error = function(e) {
       message("Error in scest: ", e$message)
