@@ -327,20 +327,25 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
       scest(data = scdata.out, 
             w.constr = params$w.constr[[1]]
       )
-      # save info on weight constraints
-      w.constr <- scest.out$est.results$w.constr
-      w.constr <- w.constr[c("name", "p", "lb", "Q", "dir")]
-      w.constr <- paste(names(w.constr), w.constr, sep = " = ",collapse = "; " )
       
     }, error = function(e) {
       message("Error in scest: ", e$message)
       return(NULL)
     })
     
-    if (is.null(scest.out)) return(list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
-                                        rmspe_pre = "scest() failed", mspe_pre = NA, mae_pre = NA, 
-                                        rmspe_post = NA, mspe_post = NA, mae_post = NA, 
-                                        params = params))
+    if ((is.null(scest.out))) {
+      
+      return(list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
+                  rmspe_pre = "scest() failed", mspe_pre = NA, mae_pre = NA, 
+                  rmspe_post = NA, mspe_post = NA, mae_post = NA, 
+                  params = params))
+    } else {
+      # save info on weight constraints
+      w.constr <- scest.out$est.results$w.constr
+      w.constr <- w.constr[c("name", "p", "lb", "Q", "dir")]
+      w.constr <- paste(names(w.constr), w.constr, sep = " = ",collapse = "; " )
+    }
+    
     
     if (cv) {
       # Extract the actual and synthetic control outcomes for all years - PRE
