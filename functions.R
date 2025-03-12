@@ -336,35 +336,59 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
                                         params = params))
     
     if (cv) {
-      # Extract the actual and synthetic control outcomes for all years
-      actual <- scdata.out$Y.post
-      synthetic <- scest.out$est.results$Y.post.fit
+      # Extract the actual and synthetic control outcomes for all years - PRE
+      actual_pre <- scdata.out$data$Y.pre
+      synthetic_pre <- scest.out$est.results$Y.pre.fit
+      gap_pre <- actual_pre - synthetic_pre # compute gap as difference between both
+      
+      # Compute fit - PRE
+      rmspe_pre <- sqrt(mean((gap_pre)^2, na.rm = TRUE))
+      mspe_pre <- mean((gap_pre)^2, na.rm = TRUE)
+      mae_pre <- mean(abs(gap_pre), na.rm = TRUE)
+      
+      # Extract the actual and synthetic control outcomes for all years - POST
+      actual_post <- scdata.out$data$Y.post
+      synthetic_post <- scest.out$est.results$Y.post.fit
+      gap_post <- actual_post - synthetic_post # compute gap as difference between both
+      
+      # Compute fit - POST
+      rmspe_post <- sqrt(mean((gap_post)^2, na.rm = TRUE))
+      mspe_post <- mean((gap_post)^2, na.rm = TRUE)
+      mae_post <- mean(abs(gap_post), na.rm = TRUE)
+      
+      rm(actual_post, synthetic_post, gap_post)
+      
     } else {
-      # Extract the actual and synthetic control outcomes for all years
-      actual <- scdata.out$Y.pre
-      synthetic <- scest.out$est.results$Y.pre.fit
+      # Extract the actual and synthetic control outcomes for pre-treatment years only
+      actual_pre <- scdata.out$data$Y.pre
+      synthetic_pre <- scest.out$est.results$Y.pre.fit
+      gap_pre <- actual_pre - synthetic_pre # compute gap as difference between both
+      
+      # Compute fit - PRE
+      rmspe_pre <- sqrt(mean((gap_pre)^2, na.rm = TRUE))
+      mspe_pre <- mean((gap_pre)^2, na.rm = TRUE)
+      mae_pre <- mean(abs(gap_pre), na.rm = TRUE)
+      
+      # set NA for fit - POST
+      rmspe_post <- NA
+      mspe_post <- NA
+      mae_post <- NA 
     }
-    
-    gap <- actual - synthetic # compute gap as difference between both
     
     
     # compute performance parameters
-    sd_treated <- sd(actual, na.rm = TRUE)
-    m_gap <- mean(gap, na.rm = TRUE)
-    sd_gap <- sd(gap, na.rm = TRUE)
-    min_gap <- min(gap, na.rm = TRUE)
-    max_gap <- max(gap, na.rm = TRUE)
-    cor <- cor(actual, synthetic)[1]
-    rmspe <- sqrt(mean((gap)^2, na.rm = TRUE))
-    mspe <- mean((gap)^2, na.rm = TRUE)
-    mae <- mean(abs(gap), na.rm = TRUE)
-    # loss_v <- synth.out$loss.v[1]
-    # loss_w <- synth.out$loss.w[1]
+    sd_treated <- sd(actual_pre, na.rm = TRUE)
+    m_gap <- mean(gap_pre, na.rm = TRUE)
+    sd_gap <- sd(gap_pre, na.rm = TRUE)
+    min_gap <- min(gap_pre, na.rm = TRUE)
+    max_gap <- max(gap_pre, na.rm = TRUE)
+    cor <- cor(actual_pre, synthetic_pre)[1]
     
-    rm(actual, synthetic, gap)
+    rm(actual_pre, synthetic_pre, gap_pre)
     
     return(list(sd_treated = sd_treated, m_gap = m_gap, sd_gap = sd_gap, min_gap = min_gap, max_gap = max_gap, cor = cor,
-                rmspe = rmspe, mspe = mspe, mae = mae, #loss_v= loss_v, loss_w = loss_w,
+                rmspe_pre = rmspe_pre, mspe_pre = mspe_pre, mae_pre = mae_pre, 
+                rmspe_post = rmspe_post, mspe_post = mspe_post, mae_post = mae_post, 
                 params = params))
   }
   
@@ -410,11 +434,12 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
         min_gap = result$min_gap,
         max_gap = result$max_gap,
         cor = result$cor,
-        rmspe = result$rmspe,
-        mspe = result$mspe,
-        mae = result$mae#,
-        # loss_v = result$loss_v,
-        # loss_w = result$loss_w
+        rmspe_pre = result$rmspe_pre,
+        mspe_pre = result$mspe_pre,
+        mae_pre = result$mae_pre,
+        rmspe_post = result$rmspe_post,
+        mspe_post = result$mspe_post,
+        mae_post = result$mae_post
       )
       
       # Convert the list to a data frame
@@ -463,11 +488,12 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
         min_gap = result$min_gap,
         max_gap = result$max_gap,
         cor = result$cor,
-        rmspe = result$rmspe,
-        mspe = result$mspe,
-        mae = result$mae#,
-        # loss_v = result$loss_v,
-        # loss_w = result$loss_w
+        rmspe_pre = result$rmspe_pre,
+        mspe_pre = result$mspe_pre,
+        mae_pre = result$mae_pre,
+        rmspe_post = result$rmspe_post,
+        mspe_post = result$mspe_post,
+        mae_post = result$mae_post
       )
       
       # Convert the list to a data frame
