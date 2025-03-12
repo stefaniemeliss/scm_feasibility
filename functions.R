@@ -333,7 +333,7 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
       return(NULL)
     })
     
-    if ((is.null(scest.out))) {
+    if(is.null(scest.out)) {
       
       return(list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
                   rmspe_pre = "scest() failed", mspe_pre = NA, mae_pre = NA, 
@@ -344,6 +344,7 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
       w.constr <- scest.out$est.results$w.constr
       w.constr <- w.constr[c("name", "p", "lb", "Q", "dir")]
       w.constr <- paste(names(w.constr), w.constr, sep = " = ",collapse = "; " )
+      params$w.constr.str <- w.constr
     }
     
     
@@ -493,7 +494,7 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
         period.post = ifelse(!is.null(result$params$period.post[[1]]), 
                              paste(result$params$period.post[[1]], collapse = ", "), 
                              NA),
-        w.constr = ifelse(!is.null(result$params$w.constr[[1]]), w.constr, NA),
+        w.constr = ifelse(!is.null(result$params$w.constr[[1]]), result$params$w.constr.str, NA),
         anticipation = ifelse(!is.null(result$params$anticipation), result$params$anticipation, NA),
         constant = ifelse(!is.null(result$params$constant), result$params$constant, NA),
         sd_treated = result$sd_treated,
