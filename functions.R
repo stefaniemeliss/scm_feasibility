@@ -109,17 +109,31 @@ process_data_scm <- function(id_treated = "id_treated",
   }
   
   # Get donor pool data excluding the treated school
-  est_cont <- est %>%
-    filter(
-      laestab != id_treated,
-      phaseofeducation_name %in% unique(c(est_treated$phaseofeducation_name)),
-      gor_name %in% regions,
-      ! parliamentaryconstituency_name %in% unique(c(est_treated$parliamentaryconstituency_name)),
-      ! grepl("Boarding school", boarders_name),
-      admissionspolicy_name != "Selective"
-    ) %>%
-    mutate(status = "untreated") %>%
-    as.data.frame()
+  if(exists("list_laestab_exclude")) {
+    est_cont <- est %>%
+      filter(
+        laestab != list_laestab_exclude,
+        phaseofeducation_name %in% unique(c(est_treated$phaseofeducation_name)),
+        gor_name %in% regions,
+        ! parliamentaryconstituency_name %in% unique(c(est_treated$parliamentaryconstituency_name)),
+        ! grepl("Boarding school", boarders_name),
+        admissionspolicy_name != "Selective"
+      ) %>%
+      mutate(status = "untreated") %>%
+      as.data.frame()
+  } else {
+    est_cont <- est %>%
+      filter(
+        laestab != id_treated,
+        phaseofeducation_name %in% unique(c(est_treated$phaseofeducation_name)),
+        gor_name %in% regions,
+        ! parliamentaryconstituency_name %in% unique(c(est_treated$parliamentaryconstituency_name)),
+        ! grepl("Boarding school", boarders_name),
+        admissionspolicy_name != "Selective"
+      ) %>%
+      mutate(status = "untreated") %>%
+      as.data.frame()
+  }
   
   # Save unique lists of laestab and urn
   list_laestab <- c(unique(est_cont[, "laestab"]), unique(est_treated[, "laestab"]))
@@ -533,7 +547,6 @@ grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_va
 # Create function to run grid search
 grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
   
-  
   # Define default values for parameters
   default_values <- data.frame(
     id.var = "laestab", # ID variable
@@ -542,7 +555,7 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
     period.post = I(list(2024)), # Post-treatment period
     outcome.var = "pupil_to_qual_teacher_ratio", # Outcome variable
     unit.tr = id_treated, # Treated unit (in terms of id.var)
-    unit.co = I(list(id_cont)), # Donors pool
+    unit.co = NA, # Donors pool
     features = I(list(NULL)), # No features other than outcome
     cov.adj = I(list(NULL)), # Covariates for adjustment
     cointegrated.data = FALSE, # don't belief that the data are cointegrated
@@ -551,62 +564,74 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
     stringsAsFactors = FALSE
   )
   
+  
   run_scm <- function(df, params) {
     
     # debug
-    # params <- param_grid[1, ]
+    # params <- param_grid[2158 , ]
     # row.names(params) <- 1
     
-    
+    # Merge with parameters in grid
     tmp <- default_values[, setdiff(names(default_values), names(params))]
     params <- merge(params, tmp, by = 0)
-    
-    if(! "w.constr" %in% names(params)) {
-      params$w.constr <- I(list(list(name = "simplex")))
-      params$w.constr.str <- NA
-    }
     
     
     if ("region.filter" %in% names(params)) {
       
       # define correct regions to use
-      if (grepl("same", params$region.filter[[1]])) (regions <- unlist(c(df_region[df_region$laestab == id_treated, c("same")])))
-      if (grepl("neighbouring", params$region.filter[[1]])) (regions <- unlist(c(df_region[df_region$laestab == id_treated, c("same", "neighbouring")])))
+      if ("same" %in% params$region.filter[[1]]) (regions <- unlist(c(df_region[df_region$laestab == id_treated, c("same")])))
+      if ("neighbouring" %in% params$region.filter[[1]]) (regions <- unlist(c(df_region[df_region$laestab == id_treated, c("same", "neighbouring")])))
       
       # process data
-      df <- process_data_scm(id_treated = id_treated)
-      regions <- est_treated$gor_name
+      df <- process_data_scm(id_treated = id_treated, regions = regions)
       
     }
     
-    if ("sd.range" %in% names(params)) {
+    if ("sd.range" %in% names(params) & !is.null(params$sd.range[[1]])) {
       
       # filter by SD crit
-      show_sd_crit = F
-      timeseries_ave_per_school(data = df, perc = params$sd.range, var = params$outcome.var)
-      df$crit_sd_pupil_to_qual_teacher_ratio[df$laestab == id_treated] <- T
-      df <- subset(df, df$crit_sd_pupil_to_qual_teacher_ratio == T)
+      df <- sd_filtering(data = df, perc = params$sd.range[[1]], var = params$outcome.var)
+      df[df$laestab == id_treated, paste0("crit_sd_", params$outcome.var)] <- T
+      df <- subset(df, df[, paste0("crit_sd_", params$outcome.var)] == T)
       
     }
     
-    if ("rolling.average" %in% names(params)) {
+    if ("rolling.window" %in% names(params)) {
       
       features <- setdiff(params$features[[1]], params$outcome.var)
       
-      df <- df %>%
+      pre <- df %>%
         filter(time_period %in% params$period.pre[[1]]) %>%
         group_by(laestab) %>%
         arrange(laestab, desc(time_period)) %>%
         mutate(
-          across(all_of(features), ~ zoo::rollapply(.x, width = params$rolling.average, mean, align = "left", partial = T)),
-          dv_roll = zoo::rollapply(get(params$outcome.var), width = params$rolling.average, mean, align = "left", partial = T)
-        ) %>%
+          across(all_of(features), ~ zoo::rollapply(.x, width = params$rolling.window, mean, align = "left", partial = T)),
+          dv_roll = zoo::rollapply(get(params$outcome.var), width = params$rolling.window, mean, align = "left", partial = T)
+        )
+      
+      post <- df %>%
+        filter(time_period %in% params$period.post[[1]]) %>%
+        group_by(laestab) %>%
+        arrange(laestab, desc(time_period)) %>%
+        mutate(
+          across(all_of(features), ~ zoo::rollapply(.x, width = params$rolling.window, mean, align = "left", partial = T)),
+          dv_roll = zoo::rollapply(get(params$outcome.var), width = params$rolling.window, mean, align = "left", partial = T)
+        )
+      
+      df <- bind_rows(pre, post) %>%
+        arrange(laestab, desc(time_period)) %>%
         as.data.frame()
     }
     
     # determine ids of control schools
     id_cont <- unique(df$laestab[df$laestab != id_treated])
+    params$unit.co = I(list(id_cont)) # update Donors pool
     
+    # make sure that weight contraints are defined
+    if(! "w.constr" %in% names(params)) {
+      params$w.constr <- I(list(list(name = "simplex")))
+      params$w.constr.str <- NA
+    }
     
     scdata.out <- tryCatch({
       # data preparation
@@ -655,9 +680,9 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
     
     if(is.null(scest.out)) {
       return(list(status = "scest() failed",
-                  n_pool = n_pool,
+                  n_pool = length(id_cont),
                   n_active = NA, 
-                  sd_treated = sd(scdata.out$Y.pre, na.rm = T), 
+                  sd_treated = sd(df[df$laestab == id_treated & df$time_period %in% params$period.pre[[1]], params$outcome.var], na.rm = T), 
                   m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
                   rmspe_pre = NA, mspe_pre = NA, mae_pre = NA, 
                   rmspe_post = NA, mspe_post = NA, mae_post = NA, 
@@ -751,18 +776,13 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
         run_scm(df, params)
       }, error = function(e) {
         list(status = "run_scm() failed",
-             n_pool = n_pool,
-             n_active = n_active, 
-             sd_treated = sd_treated, 
-             m_gap = m_gap, sd_gap = sd_gap, min_gap = min_gap, max_gap = max_gap, cor = cor,
-             rmspe_pre = rmspe_pre, mspe_pre = mspe_pre, mae_pre = mae_pre, 
-             rmspe_post = rmspe_post, mspe_post = mspe_post, mae_post = mae_post, 
+             n_pool = length(id_cont),
+             n_active = NA, 
+             sd_treated = sd(df[df$laestab == id_treated & df$time_period %in% params$period.pre[[1]], params$outcome.var], na.rm = T), 
+             m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
+             rmspe_pre = NA, mspe_pre = NA, mae_pre = NA,
+             rmspe_post = NA, mspe_post = NA, mae_post = NA,
              params = params)
-        # list(status = "run_scm() failed",
-        #      sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
-        #      rmspe_pre = "run_scm() failed", mspe_pre = NA, mae_pre = NA, 
-        #      rmspe_post = NA, mspe_post = NA, mae_post = NA, 
-        #      params = params)
       })
       
       # Create a list to store the results
@@ -773,8 +793,8 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
                          paste(sapply(result$params$cov.adj[[1]], function(x) paste(x, collapse = ", ")), collapse = "; \n"), 
                          NA),
         region.filter = ifelse(!is.null(result$params$region.filter[[1]]), result$params$region.filter[[1]], NA),
-        sd.range = ifelse(!is.null(result$params$sd.range), result$params$sd.range, NA),
-        rolling.average = ifelse(!is.null(result$params$rolling.average), result$params$rolling.average, NA),
+        sd.range = ifelse(!is.null(result$params$sd.range[[1]]), result$params$sd.range[[1]], NA),
+        rolling.window = ifelse(!is.null(result$params$rolling.window), result$params$rolling.window, NA),
         period.pre = ifelse(!is.null(result$params$period.pre[[1]]), 
                             paste(result$params$period.pre[[1]], collapse = ", "), 
                             NA),
@@ -785,7 +805,7 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
         cointegrated.data = ifelse(!is.null(result$params$cointegrated.data), result$params$cointegrated.data, NA),
         anticipation = ifelse(!is.null(result$params$anticipation), result$params$anticipation, NA),
         constant = ifelse(!is.null(result$params$constant), result$params$constant, NA),
-        status = "run_scm() completed",
+        status = ifelse(is.null(result$status), "run_scm() completed", result$status),
         n_pool = result$n_pool,
         n_active = result$n_active,
         sd_treated = result$sd_treated,
@@ -814,6 +834,7 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
   } else {
     # Perform grid search without parallel processing
     results <- do.call(rbind, lapply(1:nrow(param_grid), function(i) {
+      message(i)
       params <- param_grid[i, ]
       row.names(params) <- 1
       
@@ -821,12 +842,12 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
         run_scm(df, params)
       }, error = function(e) {
         list(status = "run_scm() failed",
-             n_pool = n_pool,
-             n_active = n_active, 
-             sd_treated = sd_treated, 
-             m_gap = m_gap, sd_gap = sd_gap, min_gap = min_gap, max_gap = max_gap, cor = cor,
-             rmspe_pre = rmspe_pre, mspe_pre = mspe_pre, mae_pre = mae_pre, 
-             rmspe_post = rmspe_post, mspe_post = mspe_post, mae_post = mae_post, 
+             n_pool = length(id_cont),
+             n_active = NA, 
+             sd_treated = sd(df[df$laestab == id_treated & df$time_period %in% params$period.pre[[1]], params$outcome.var], na.rm = T), 
+             m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
+             rmspe_pre = NA, mspe_pre = NA, mae_pre = NA,
+             rmspe_post = NA, mspe_post = NA, mae_post = NA,
              params = params)
       })
       
@@ -838,8 +859,8 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
                          paste(sapply(result$params$cov.adj[[1]], function(x) paste(x, collapse = ", ")), collapse = "; \n"), 
                          NA),
         region.filter = ifelse(!is.null(result$params$region.filter[[1]]), result$params$region.filter[[1]], NA),
-        sd.range = ifelse(!is.null(result$params$sd.range), result$params$sd.range, NA),
-        rolling.average = ifelse(!is.null(result$params$rolling.average), result$params$rolling.average, NA),
+        sd.range = ifelse(!is.null(result$params$sd.range[[1]]), result$params$sd.range[[1]], NA),
+        rolling.window = ifelse(!is.null(result$params$rolling.window), result$params$rolling.window, NA),
         period.pre = ifelse(!is.null(result$params$period.pre[[1]]), 
                             paste(result$params$period.pre[[1]], collapse = ", "), 
                             NA),
@@ -850,7 +871,7 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
         cointegrated.data = ifelse(!is.null(result$params$cointegrated.data), result$params$cointegrated.data, NA),
         anticipation = ifelse(!is.null(result$params$anticipation), result$params$anticipation, NA),
         constant = ifelse(!is.null(result$params$constant), result$params$constant, NA),
-        status = "run_scm() completed",
+        status = ifelse(is.null(result$status), "run_scm() completed", result$status),
         n_pool = result$n_pool,
         n_active = result$n_active,
         sd_treated = result$sd_treated,
