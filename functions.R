@@ -574,10 +574,8 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
       if (grepl("neighbouring", params$region.filter[[1]])) (regions <- unlist(c(df_region[df_region$laestab == id_treated, c("same", "neighbouring")])))
       
       # process data
-      df <- process_data_scm()
-
-      # determine ids of control schools
-      id_cont <- unique(df$laestab[df$laestab != id_treated])
+      df <- process_data_scm(id_treated = id_treated)
+      regions <- est_treated$gor_name
       
     }
     
@@ -588,9 +586,6 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
       timeseries_ave_per_school(data = df, perc = params$sd.range, var = params$outcome.var)
       df$crit_sd_pupil_to_qual_teacher_ratio[df$laestab == id_treated] <- T
       df <- subset(df, df$crit_sd_pupil_to_qual_teacher_ratio == T)
-      
-      # determine ids of control schools
-      id_cont <- unique(df$laestab[df$laestab != id_treated])
       
     }
     
@@ -607,8 +602,11 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
           dv_roll = zoo::rollapply(get(params$outcome.var), width = params$rolling.average, mean, align = "left", partial = T)
         ) %>%
         as.data.frame()
-      
     }
+    
+    # determine ids of control schools
+    id_cont <- unique(df$laestab[df$laestab != id_treated])
+    
     
     scdata.out <- tryCatch({
       # data preparation
