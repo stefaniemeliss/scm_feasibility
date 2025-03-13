@@ -295,7 +295,10 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
     tmp <- default_values[, setdiff(names(default_values), names(params))]
     params <- merge(params, tmp, by = 0)
     
-    if(! "w.constr" %in% names(params)) (params$w.constr <- I(list(list(name = "simplex"))))
+    if(! "w.constr" %in% names(params)) {
+      params$w.constr <- I(list(list(name = "simplex")))
+      params$w.constr.str <- NA
+    }
     
     
     if ("region.filter" %in% names(params)) {
@@ -309,7 +312,7 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
       
       # Load and execute the process_data.R script
       source(file = file.path(dir, "00_process", "03_process_data_scm.R"))
-      
+
       # determine ids of control schools
       id_cont <- unique(df$laestab[df$laestab != id_treated])
       
@@ -365,10 +368,18 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
       return(NULL)
     })
     
-    if (is.null(scdata.out)) return(list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
-                                         rmspe_pre = "scdata() failed", mspe_pre = NA, mae_pre = NA, 
-                                         rmspe_post = NA, mspe_post = NA, mae_post = NA, 
-                                         params = params))
+    if (is.null(scdata.out)) {
+      return(list(status = "scdata() failed",
+                  n_pool = length(id_cont),
+                  n_active = NA, 
+                  sd_treated = sd(df[df$laestab == id_treated & df$time_period %in% params$period.pre[[1]], params$outcome.var], na.rm = T), 
+                  m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
+                  rmspe_pre = NA, mspe_pre = NA, mae_pre = NA, 
+                  rmspe_post = NA, mspe_post = NA, mae_post = NA, 
+                  params = params))
+    } else { 
+      n_pool <- length(scdata.out$specs$donors.units)
+    }
     
     scest.out <- tryCatch({
       # estimate synthetic control
@@ -382,9 +393,12 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
     })
     
     if(is.null(scest.out)) {
-      
-      return(list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
-                  rmspe_pre = "scest() failed", mspe_pre = NA, mae_pre = NA, 
+      return(list(status = "scest() failed",
+                  n_pool = n_pool,
+                  n_active = NA, 
+                  sd_treated = sd(scdata.out$Y.pre, na.rm = T), 
+                  m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
+                  rmspe_pre = NA, mspe_pre = NA, mae_pre = NA, 
                   rmspe_post = NA, mspe_post = NA, mae_post = NA, 
                   params = params))
     } else {
@@ -393,6 +407,9 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
       w.constr <- w.constr[c("name", "p", "lb", "Q", "dir")]
       w.constr <- paste(names(w.constr), w.constr, sep = " = ",collapse = "; " )
       params$w.constr.str <- w.constr
+      # save information on number of active donors
+      Weights    <- round(scest.out$est.results$w, digits = 3)
+      n_active  <- sum(abs(Weights) > 0)
     }
     
     
@@ -447,10 +464,15 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
     
     rm(actual_pre, synthetic_pre, gap_pre)
     
-    return(list(sd_treated = sd_treated, m_gap = m_gap, sd_gap = sd_gap, min_gap = min_gap, max_gap = max_gap, cor = cor,
+    return(list(status = "scest() completed",
+                n_pool = n_pool,
+                n_active = n_active, 
+                sd_treated = sd_treated, 
+                m_gap = m_gap, sd_gap = sd_gap, min_gap = min_gap, max_gap = max_gap, cor = cor,
                 rmspe_pre = rmspe_pre, mspe_pre = mspe_pre, mae_pre = mae_pre, 
                 rmspe_post = rmspe_post, mspe_post = mspe_post, mae_post = mae_post, 
                 params = params))
+    
   }
   
   if (use_parallel) {
@@ -467,11 +489,19 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
       result <- tryCatch({
         run_scm(df, params)
       }, error = function(e) {
-        
-        list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
-             rmspe_pre = "run_scm() failed", mspe_pre = NA, mae_pre = NA, 
-             rmspe_post = NA, mspe_post = NA, mae_post = NA, 
+        list(status = "run_scm() failed",
+             n_pool = n_pool,
+             n_active = n_active, 
+             sd_treated = sd_treated, 
+             m_gap = m_gap, sd_gap = sd_gap, min_gap = min_gap, max_gap = max_gap, cor = cor,
+             rmspe_pre = rmspe_pre, mspe_pre = mspe_pre, mae_pre = mae_pre, 
+             rmspe_post = rmspe_post, mspe_post = mspe_post, mae_post = mae_post, 
              params = params)
+        # list(status = "run_scm() failed",
+        #      sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
+        #      rmspe_pre = "run_scm() failed", mspe_pre = NA, mae_pre = NA, 
+        #      rmspe_post = NA, mspe_post = NA, mae_post = NA, 
+        #      params = params)
       })
       
       # Create a list to store the results
@@ -494,6 +524,9 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
         cointegrated.data = ifelse(!is.null(result$params$cointegrated.data), result$params$cointegrated.data, NA),
         anticipation = ifelse(!is.null(result$params$anticipation), result$params$anticipation, NA),
         constant = ifelse(!is.null(result$params$constant), result$params$constant, NA),
+        status = "run_scm() completed",
+        n_pool = result$n_pool,
+        n_active = result$n_active,
         sd_treated = result$sd_treated,
         m_gap = result$m_gap,
         sd_gap = result$sd_gap,
@@ -526,9 +559,13 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
       result <- tryCatch({
         run_scm(df, params)
       }, error = function(e) {
-        list(sd_treated = NA, m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
-             rmspe_pre = "run_scm() failed", mspe_pre = NA, mae_pre = NA, 
-             rmspe_post = NA, mspe_post = NA, mae_post = NA, 
+        list(status = "run_scm() failed",
+             n_pool = n_pool,
+             n_active = n_active, 
+             sd_treated = sd_treated, 
+             m_gap = m_gap, sd_gap = sd_gap, min_gap = min_gap, max_gap = max_gap, cor = cor,
+             rmspe_pre = rmspe_pre, mspe_pre = mspe_pre, mae_pre = mae_pre, 
+             rmspe_post = rmspe_post, mspe_post = mspe_post, mae_post = mae_post, 
              params = params)
       })
       
@@ -552,6 +589,9 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
         cointegrated.data = ifelse(!is.null(result$params$cointegrated.data), result$params$cointegrated.data, NA),
         anticipation = ifelse(!is.null(result$params$anticipation), result$params$anticipation, NA),
         constant = ifelse(!is.null(result$params$constant), result$params$constant, NA),
+        status = "run_scm() completed",
+        n_pool = result$n_pool,
+        n_active = result$n_active,
         sd_treated = result$sd_treated,
         m_gap = result$m_gap,
         sd_gap = result$sd_gap,
