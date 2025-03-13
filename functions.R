@@ -216,6 +216,67 @@ process_data_scm <- function(id_treated = "id_treated",
   return(df)
 }
 
+# Function to determine if average pre-treatment timeseries is within [X] SDs of the average for treated school 
+sd_filtering <- function(data = df, var = "var", perc = NULL, show_kbl = F){
+  
+  # pre-treatment outcome average and sd for treated school
+  mean_treated <- mean(data[data$laestab == id_treated, paste(var)])
+  sd_treated <- sd(data[data$laestab == id_treated, var])
+  
+  # pre-treatment outcome average and sd for control schools
+  school_ave <- data %>% 
+    filter(laestab != id_treated) %>%
+    group_by(laestab) %>%
+    summarise(
+      mean_dv = mean(get(var), na.rm = T),
+      sd_dv = sd(get(var), na.rm = T)
+    ) %>%
+    mutate(
+      # check if average pre-treatment outcome is within [X] SDs of the average for treated school 
+      crit_sd_100 = ifelse(mean_dv > (mean_treated + 1.0 * sd_treated) | mean_dv < (mean_treated - 1.0 * sd_treated), FALSE, TRUE),
+      crit_sd_90 = ifelse(mean_dv > (mean_treated + .90 * sd_treated) | mean_dv < (mean_treated - .90 * sd_treated), FALSE, TRUE),
+      crit_sd_80 = ifelse(mean_dv > (mean_treated + .80 * sd_treated) | mean_dv < (mean_treated - .80 * sd_treated), FALSE, TRUE),
+      crit_sd_75 = ifelse(mean_dv > (mean_treated + .75 * sd_treated) | mean_dv < (mean_treated - .75 * sd_treated), FALSE, TRUE),
+      crit_sd_70 = ifelse(mean_dv > (mean_treated + .70 * sd_treated) | mean_dv < (mean_treated - .70 * sd_treated), FALSE, TRUE),
+      crit_sd_60 = ifelse(mean_dv > (mean_treated + .60 * sd_treated) | mean_dv < (mean_treated - .60 * sd_treated), FALSE, TRUE),
+      crit_sd_50 = ifelse(mean_dv > (mean_treated + .50 * sd_treated) | mean_dv < (mean_treated - .50 * sd_treated), FALSE, TRUE),
+      crit_sd_40 = ifelse(mean_dv > (mean_treated + .40 * sd_treated) | mean_dv < (mean_treated - .40 * sd_treated), FALSE, TRUE),
+      crit_sd_30 = ifelse(mean_dv > (mean_treated + .30 * sd_treated) | mean_dv < (mean_treated - .30 * sd_treated), FALSE, TRUE),
+      crit_sd_25 = ifelse(mean_dv > (mean_treated + .25 * sd_treated) | mean_dv < (mean_treated - .25 * sd_treated), FALSE, TRUE),
+      crit_sd_20 = ifelse(mean_dv > (mean_treated + .20 * sd_treated) | mean_dv < (mean_treated - .20 * sd_treated), FALSE, TRUE),
+      crit_sd_10 = ifelse(mean_dv > (mean_treated + .10 * sd_treated) | mean_dv < (mean_treated - .10 * sd_treated), FALSE, TRUE),
+    )
+  
+  
+  # numbers show number of schools passing the critical threshold
+  out <- merge(data.frame(laestab = id_treated, var = var), data.frame(as.list(colSums(school_ave[, c(-1:-3)]))), by = 0)
+  out$Row.names <- NULL
+  
+  if(show_kbl){
+    # summarise results: numbers show count kept
+    out[, c(-1:-2)] %>% 
+      kbl(caption = paste(var), row.names = F) %>% 
+      kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
+      add_footnote("Data shows the number of schools with average within crit_sd_[percentage].") %>%
+      print()
+  }
+  
+  if (!is.null(perc)) {
+    # if percentage is assigned, add the check to the input df
+    tmp <- school_ave[, c("laestab", paste0("crit_sd_", perc))]
+    names(tmp)[2] <- paste0("crit_sd_", var)
+    data <- merge(data, tmp, by = "laestab", all.x = T)
+    
+    # update the original df in the parent environment
+    assign("df", data, envir = .GlobalEnv)
+    
+  } else {
+    # export output
+    return(out)
+  }
+  
+}
+
 
 # Function to determine the status of an establishment in a given academic year
 get_establishment_status <- function(data, laestab, academic_year_start) {
