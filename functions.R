@@ -107,6 +107,7 @@ process_data_scm <- function(id_treated = "id_treated",
   if (is.null(regions)) {
     regions <- unique(c(est_treated$gor_name))
   }
+  assign("regions", regions, envir = .GlobalEnv)
   
   # Get donor pool data excluding the treated school
   est_cont <- est %>%
