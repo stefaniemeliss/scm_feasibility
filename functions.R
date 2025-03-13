@@ -267,6 +267,7 @@ grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_va
 # Create function to run grid search
 grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
   
+  
   # Define default values for parameters
   default_values <- data.frame(
     id.var = "laestab", # ID variable
@@ -290,11 +291,58 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
     # params <- param_grid[1, ]
     # row.names(params) <- 1
     
+    
     tmp <- default_values[, setdiff(names(default_values), names(params))]
     params <- merge(params, tmp, by = 0)
     
     if(! "w.constr" %in% names(params)) (params$w.constr <- I(list(list(name = "simplex"))))
     
+    
+    if ("region.filter" %in% names(params)) {
+      
+      # define correct regions to use
+      if (grepl("same", params$region.filter[[1]])) (regions <- unlist(c(df_region[df_region$laestab == id_treated, c("same")])))
+      if (grepl("neighbouring", params$region.filter[[1]])) (regions <- unlist(c(df_region[df_region$laestab == id_treated, c("same", "neighbouring")])))
+      
+      # define script level variables
+      show_sd_crit = F
+      
+      # Load and execute the process_data.R script
+      source(file = file.path(dir, "00_process", "03_process_data_scm.R"))
+      
+      # determine ids of control schools
+      id_cont <- unique(df$laestab[df$laestab != id_treated])
+      
+    }
+    
+    if ("sd.range" %in% names(params)) {
+      
+      # filter by SD crit
+      show_sd_crit = F
+      timeseries_ave_per_school(data = df, perc = params$sd.range, var = params$outcome.var)
+      df$crit_sd_pupil_to_qual_teacher_ratio[df$laestab == id_treated] <- T
+      df <- subset(df, df$crit_sd_pupil_to_qual_teacher_ratio == T)
+      
+      # determine ids of control schools
+      id_cont <- unique(df$laestab[df$laestab != id_treated])
+      
+    }
+    
+    if ("rolling.average" %in% names(params)) {
+      
+      features <- setdiff(params$features[[1]], params$outcome.var)
+      
+      df <- df %>%
+        filter(time_period %in% params$period.pre[[1]]) %>%
+        group_by(laestab) %>%
+        arrange(laestab, desc(time_period)) %>%
+        mutate(
+          across(all_of(features), ~ zoo::rollapply(.x, width = params$rolling.average, mean, align = "left", partial = T)),
+          dv_roll = zoo::rollapply(get(params$outcome.var), width = params$rolling.average, mean, align = "left", partial = T)
+        ) %>%
+        as.data.frame()
+      
+    }
     
     scdata.out <- tryCatch({
       # data preparation
@@ -428,18 +476,22 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
       
       # Create a list to store the results
       result_list <- list(
+        outcome.var = ifelse(!is.null(result$params$outcome.var[[1]]), paste(result$params$outcome.var[[1]], collapse = ", "), NA),
         features = ifelse(!is.null(result$params$features[[1]]), paste(result$params$features[[1]], collapse = ", "), NA),
         cov.adj = ifelse(!is.null(result$params$cov.adj[[1]]), 
                          paste(sapply(result$params$cov.adj[[1]], function(x) paste(x, collapse = ", ")), collapse = "; \n"), 
                          NA),
-        cointegrated.data = ifelse(!is.null(result$params$cointegrated.data), result$params$cointegrated.data, NA),
+        region.filter = ifelse(!is.null(result$params$region.filter[[1]]), result$params$region.filter[[1]], NA),
+        sd.range = ifelse(!is.null(result$params$sd.range), result$params$sd.range, NA),
+        rolling.average = ifelse(!is.null(result$params$rolling.average), result$params$rolling.average, NA),
         period.pre = ifelse(!is.null(result$params$period.pre[[1]]), 
                             paste(result$params$period.pre[[1]], collapse = ", "), 
                             NA),
         period.post = ifelse(!is.null(result$params$period.post[[1]]), 
                              paste(result$params$period.post[[1]], collapse = ", "), 
                              NA),
-        w.constr = ifelse(!is.null(result$params$w.constr[[1]]), w.constr, NA),
+        w.constr = ifelse(!is.null(result$params$w.constr[[1]]), result$params$w.constr.str, NA),
+        cointegrated.data = ifelse(!is.null(result$params$cointegrated.data), result$params$cointegrated.data, NA),
         anticipation = ifelse(!is.null(result$params$anticipation), result$params$anticipation, NA),
         constant = ifelse(!is.null(result$params$constant), result$params$constant, NA),
         sd_treated = result$sd_treated,
@@ -487,7 +539,9 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
         cov.adj = ifelse(!is.null(result$params$cov.adj[[1]]), 
                          paste(sapply(result$params$cov.adj[[1]], function(x) paste(x, collapse = ", ")), collapse = "; \n"), 
                          NA),
-        cointegrated.data = ifelse(!is.null(result$params$cointegrated.data), result$params$cointegrated.data, NA),
+        region.filter = ifelse(!is.null(result$params$region.filter[[1]]), result$params$region.filter[[1]], NA),
+        sd.range = ifelse(!is.null(result$params$sd.range), result$params$sd.range, NA),
+        rolling.average = ifelse(!is.null(result$params$rolling.average), result$params$rolling.average, NA),
         period.pre = ifelse(!is.null(result$params$period.pre[[1]]), 
                             paste(result$params$period.pre[[1]], collapse = ", "), 
                             NA),
@@ -495,6 +549,7 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
                              paste(result$params$period.post[[1]], collapse = ", "), 
                              NA),
         w.constr = ifelse(!is.null(result$params$w.constr[[1]]), result$params$w.constr.str, NA),
+        cointegrated.data = ifelse(!is.null(result$params$cointegrated.data), result$params$cointegrated.data, NA),
         anticipation = ifelse(!is.null(result$params$anticipation), result$params$anticipation, NA),
         constant = ifelse(!is.null(result$params$constant), result$params$constant, NA),
         sd_treated = result$sd_treated,
