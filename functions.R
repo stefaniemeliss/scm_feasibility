@@ -17,7 +17,10 @@ process_data_scm <- function(id_treated = "id_treated",
                              var1 = "fte_avg_age",
                              var2 = "pnpupfsm_e",
                              regions = NULL,
-                             copy_files = F){
+                             copy_files = F,
+                             read_files = F,
+                             export_data.tables = F
+                             ){
   
   # This is a data pre-processing function for later synthetic control method (SCM) analysis using [id_treated] as the treated school.
   # The script copies and loads data files, processes data for treated and control schools
@@ -60,10 +63,13 @@ process_data_scm <- function(id_treated = "id_treated",
     )
   }
   
-  # Load data from CSV files into data tables
-  swf <- fread(file = file.path(dir_data, "data_swf.csv"))
-  pup <- fread(file = file.path(dir_data, "data_pupils.csv"))
-  est <- fread(file = file.path(dir_data, "data_establishments_search.csv"), na.strings = "")
+  if (read_files) {
+    # Load data from CSV files into data tables
+    swf <- fread(file = file.path(dir_data, "data_swf.csv"))
+    pup <- fread(file = file.path(dir_data, "data_pupils.csv"))
+    est <- fread(file = file.path(dir_data, "data_establishments_search.csv"), na.strings = "")
+  }
+  
   
   #### DETERMINE AVAILABLE TIMESERIES DATA ####
   
@@ -224,8 +230,14 @@ process_data_scm <- function(id_treated = "id_treated",
   assign("est_treated", est_treated, envir = .GlobalEnv)
   
   # clean up a little
-  rm(swf, pup, est)
   gc()
+  
+  if(export_data.tables){
+    assign("swf", swf, envir = .GlobalEnv)
+    assign("pup", pup, envir = .GlobalEnv)
+    assign("est", est, envir = .GlobalEnv)
+    
+  }
   
   return(df)
 }
