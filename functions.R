@@ -151,20 +151,26 @@ process_data_scm <- function(id_treated = "id_treated",
   
   # Remove rows for years for which the treated school has no data, 
   # rows with NA for the dependent variable and age predictor 
-  # and add observation count
+  # and add observation count and count of outliers per school
   z <- z %>%
+    select(time_period, laestab, school, pupil_to_qual_teacher_ratio, pupil_to_qual_unqual_teacher_ratio, fte_avg_age) %>%
     filter(!is.na(get(dv))) %>%
     group_by(laestab) %>%
     mutate(
       obs_count_dv = sum(!is.na(get(dv))),
-      obs_count_var1 = sum(!is.na(get(var1)))
+      obs_count_var1 = sum(!is.na(get(var1))),
+      count_outliers = sum(is_outlier_3sd(get(dv)))
     ) %>%
-    ungroup()
+    ungroup() %>%
+    as.data.frame()
   
   # Filter for rows where observation count matches the treated ID and select columns
   z <- z %>%
+    # Filter for rows where observation count matches the treated ID and select columns
     filter(obs_count_dv == unique(z$obs_count_dv[z$laestab == id_treated])) %>%
     filter(obs_count_var1 == unique(z$obs_count_var1[z$laestab == id_treated])) %>%
+    # Remove any schools that have an outlier within their timeseries
+    filter(count_outliers == 0) %>%
     select(time_period, laestab, school, pupil_to_qual_teacher_ratio, pupil_to_qual_unqual_teacher_ratio, fte_avg_age) %>%
     group_by(laestab) %>%
     arrange(laestab, desc(time_period)) %>%
