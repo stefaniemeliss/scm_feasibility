@@ -212,11 +212,34 @@ process_data_scm <- function(id_treated = "id_treated",
     arrange(laestab, desc(time_period)) %>%
     as.data.frame()
   
-  # combine outcome and predictor
+  #### COMBINE OUTCOME AND PREDICTOR ####
   df <- merge(z, x, by = c("laestab", "time_period"))
+  
+  # Remove rows for years for which the treated school has no data, 
+  # rows with NA for the dependent variable and age predictor 
+  # and add observation count and count of outliers per school
+  df <- df %>%
+    mutate(
+      outlier_dv = is_outlier_3sd(get(dv)),
+      outlier_var1 = is_outlier_3sd(get(var1)),
+      outlier_var2 = is_outlier_3sd(get(var2))
+    ) %>%
+    group_by(laestab) %>%
+    mutate(
+      count_outliers_dv = sum(outlier_dv),
+      count_outliers_var1 = sum(outlier_var1),
+      count_outliers_var2 = sum(outlier_var2)
+    ) %>%
+    ungroup() %>%
+    # Remove any schools that have an outlier within their timeseries
+    filter(count_outliers_dv == 0) %>%
+    filter(count_outliers_var1 == 0) %>%
+    filter(count_outliers_var2 == 0) %>%
+    as.data.frame()
   
   # arrange data
   df <- df %>%
+    select(-outlier_dv, -outlier_var1, -outlier_var2, -count_outliers_dv, -count_outliers_var1, -count_outliers_var2) %>%
     relocate(urn, .after = laestab) %>%
     arrange(laestab, time_period) %>%
     mutate(
@@ -226,7 +249,8 @@ process_data_scm <- function(id_treated = "id_treated",
       time_period_str = insert_slash(time_period),
       # remove the last two digits
       time_period = as.numeric(substr(time_period, 0, 4))
-    )
+    ) %>%
+    as.data.frame()
   
   # export school name
   id_name <- unique(df$school[df$laestab == id_treated])
