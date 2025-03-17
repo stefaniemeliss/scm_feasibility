@@ -159,7 +159,8 @@ process_data_scm <- function(id_treated = "id_treated",
     mutate(
       obs_count_dv = sum(!is.na(get(dv))),
       obs_count_var1 = sum(!is.na(get(var1))),
-      count_outliers = sum(is_outlier_3sd(get(dv)))
+      count_outliers_dv = sum(is_outlier_3sd(get(dv))),
+      count_outliers_var1 = sum(is_outlier_3sd(get(var1)))
     ) %>%
     ungroup() %>%
     as.data.frame()
@@ -170,7 +171,8 @@ process_data_scm <- function(id_treated = "id_treated",
     filter(obs_count_dv == unique(z$obs_count_dv[z$laestab == id_treated])) %>%
     filter(obs_count_var1 == unique(z$obs_count_var1[z$laestab == id_treated])) %>%
     # Remove any schools that have an outlier within their timeseries
-    filter(count_outliers == 0) %>%
+    filter(count_outliers_dv == 0) %>%
+    filter(count_outliers_var1 == 0) %>%
     select(time_period, laestab, school, pupil_to_qual_teacher_ratio, pupil_to_qual_unqual_teacher_ratio, fte_avg_age) %>%
     group_by(laestab) %>%
     arrange(laestab, desc(time_period)) %>%
@@ -197,13 +199,15 @@ process_data_scm <- function(id_treated = "id_treated",
     filter(!is.na(get(var2))) %>%
     group_by(laestab) %>%
     mutate(
-      obs_count_var2 = sum(!is.na(get(var2)))
+      obs_count_var2 = sum(!is.na(get(var2))),
+      count_outliers_var2 = sum(is_outlier_3sd(get(var2)))
     ) %>%
     ungroup()
   
   # Filter for rows where observation count matches the treated ID and select columns
   x <- x %>%
     filter(obs_count_var2 == unique(x$obs_count_var2[x$laestab == id_treated])) %>%
+    filter(count_outliers_var2 == 0) %>%
     select(time_period, laestab, urn, pnpupfsm_e) %>%
     arrange(laestab, desc(time_period)) %>%
     as.data.frame()
