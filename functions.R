@@ -213,12 +213,14 @@ process_data_scm <- function(id_treated = "id_treated",
     as.data.frame()
   
   #### COMBINE OUTCOME AND PREDICTOR ####
+  
   df <- merge(z, x, by = c("laestab", "time_period"))
   
-  # Remove rows for years for which the treated school has no data, 
-  # rows with NA for the dependent variable and age predictor 
-  # and add observation count and count of outliers per school
-  df <- df %>%
+  df_treat <- df %>%
+    filter(laestab == id_treated)
+    
+  # Remove outliers from donor pool
+  df_donor <- df %>%
     mutate(
       outlier_dv = is_outlier_3sd(get(dv)),
       outlier_var1 = is_outlier_3sd(get(var1)),
@@ -235,11 +237,12 @@ process_data_scm <- function(id_treated = "id_treated",
     filter(count_outliers_dv == 0) %>%
     filter(count_outliers_var1 == 0) %>%
     filter(count_outliers_var2 == 0) %>%
+    select(-outlier_dv, -outlier_var1, -outlier_var2, -count_outliers_dv, -count_outliers_var1, -count_outliers_var2) %>%
     as.data.frame()
   
   # arrange data
-  df <- df %>%
-    select(-outlier_dv, -outlier_var1, -outlier_var2, -count_outliers_dv, -count_outliers_var1, -count_outliers_var2) %>%
+  df <- df_treat %>%
+    bind_rows(df_donor) %>%
     relocate(urn, .after = laestab) %>%
     arrange(laestab, time_period) %>%
     mutate(
