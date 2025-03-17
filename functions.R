@@ -221,6 +221,7 @@ process_data_scm <- function(id_treated = "id_treated",
     
   # Remove outliers from donor pool
   df_donor <- df %>%
+    filter(laestab != id_treated) %>%
     mutate(
       outlier_dv = is_outlier_3sd(get(dv)),
       outlier_var1 = is_outlier_3sd(get(var1)),
