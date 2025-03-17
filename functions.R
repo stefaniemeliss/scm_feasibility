@@ -118,7 +118,7 @@ process_data_scm <- function(id_treated = "id_treated",
   if(exists("list_laestab_exclude")) {
     est_cont <- est %>%
       filter(
-        laestab != list_laestab_exclude,
+        !laestab %in% list_laestab_exclude,
         phaseofeducation_name %in% unique(c(est_treated$phaseofeducation_name)),
         gor_name %in% regions,
         ! parliamentaryconstituency_name %in% unique(c(est_treated$parliamentaryconstituency_name)),
