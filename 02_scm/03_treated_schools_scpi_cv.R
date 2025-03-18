@@ -83,6 +83,7 @@ summary <- subset(summary, n_pool >= 50)
 list_laestab_treated <- unique(summary$laestab)
 # list_laestab_treated <- list_laestab_treated[1:3] # debug
 # list_laestab_treated <- list_laestab_treated[-1:-2]
+# list_laestab_treated <- list_laestab_treated[1]
 
 # create df_region as reference
 df_region <- unique(summary[, c("laestab", "same", "neighbouring")])
@@ -99,6 +100,7 @@ for (i in 1:length(list_laestab_treated)) {
   
   # determine ids of control schools
   id_cont <- unique(df$laestab[df$laestab != id_treated])
+  length(id_cont)
   
   cat("# ", id_name, "\n\n")
   
@@ -168,7 +170,7 @@ for (i in 1:length(list_laestab_treated)) {
   # data processing options
   rolling.window.options <- c(1:2) # how many years to calculate rolling average with
   region.filter.options <- list(c("same"), c("same", "neighbouring"))
-  
+
   if(summary$phase[summary$laestab == id_treated & summary$region.filter == "same"] == "Primary"){
     # apply some SD filtering to donor school to deal with large number of primary schools available in donor pool
     sd.range.options <- list(c(100), c(50))
@@ -193,7 +195,7 @@ for (i in 1:length(list_laestab_treated)) {
     stringsAsFactors = FALSE
   )
   
-  # tidy up grid 
+  # tidy up grid #
   
   # check if features include any ratios
   param_grid$ratio <- sapply(1:nrow(param_grid), function(i){ grepl("ratio", param_grid$features[i]) })
@@ -206,16 +208,18 @@ for (i in 1:length(list_laestab_treated)) {
   param_grid$keep2 <- ifelse(grepl("t", param_grid$cov.adj) & !param_grid$included, F, T)
   param_grid <- param_grid[param_grid$keep2 == T, ]
   
+  # remove cols
   param_grid$keep1 <- NULL
   param_grid$keep2 <- NULL
   param_grid$ratio <- NULL
   param_grid$included <- NULL
   
-  
+  # determine output filename
   file_name <- file.path(dir, "02_scm", paste0(file_stem, "_gridsearch_", gsub(" ", "_", id_name), ".csv"))
   
   run_gridsearch <- T
   
+  # execute gridsearch
   if (run_gridsearch) {
     
     start <- Sys.time()
