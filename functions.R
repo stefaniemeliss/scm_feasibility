@@ -920,7 +920,7 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
         cov.adj = ifelse(!is.null(result$params$cov.adj[[1]]),
                          paste(sapply(result$params$cov.adj[[1]], function(x) paste(x, collapse = ", ")), collapse = "; \n"),
                          NA),
-        region.filter = ifelse(!is.null(result$params$region.filter[[1]]), result$params$region.filter[[1]], NA),
+        region.filter = ifelse(!is.null(result$params$region.filter[[1]]), paste(result$params$region.filter[[1]], collapse = ", "), NA),
         sd.range = ifelse(!is.null(result$params$sd.range[[1]]), result$params$sd.range[[1]], NA),
         rolling.window = ifelse(!is.null(result$params$rolling.window), result$params$rolling.window, NA),
         period.pre = ifelse(!is.null(result$params$period.pre[[1]]),
