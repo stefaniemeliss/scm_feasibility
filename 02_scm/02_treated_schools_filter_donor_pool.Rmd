@@ -1,0 +1,532 @@
+---
+title: "Filtering of donor pool"
+author: "Stefanie Meliss"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    self_contained: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Clear the workspace and run garbage collection
+rm(list = ls())
+gc()
+
+# load libraries
+library(scpi)
+library(foreach)
+library(doParallel)
+
+# create function to source code
+source_code <- function(root_dir_name = "code", target_repo = "helper_functions", branch = "main", file_name = "file.R") {
+  
+  # construct URL
+  git_url <- paste0("https://raw.githubusercontent.com/stefaniemeliss/", target_repo, "/", branch, "/", file_name)
+  
+  # attempt to download from github
+  tempp_file <- tempfile(fileext = ".R")
+  message <- curl::curl_download(git_url, tempp_file, quiet = F)
+  
+  if(!grepl("Error", message)) {
+    
+    # if successful, source file
+    source(tempp_file)
+    remove(tempp_file)
+    
+  } else { # load local copy of file
+    
+    # Get the current working directory
+    current_dir <- getwd()
+    
+    # Split the current directory into its components
+    dir_components <- strsplit(current_dir, "/")[[1]]
+    
+    # Identify the root directory dynamically based on the provided root directory name
+    root_index <- which(dir_components == root_dir_name)
+    if (length(root_index) == 0) {
+      stop(paste("Root directory", root_dir_name, "not found in the current path"))
+    }
+    root_dir <- do.call(file.path, as.list(dir_components[1:root_index]))
+    
+    # Identify the subdirectory one level below the root and construct its absolute path
+    project_repo <- dir_components[root_index + 1]
+    dir <- file.path(root_dir, project_repo)
+    
+    if (target_repo != project_repo) {
+      dir <- gsub(project_repo, target_repo, dir) 
+    }
+    
+    # Construct the full file path
+    file_path <- file.path(dir, file_name)
+    
+    # Print the directory and file path for debugging
+    print(paste("Directory:", dir))
+    print(paste("File path:", file_path))
+    
+    # Source the file into the parent frame
+    source(file_path, local = parent.frame())
+  }
+}
+
+# source functions
+source_code(target_repo = "scm_feasibility", file_name = "functions.R")
+
+# Define the base directory
+get_directory()
+
+# get file stem name
+file_stem <- get_file_stem()
+
+# process data establishments #
+
+# load in file with timeseries desc
+summary <- read.csv(file.path(dir, "02_scm",  "01_treated_schools_examine_dv_preds_out.csv"))
+# save laestab numbers of all treated schools
+list_laestab_exclude <- unique(summary$laestab)
+
+# only select schools with sufficent obs
+summary <- subset(summary, n >= 4)
+
+# save laestab numbers
+list_laestab_treated <- unique(summary$laestab)
+# list_laestab_treated <- list_laestab_treated[1:2] # debug
+
+# prepare structure to save region data
+df_region <- data.frame(laestab = numeric(length(list_laestab_treated)),
+                        school = character(length(list_laestab_treated)),
+                        same = character(length(list_laestab_treated)),
+                        neighbouring = character(length(list_laestab_treated)))
+lookup <- data.frame(region1 = c("West Midlands", "South East", "Yorkshire and the Humber", "North West"),
+                     region2 = c("East Midlands", "South West", "North West", "Yorkshire and the Humber"))
+```
+
+
+```{r check_treated, echo=FALSE, results='asis', eval = F}
+# select columns
+df <- df[, c("laestab", "time_period", "time_period_str", "school", "pupil_to_qual_teacher_ratio", "fte_avg_age", "pnpupfsm_e")]
+
+#### CREATE SUMMARY TABLE ####
+
+
+# compute timeseries descriptives
+ts_desc <- apply(df[, grepl("pup|fte", names(df))], MARGIN = 2, FUN = function(x){psych::describe(x, fast = T)})
+
+# combine to df
+ts_desc <- do.call("rbind",ts_desc)
+ts_desc$vars <- NULL
+ts_desc$Variable <- row.names(ts_desc)
+ts_desc <- ts_desc %>% relocate(Variable) %>% as.data.frame()
+
+# assign new variable names
+ts_desc$Variable <- factor(ts_desc$Variable, 
+                       levels = c("pupil_to_qual_teacher_ratio", 
+                                  "pnpupfsm_e", 
+                                  "fte_avg_age"),
+                       labels = c("Outcome", "% pupils FSM", "Teacher age")
+                       )
+# sort 
+ts_desc <- ts_desc[order(ts_desc$Variable), ]
+
+# print to markdown
+kbl(ts_desc, caption = paste0("Descriptives of timeseries data"), , digits = 2, row.names = F) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
+  add_footnote("Rows in italics describe the timeseries with the smaller SD.") %>%
+  column_spec(c(1), border_right = T) %>%
+  print()
+cat("\n")
+
+#### CREATE SPAGHETTI PLOT ####
+
+# create data
+df_long <- df %>%
+  mutate(status = ifelse(laestab == paste(id_treated), id_name, "Donor schools")) %>%
+  tidyr::pivot_longer(
+    cols = -c(laestab, school, time_period, time_period_str, status),
+    names_to = "variable") %>%
+  mutate(variable = case_match(variable, 
+                               "pupil_to_qual_teacher_ratio" ~ "Outcome",
+                               "fte_avg_age" ~ "Teacher age",
+                               "pnpupfsm_e" ~ "% pupils FSM"
+  ))
+df_long$variable <- factor(df_long$variable, levels = c("Outcome", "% pupils FSM", "Teacher age"))
+
+# plot timeseries average for each school
+cols <- c(coral)
+names(cols) <- c(id_name)
+
+# plot timeseries for each variable
+print(ggplot(data = df_long, aes(x = time_period_str, y = value, group = laestab)) +
+        #geom_line(data = df_long[df_long$status == "Donor schools", ], aes(col = paste("Donor schools"))) + 
+        geom_point(data = df_long[df_long$status == paste(id_name), ], col = coral) +
+        geom_line(data = df_long[df_long$status == paste(id_name), ], col = coral) +
+        facet_wrap(~ variable, ncol = 1, strip.position = "top", scales = "free_y") +
+        ambition_theme +
+        scale_color_manual(values=coral) +
+        ylab("Reported value") +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1),
+              axis.title.x = element_blank(), 
+              legend.title = element_blank())
+) 
+
+```
+
+
+```{r check_donors, echo=FALSE, results='asis', eval = F}
+# select columns
+df <- df[, c("laestab", "time_period", "school", "pupil_to_qual_teacher_ratio", "fte_avg_age", "pnpupfsm_e")]
+
+# create data
+df_long <- df %>%
+  mutate(status = ifelse(laestab == paste(id_treated), id_name, "Donor schools")) %>%
+  tidyr::pivot_longer(
+    cols = -c(laestab, school, time_period, status),
+    names_to = "variable") %>%
+  mutate(variable = case_match(variable, 
+                               "pupil_to_qual_teacher_ratio" ~ "Outcome",
+                               "fte_avg_age" ~ "Teacher age",
+                               "pnpupfsm_e" ~ "% pupils FSM"
+  ))
+df_long$variable <- factor(df_long$variable, levels = c("Outcome", "% pupils FSM", "Teacher age"))
+
+# plot timeseries average for each school
+cols <- c(navy40, coral)
+names(cols) <- c("Donor schools", id_name)
+
+print(ggplot(data = df_long, aes(x = time_period, y = value, col = status, group = laestab)) +
+        geom_line(data = df_long[df_long$status == "Donor schools", ], aes(col = paste("Donor schools"))) + 
+        geom_line(data = df_long[df_long$status == paste(id_name), ], aes(col = paste(id_name)), linewidth =.8) +
+        facet_wrap(~ variable, ncol = 1, strip.position = "top", scales = "free_y") +
+        ambition_theme +
+        scale_color_manual(
+          breaks=c(id_name, "Donor schools"),
+          values=cols) +
+        ylab("Reported value") +
+        theme(axis.title.x = element_blank(),
+              axis.text.x = element_blank(),
+              axis.ticks.x = element_blank()))
+
+# check data for NAs
+vars <- setdiff(names(df), c("laestab", "time_period", "school"))
+
+for (v in 1:length(vars)) {
+  
+  var = vars[v]
+  
+  # count valid obs per annum per var
+  tmp <- df %>% 
+    group_by(time_period) %>%
+    summarise(!!var := sum(!is.na(!!sym(var)))) %>%
+    as.data.frame()
+  
+  # compute average timeseries per school per annum
+  tmpp <- df %>% 
+    group_by(laestab) %>%
+    summarise(
+      !!paste0(var, "_mean") := mean(!!sym(var), na.rm = TRUE),
+      !!paste0(var, "_sd") := sd(!!sym(var), na.rm = TRUE),
+      !!paste0(var, "_n") := sum(!is.na(!!sym(var)))
+    ) %>%
+    as.data.frame()
+  
+  if (v == 1) {
+    obs_pa <- tmp
+    ave_ts_pa <- tmpp
+  } else {
+    obs_pa <- merge(obs_pa, tmp, by = "time_period", all = T)
+    ave_ts_pa <- merge(ave_ts_pa, tmpp, by = "laestab", all = T)
+  }
+  
+}
+
+# # print output
+# kbl(obs_pa, caption = paste("Non-NA observations for each variable")) %>%
+#   kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>%
+#   add_footnote("Bold indicates NA observations for a given year and variable.") %>%
+#   {
+#     # Apply column_spec to all columns
+#     kbl_obj <- .
+#     for (i in seq_along(obs_pa)) {
+#       if(i == 1) next # skip column containing time_period
+#       kbl_obj <- kbl_obj %>%
+#         column_spec(i, bold = ifelse(obs_pa[, i] != (length(id_cont)+length(id_treated)), TRUE, FALSE))
+#     }
+#     kbl_obj
+#   } %>%
+#   print()
+
+
+# compute summary stats of school timeseries averages 
+ave_ts_pa %>%
+  select(-1) %>%
+  summarise(across(everything(), psych::describe)) %>%
+  tidyr::pivot_longer(cols = everything(), names_to = "variable", values_to = "stats") %>%
+  tidyr::unnest_wider(stats) %>%
+  select(-vars, -n) %>%
+  kbl(digits = 2, caption = "Descriptives of school timeseries averages") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>%
+  print()
+
+# create data for plotting
+ave_ts_long <- ave_ts_pa %>%
+  mutate(idx = row.names(ave_ts_pa),
+         status = ifelse(laestab == id_treated, paste(id_name), "Donor schools")) %>%
+  tidyr::pivot_longer(
+    cols = -c(laestab, idx, status),
+    names_to = c("variable", ".value"),
+    names_pattern = "(.*)_(mean|sd|n)"
+  ) %>%
+  rename(mean = mean, sd = sd, n = n) %>%
+  mutate(
+    se = sd/sqrt(n),
+    variable = case_match(variable, 
+                          "pupil_to_qual_teacher_ratio" ~ "Outcome",
+                          "fte_avg_age" ~ "Teacher age",
+                          "pnpupfsm_e" ~ "% pupils FSM"
+    )
+  )
+
+
+# plot timeseries average for each school
+cols <- c(navy, coral)
+names(cols) <- c("Donor schools", id_name)
+
+print(ggplot(data = ave_ts_long, aes(x = idx, y = mean, col = status)) +
+        geom_hline(data = function(y) y %>% filter (laestab == id_treated) %>% group_by(variable) %>% summarise(mean = unique(mean), .groups = 'drop'),
+                   aes(yintercept = mean),color = coral, linetype = "dashed") +
+        geom_linerange(aes(ymin = mean - se, ymax = mean + se), col = black) +
+        geom_point(shape = 20) +
+        facet_wrap(~ variable, ncol = 1, strip.position = "top", scales = "free_y") +
+        ambition_theme +
+        scale_color_manual(
+          breaks=c(id_name, "Donor schools"),
+          values=cols) +
+        ylab("School timeseries average") +
+        theme(axis.title.x = element_blank(),
+              axis.text.x = element_blank(),
+              axis.ticks.x = element_blank()))
+
+
+# cat("\n\n")
+# cat("\nIntercorrelation matrix using timeseries averages (entries above the diagonal adjusted for multiple tests) \n")
+# tmp <- psych::corr.test(ave_ts_pa[, grepl("mean", names(ave_ts_pa))])
+# corrplot::corrplot(tmp$r,
+#                    p.mat = tmp$p,
+#                    method = "number", tl.pos = "d")
+# cat("\n\n")
+
+# compute within-school correlations #
+
+# Group data by school and compute pairwise correlations
+correlations <- df %>%
+  group_by(laestab) %>%
+  summarise(pairwise_correlations = list(compute_pairwise_correlations(pick(all_of(vars)), vars, c("Outcome", "Teacher age", "% pupils FSM"))), .groups = "drop")
+
+# Unnest the pairwise correlations
+correlations <- correlations %>%
+  tidyr::unnest(pairwise_correlations)
+
+# format df for plotting
+correlations <- correlations %>%
+  mutate(idx = row.names(correlations),
+         status = ifelse(laestab == id_treated, paste(id_name), "Donor schools")) %>%
+  tidyr::pivot_longer(cols = -c(laestab, idx, status), 
+                      names_to = c("pair", "type"), 
+                      names_sep = " - ") %>%
+  tidyr::pivot_wider(names_from = type, values_from = value) %>%
+  rename(COR = `COR`, CI_L = `CI L`, CI_U = `CI U`)
+
+
+# plot within school correlation coefficients
+cols <- c(navy, coral)
+names(cols) <- c("Donor schools", id_name)
+
+print(ggplot(data = correlations, aes(x = idx, y = COR, col = status)) +
+        geom_hline(data = function(y) y %>% filter (laestab == id_treated) %>% group_by(pair) %>% summarise(COR = unique(COR), .groups = 'drop'),
+                   aes(yintercept = COR),color = coral, linetype = "dashed") +
+        geom_linerange(aes(ymin = CI_L, ymax = CI_U), col = black) +
+        geom_point(shape = 20) +
+        facet_wrap(~ pair, ncol = 1, strip.position = "top") +
+        ambition_theme +
+        scale_color_manual(
+          breaks=c(id_name, "Donor schools"),
+          values=cols) +
+        ylab("Within-school correlation [95% CI]") +
+        theme(axis.title.x = element_blank(),
+              axis.text.x = element_blank(),
+              axis.ticks.x = element_blank()))
+
+```
+
+```{r, echo=FALSE, results='asis', message=FALSE, eval = T}
+for (i in 1:length(list_laestab_treated)) {
+  
+  id_treated <- list_laestab_treated[i]
+  
+  # get name of school
+  id_name <- unique(summary$school[summary$laestab == id_treated])
+  
+  
+  cat("\n\n")
+  cat("# ", id_name, "\n\n")
+  
+  # process data
+  df <- process_data_scm(id_treated = id_treated, read_files = T, export_data.tables = T)
+  
+  # print raw variable timeseries
+  <<check_treated>>
+    
+    
+    cat("\n\n")
+  cat("## Same region\n\n")
+  
+  # extract information about school and filters
+  regions <- est_treated$gor_name
+  
+  cat("Donor pool equal to treated with respect to:  \n\n")
+  cat("- Phase of education: ", c(est_treated$phaseofeducation_name), "  \n\n")
+  cat("- Schools in the region (", regions, ") but not in the same parliamentary constituency   \n\n", sep = "")
+  cat("- Completeness of observations on all measures (*t* = ", sum(df$laestab == id_treated),")  \n\n", sep = "")
+  cat("- Note: Boarding schools and schools with selective admissions policy are excluded from donor pool.  \n\n")
+  cat("- Note: Any schools that had outlying values (mean +/- 3*SD; determined (1) within their timeseries and (2) across the donor pool) were removed.  \n\n")
+  
+  
+  # determine ids of control schools
+  id_cont <- unique(df$laestab[df$laestab != id_treated])
+  
+  cat("**Schools in donor pool:", length(id_cont), "**\n\n")
+  
+  # save info for export
+  temp <- merge(
+    data.frame(laestab = id_treated, 
+               phase = est_treated$phaseofeducation_name,
+               region.filter = "same",
+               n_pool = length(id_cont),
+               id_cont = I(list(id_cont))#,
+               #id_cont2 = paste("c(", I(list(id_cont)), ")")
+    ),
+    sd_filtering(data = df, var = "pupil_to_qual_teacher_ratio", show_kbl = F),
+    by = "laestab")
+  
+  # visualise treated school and donor pool
+  <<check_donors>>
+    
+    
+    cat("\n\n")
+  cat("### Narrowing down the donor pool\n\n")
+  
+  cat("Donor pool equal to treated with respect to:  \n\n")
+  cat("- Phase of education: ", c(est_treated$phaseofeducation_name), "  \n\n")
+  cat("- Schools in the region (", regions, ") but not in the same parliamentary constituency   \n\n", sep = "")
+  cat("- Completeness of observations on all measures (*t* = ", sum(df$laestab == id_treated),")  \n\n", sep = "")
+  cat("- Focus on school where the average pre-treatment outcome is within **1SD** of the average for treated school  \n\n")
+  cat("- Note: Boarding schools and schools with selective admissions policy are excluded from donor pool  \n\n")
+  cat("- Note: Any schools that had outlying values (mean +/- 3*SD; determined (1) within their timeseries and (2) across the donor pool) were removed.  \n\n")
+  
+  # filter by SD crit
+  sd_filtering(data = df, perc = 100, var = "pupil_to_qual_teacher_ratio", show_kbl = T)
+  df$crit_sd_pupil_to_qual_teacher_ratio[df$laestab == id_treated] <- T
+  df <- subset(df, df$crit_sd_pupil_to_qual_teacher_ratio == T)
+  
+  # determine ids of control schools
+  id_cont <- unique(df$laestab[df$laestab != id_treated])
+  cat("**Schools in donor pool:", length(id_cont), "**\n\n")
+  
+  
+  # visualise treated school and donor pool
+  <<check_donors>>
+    
+    cat("\n\n")
+  cat("## Same and neighbouring region\n\n")
+  
+  cat("Donor pool equal to treated with respect to:  \n\n")
+  cat("- Phase of education: ", unique(c(est_treated$phaseofeducation_name)), "  \n\n")
+  cat("- Schools in the region and one neighbouring region but not in the same parliamentary constituency   \n\n")
+  cat("- Completeness of observations on all measures (*t* = ", sum(df$laestab == id_treated),")  \n\n", sep = "")
+  cat("- Note: Boarding schools and schools with selective admissions policy are excluded from donor pool  \n\n")
+  cat("- Note: Any schools that had outlying values (mean +/- 3*SD; determined (1) within their timeseries and (2) across the donor pool) were removed.  \n\n")
+  
+  # define neighbouring region
+  df_region[i, "laestab"] <- id_treated
+  df_region[i, "school"] <- id_name
+  df_region[i, "same"] <- regions
+  df_region[i, "neighbouring"] <- lookup$region2[lookup$region1 == regions]
+  
+  # process data
+  df <- process_data_scm(id_treated = id_treated,
+                         regions = unlist(c(df_region[df_region$laestab == id_treated, c("same", "neighbouring")])))
+  
+  # determine ids of control schools
+  id_cont <- unique(df$laestab[df$laestab != id_treated])
+  
+  cat("**Schools in donor pool:", length(id_cont), "**\n\n")
+  
+  # save info for export
+  temp <- rbind(temp, 
+                merge(
+                  data.frame(laestab = id_treated, 
+                             phase = est_treated$phaseofeducation_name,
+                             region.filter = "neighbouring",
+                             n_pool = length(id_cont),
+                             id_cont = I(list(id_cont))#,
+                             #id_cont2 = paste("c(", I(list(id_cont)), ")")
+                  ),
+                  sd_filtering(data = df, var = "pupil_to_qual_teacher_ratio", show_kbl = F),
+                  by = "laestab")
+  )
+  
+  df_region %>%
+    filter(laestab == id_treated) %>%
+    kbl(caption = "Regions used") %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>%
+    print()
+  
+  # visualise treated school and donor pool
+  <<check_donors>>
+    
+    cat("\n\n")
+  cat("### Narrowing down the donor pool\n\n")
+  
+  cat("Donor pool equal to treated with respect to:  \n\n")
+  cat("- Phase of education: ", unique(c(est_treated$phaseofeducation_name)), "  \n\n")
+  cat("- Schools in the region and one neighbouring region but not in the same parliamentary constituency   \n\n")
+  cat("- Completeness of observations on all measures (*t* = ", sum(df$laestab == id_treated),")  \n\n", sep = "")
+  cat("- Focus on school where the average pre-treatment outcome is within **1SD** of the average for treated school  \n\n")
+  cat("- Note: Boarding schools and schools with selective admissions policy are excluded from donor pool  \n\n")
+  cat("- Note: Any schools that had outlying values (mean +/- 3*SD; determined (1) within their timeseries and (2) across the donor pool) were removed.  \n\n")
+  
+  # filter by SD crit
+  sd_filtering(data = df, perc = 100, var = "pupil_to_qual_teacher_ratio", show_kbl = T)
+  df$crit_sd_pupil_to_qual_teacher_ratio[df$laestab == id_treated] <- T
+  df <- subset(df, df$crit_sd_pupil_to_qual_teacher_ratio == T)
+  
+  # determine ids of control schools
+  id_cont <- unique(df$laestab[df$laestab != id_treated])
+  cat("**Schools in donor pool:", length(id_cont), "**\n\n")
+  
+  
+  # visualise treated school and donor pool
+  <<check_donors>>
+    
+    if(i == 1) (df_filt = temp) else (df_filt = rbind(df_filt, temp))
+  
+}
+
+# merge with information on regions
+df_filt <- merge(df_region, df_filt, by = "laestab")
+
+# Convert the list elements to character strings
+df_filt$id_cont <- sapply(df_filt$id_cont, toString)
+
+# save information on regions and donor pool IDs
+out_file <- paste0(get_file_stem(), "_out.csv")
+write.csv(df_filt, out_file, row.names = F)
+# test <- read.csv(out_file)
+# test$id_cont <- lapply(strsplit(test$id_cont, ", "), as.numeric)
+# vec <- test$id_cont[1][[1]]
+
+```
