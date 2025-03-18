@@ -7,6 +7,9 @@ rm(list = ls())
 gc()
 
 # load libraries
+library(kableExtra)
+library(dplyr)
+library(data.table)
 library(scpi)
 library(foreach)
 library(doParallel)

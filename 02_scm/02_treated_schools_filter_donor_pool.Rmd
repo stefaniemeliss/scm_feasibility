@@ -18,6 +18,9 @@ rm(list = ls())
 gc()
 
 # load libraries
+library(kableExtra)
+library(dplyr)
+library(data.table)
 library(scpi)
 library(foreach)
 library(doParallel)
@@ -124,11 +127,11 @@ ts_desc <- ts_desc %>% relocate(Variable) %>% as.data.frame()
 
 # assign new variable names
 ts_desc$Variable <- factor(ts_desc$Variable, 
-                       levels = c("pupil_to_qual_teacher_ratio", 
-                                  "pnpupfsm_e", 
-                                  "fte_avg_age"),
-                       labels = c("Outcome", "% pupils FSM", "Teacher age")
-                       )
+                           levels = c("pupil_to_qual_teacher_ratio", 
+                                      "pnpupfsm_e", 
+                                      "fte_avg_age"),
+                           labels = c("Outcome", "% pupils FSM", "Teacher age")
+)
 # sort 
 ts_desc <- ts_desc[order(ts_desc$Variable), ]
 

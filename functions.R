@@ -29,11 +29,6 @@ process_data_scm <- function(id_treated = "id_treated",
   
   #### SETUP ####
   
-  # Load necessary libraries
-  library(kableExtra)
-  library(dplyr)
-  library(data.table)
-  
   # Define directories based on the current working directory
   dir <- normalizePath(dir, winslash = "/")
   dir_data <- file.path(dir, "data")
