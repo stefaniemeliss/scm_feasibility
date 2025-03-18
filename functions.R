@@ -619,6 +619,7 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
     
     # debug
     # params <- param_grid[2158 , ]
+    # params <- param_grid[i , ]
     # row.names(params) <- 1
     
     # Merge with parameters in grid
@@ -700,12 +701,11 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
              constant = params$constant[[1]], 
              verbose = T)
     }, error = function(e) {
-      message("Error in scdata: ", e$message)
-      return(NULL)
+      return(list(error = paste("Error in scdata:", e$message)))
     })
     
-    if (is.null(scdata.out)) {
-      return(list(status = "scdata() failed",
+    if (is.list(scdata.out) && "error" %in% names(scdata.out)) {
+      return(list(status = scdata.out$error,
                   n_pool = length(id_cont),
                   n_active = NA, 
                   sd_treated = sd(df[df$laestab == id_treated & df$time_period %in% params$period.pre[[1]], params$outcome.var], na.rm = T), 
@@ -724,12 +724,18 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
       )
       
     }, error = function(e) {
-      message("Error in scest: ", e$message)
-      return(NULL)
+      return(list(error = paste("Error in scest:", e$message)))
     })
     
-    if(is.null(scest.out)) {
-      return(list(status = "scest() failed",
+    if (is.list(scest.out) && !is.null(scest.out$error)) {
+      # save info on weight constraints
+      w.constr <- params$w.constr[[1]]
+      # format weight constraints as string
+      w.constr <- w.constr[c("name", "p", "lb", "Q", "dir")]
+      w.constr <- paste(names(w.constr), w.constr, sep = " = ", collapse = "; " )
+      params$w.constr.str <- w.constr
+      
+      return(list(status = scest.out$error,
                   n_pool = length(id_cont),
                   n_active = NA, 
                   sd_treated = sd(df[df$laestab == id_treated & df$time_period %in% params$period.pre[[1]], params$outcome.var], na.rm = T), 
@@ -740,14 +746,20 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
     } else {
       # save info on weight constraints
       w.constr <- scest.out$est.results$w.constr
+      # format weight constraints as string
       w.constr <- w.constr[c("name", "p", "lb", "Q", "dir")]
-      w.constr <- paste(names(w.constr), w.constr, sep = " = ",collapse = "; " )
+      w.constr <- paste(names(w.constr), w.constr, sep = " = ", collapse = "; " )
       params$w.constr.str <- w.constr
+      
       # save information on number of active donors
       Weights    <- round(scest.out$est.results$w, digits = 3)
       n_active  <- sum(abs(Weights) > 0)
     }
     
+    # format weight constraints as string
+    w.constr <- w.constr[c("name", "p", "lb", "Q", "dir")]
+    w.constr <- paste(names(w.constr), w.constr, sep = " = ", collapse = "; " )
+    params$w.constr.str <- w.constr
     
     if (cv) {
       # Extract the actual and synthetic control outcomes for all years - PRE
@@ -825,14 +837,14 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
       result <- tryCatch({
         run_scm(df, params)
       }, error = function(e) {
-        list(status = "run_scm() failed",
-             n_pool = length(id_cont),
-             n_active = NA, 
-             sd_treated = sd(df[df$laestab == id_treated & df$time_period %in% params$period.pre[[1]], params$outcome.var], na.rm = T), 
-             m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
-             rmspe_pre = NA, mspe_pre = NA, mae_pre = NA,
-             rmspe_post = NA, mspe_post = NA, mae_post = NA,
-             params = params)
+        return(list(status=paste("Error in run_scm:", e$message),
+                    n_pool = length(id_cont),
+                    n_active = NA, 
+                    sd_treated = sd(df[df$laestab == id_treated & df$time_period %in% params$period.pre[[1]], params$outcome.var], na.rm = T), 
+                    m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
+                    rmspe_pre = NA, mspe_pre = NA, mae_pre = NA,
+                    rmspe_post = NA, mspe_post = NA, mae_post = NA,
+                    params = params))
       })
       
       # Create a list to store the results
@@ -891,31 +903,31 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
       result <- tryCatch({
         run_scm(df, params)
       }, error = function(e) {
-        list(status = "run_scm() failed",
-             n_pool = length(id_cont),
-             n_active = NA, 
-             sd_treated = sd(df[df$laestab == id_treated & df$time_period %in% params$period.pre[[1]], params$outcome.var], na.rm = T), 
-             m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
-             rmspe_pre = NA, mspe_pre = NA, mae_pre = NA,
-             rmspe_post = NA, mspe_post = NA, mae_post = NA,
-             params = params)
+        return(list(status=paste("Error in run_scm:", e$message),
+                    n_pool = length(id_cont),
+                    n_active = NA, 
+                    sd_treated = sd(df[df$laestab == id_treated & df$time_period %in% params$period.pre[[1]], params$outcome.var], na.rm = T), 
+                    m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
+                    rmspe_pre = NA, mspe_pre = NA, mae_pre = NA,
+                    rmspe_post = NA, mspe_post = NA, mae_post = NA,
+                    params = params))
       })
       
       # Create a list to store the results
       result_list <- list(
         outcome.var = ifelse(!is.null(result$params$outcome.var[[1]]), paste(result$params$outcome.var[[1]], collapse = ", "), NA),
         features = ifelse(!is.null(result$params$features[[1]]), paste(result$params$features[[1]], collapse = ", "), NA),
-        cov.adj = ifelse(!is.null(result$params$cov.adj[[1]]), 
-                         paste(sapply(result$params$cov.adj[[1]], function(x) paste(x, collapse = ", ")), collapse = "; \n"), 
+        cov.adj = ifelse(!is.null(result$params$cov.adj[[1]]),
+                         paste(sapply(result$params$cov.adj[[1]], function(x) paste(x, collapse = ", ")), collapse = "; \n"),
                          NA),
         region.filter = ifelse(!is.null(result$params$region.filter[[1]]), result$params$region.filter[[1]], NA),
         sd.range = ifelse(!is.null(result$params$sd.range[[1]]), result$params$sd.range[[1]], NA),
         rolling.window = ifelse(!is.null(result$params$rolling.window), result$params$rolling.window, NA),
-        period.pre = ifelse(!is.null(result$params$period.pre[[1]]), 
-                            paste(result$params$period.pre[[1]], collapse = ", "), 
+        period.pre = ifelse(!is.null(result$params$period.pre[[1]]),
+                            paste(result$params$period.pre[[1]], collapse = ", "),
                             NA),
-        period.post = ifelse(!is.null(result$params$period.post[[1]]), 
-                             paste(result$params$period.post[[1]], collapse = ", "), 
+        period.post = ifelse(!is.null(result$params$period.post[[1]]),
+                             paste(result$params$period.post[[1]], collapse = ", "),
                              NA),
         w.constr = ifelse(!is.null(result$params$w.constr[[1]]), result$params$w.constr.str, NA),
         cointegrated.data = ifelse(!is.null(result$params$cointegrated.data), result$params$cointegrated.data, NA),
