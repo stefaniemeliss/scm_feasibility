@@ -1,0 +1,347 @@
+---
+title: "Treated schools for feasibility evaluations"
+author: "Stefanie Meliss"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 4
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+options(scipen = 999)
+# empty work space
+rm(list = ls())
+gc()
+
+# load libraries
+library(kableExtra)
+library(dplyr)
+library(data.table)
+library(ggplot2)
+
+# create function to source code
+source_code <- function(root_dir_name = "code", target_repo = "helper_functions", branch = "main", file_name = "file.R") {
+  
+  # construct URL
+  git_url <- paste0("https://raw.githubusercontent.com/stefaniemeliss/", target_repo, "/", branch, "/", file_name)
+  
+  # attempt to download from github
+  tempp_file <- tempfile(fileext = ".R")
+  message <- curl::curl_download(git_url, tempp_file, quiet = F)
+  
+  if(!grepl("Error", message)) {
+    
+    # if successful, source file
+    source(tempp_file)
+    remove(tempp_file)
+    
+  } else { # load local copy of file
+    
+    # Get the current working directory
+    current_dir <- getwd()
+    
+    # Split the current directory into its components
+    dir_components <- strsplit(current_dir, "/")[[1]]
+    
+    # Identify the root directory dynamically based on the provided root directory name
+    root_index <- which(dir_components == root_dir_name)
+    if (length(root_index) == 0) {
+      stop(paste("Root directory", root_dir_name, "not found in the current path"))
+    }
+    root_dir <- do.call(file.path, as.list(dir_components[1:root_index]))
+    
+    # Identify the subdirectory one level below the root and construct its absolute path
+    project_repo <- dir_components[root_index + 1]
+    dir <- file.path(root_dir, project_repo)
+    
+    if (target_repo != project_repo) {
+      dir <- gsub(project_repo, target_repo, dir) 
+    }
+    
+    # Construct the full file path
+    file_path <- file.path(dir, file_name)
+    
+    # Print the directory and file path for debugging
+    print(paste("Directory:", dir))
+    print(paste("File path:", file_path))
+    
+    # Source the file into the parent frame
+    source(file_path, local = parent.frame())
+  }
+}
+
+# source functions
+source_code(target_repo = "scm_feasibility", file_name = "functions.R")
+
+# Define the base directory
+dir <- get_directory()
+dir_data <- file.path(dir, "data")
+dir_misc <- file.path(dir, "misc")
+
+
+# copy data #
+file.copy(
+  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_swf.csv"), dir_data, overwrite = T)
+file.copy(
+  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_pupils.csv"), dir_data, overwrite = T)
+file.copy(
+  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_establishments_search.csv"), dir_data, overwrite = T)
+file.copy(
+  file.path(gsub("scm_feasibility", "edu_stats", dir_misc), "lookup_postcodearea_region.csv"), dir_misc, overwrite = T)
+
+# load data #
+
+swf <- fread(file.path(dir_data, "data_swf.csv"))
+pup <- fread(file.path(dir_data, "data_pupils.csv"))
+est <- fread(file.path(dir_data, "data_establishments_search.csv"), na.strings = "")
+nat <- fread(file.path(dir_data, "data_swf_nat_reg.csv"))
+
+# format national level data
+
+nat <- nat %>% 
+  filter(school_type == "State-funded secondary") %>%
+  mutate(level = ifelse(grepl("London", region_name), "London",
+                        ifelse(region_name == "England", "National", "Not London")),
+         time_period = insert_slash(time_period),
+         region_name = factor(region_name, levels = c("England", 
+                                                      "North East", "North West", "Yorkshire and The Humber", "East Midlands", "West Midlands", "East of England", "South East", "South West", 
+                                                      "Inner London", "Outer London")))
+
+
+
+# process data establishments #
+
+# St. Peters
+laestab_stp <- 3344650
+
+# Highcrest Academy
+laestab_hca <- 8254001
+
+# Dixon schools
+dix <- fread(file.path(dir_misc, "Dixons Linked establishments.csv"))
+dix$`Joined date` <- as.Date(dix$`Joined date`, format =  "%d/%m/%Y")
+dix$laestab <- gsub("/", "", dix$LAESTAB)
+
+# get establishment data from treated schools
+id_treated <- c(laestab_stp, laestab_hca, dix$laestab)
+
+est_treated <- est %>% 
+  filter(laestab %in% id_treated) %>%
+  mutate(school = "treated") %>% 
+  as.data.frame()
+
+# save urn and laebstab
+list_laestab <- c(unique(est_treated[, "laestab"]))
+list_urn <- c(unique(est_treated[, "urn"]))
+
+#### CREATE OUTCOME DATASET ####
+
+# Filter SWF data to create outcome dataset
+z <- swf[laestab %in% list_laestab]
+
+# Define the variable name dynamically
+var <- "pupil_to_qual_teacher_ratio"
+
+# compute non-NA observations 
+z <- z %>%   
+  filter(!is.na(.data[[var]])) %>%   
+  group_by(laestab) %>%   
+  mutate(     
+    obs_count = sum(!is.na(.data[[var]]))   
+  ) %>%   
+  ungroup()  
+
+# Filter for rows where observation count matches the treated ID and select columns 
+z <- z %>%   
+  select(time_period, laestab, urn, school, pupil_to_qual_teacher_ratio, fte_avg_age) %>%   
+  group_by(laestab) %>%   
+  arrange(laestab, desc(time_period)) %>%   
+  mutate(school = first(school)) %>%   
+  arrange(laestab, time_period) %>%   
+  ungroup() %>%   
+  as.data.frame()
+
+#### CREATE PREDICTOR DATASET ####
+
+# Filter to create predictor dataset
+x <- pup[laestab %in% list_laestab]
+
+# select relevant variables 
+x <- x %>% 
+  select(time_period, laestab, urn, pnpupfsm_e)
+
+# combine outcome and predictor
+df <- merge(z, x, by = c("laestab", "time_period", "urn"), all.x = T)
+
+# arrange data
+df <- df %>%
+  arrange(laestab, time_period) %>%
+  mutate(
+    # # change name to include laestab to navigate duplicates
+    # school = paste(laestab, school),
+    # add slash and use as string
+    time_period_str = insert_slash(time_period),
+    # remove the last two digits
+    time_period = as.numeric(substr(time_period, 0, 4))
+  )
+
+```
+
+
+```{r, echo=FALSE, results='asis', eval=F}
+# check data for NAs
+vars <- setdiff(names(df), c("laestab", "time_period", "time_period_str", "school", "urn"))
+
+# create data
+df_long <- df %>%
+  mutate(school = ifelse(laestab %in% laestab_stp, "St Peters", 
+                         ifelse(laestab %in% laestab_hca, "Highcrest", "Dixons"))) %>%
+  tidyr::pivot_longer(
+    cols = -c(laestab, school, time_period, time_period_str, school, urn),
+    names_to = "variable") %>%
+  mutate(variable = case_match(variable, 
+                               "pupil_to_qual_teacher_ratio" ~ "Outcome",
+                               "fte_avg_age" ~ "Teacher age",
+                               "pnpupfsm_e" ~ "% pupils FSM"
+  ))
+
+df_long$variable <- factor(df_long$variable, levels = c("Outcome", "% pupils FSM", "Teacher age"))
+
+# plot timeseries average for each school
+ggplot(data = df_long, aes(x = time_period, y = value, col = school, group = laestab)) +
+  geom_line() + 
+  geom_point(size = .5) +
+  facet_wrap(~ variable, ncol = 1, strip.position = "top", scales = "free_y") +
+  ambition_theme +
+  scale_color_manual(values = c(teal, purple, coral)) +
+  ylab("Reported value") +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())
+
+
+# plot timeseries average for each school
+ggplot(data = df_long[df_long$school != "Dixons", ], aes(x = time_period, y = value, col = school, group = laestab)) +
+  geom_line() + 
+  geom_point(size = .5) +
+  facet_wrap(~ variable, ncol = 1, strip.position = "top", scales = "free_y") +
+  ambition_theme +
+  scale_color_manual(values = c(teal, purple, coral)) +
+  ylab("Reported value") +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())
+
+
+# plot timeseries average for each school
+ggplot(data = df_long[df_long$school != "Dixons", ], aes(x = time_period_str, y = value, col = school, group = laestab)) +
+  geom_line() + 
+  geom_point(size = .5) +
+  facet_wrap(~ variable, ncol = 1, strip.position = "top", scales = "free_y") +
+  ambition_theme +
+  scale_color_manual(values = c(teal, purple, coral)) +
+  ylab("Reported value") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.title.x = element_blank())
+
+
+
+```
+
+```{r, echo=FALSE, message=F}
+# Create pairwise comparisons with the target laestab
+laestab_pairs <- expand.grid(laestab1 = laestab_stp, laestab2 = unique(df$laestab)) %>%
+  filter(laestab1 != laestab2)
+
+# create data for plotting
+df_long <- df %>%
+  tidyr::pivot_longer(
+    cols = -c(laestab, school, time_period, time_period_str, urn),
+    names_to = "variable") %>%
+  mutate(variable = case_match(variable, 
+                               "pupil_to_qual_teacher_ratio" ~ "Outcome",
+                               "fte_avg_age" ~ "Teacher age",
+                               "pnpupfsm_e" ~ "% pupils FSM")
+  )
+df_long$variable <- factor(df_long$variable, levels = c("Outcome", "% pupils FSM", "Teacher age"))
+
+# Function to calculate SNR
+calculate_snr <- function(values) {
+  round(mean(values) / sd(values), 2)
+}
+
+
+# Function to create a ggplot for a pair of laestab
+create_plot <- function(df_long, laestab1, laestab2) {
+  
+  # filter data
+  df_filtered <- df_long %>% filter(laestab %in% c(laestab1, laestab2))
+  
+  # Determine positions for labels next to the last points
+  last_points <- df_filtered %>%
+    group_by(variable, laestab, school) %>%
+    filter(time_period == max(time_period)) %>%
+    ungroup() %>%
+    select(variable, laestab, school, time_period_str, value)
+  
+  # Calculate SNR for each variable for both laestabs
+  snr_values <- df_filtered %>%
+    group_by(variable, laestab, school) %>%
+    summarise(snr = calculate_snr(value), 
+              y_pos = max(value, na.rm = TRUE),
+              .groups = 'drop') %>%
+    mutate(annotation = ifelse(laestab == laestab1,
+                               paste("St Peters SNR =", snr),
+                               paste("Candidate SNR =", snr))) %>%
+    left_join(last_points, by = c("variable", "laestab", "school"))
+  
+  
+  # plot timeseries average for each school
+  p <- ggplot(data = df_filtered, aes(x = time_period_str, y = value, col = school, group = laestab)) +
+    # data for new school
+    geom_line(data = df_filtered[df_filtered$laestab != laestab1, ], aes(col = paste("Candidate school"))) + 
+    geom_point(data = df_filtered[df_filtered$laestab != laestab1, ], aes(col = paste("Candidate school"))) + 
+    # data for St. Peters
+    geom_line(data = df_filtered[df_filtered$laestab == laestab1, ], aes(col = "St Peters")) +
+    geom_point(data = df_filtered[df_filtered$laestab == laestab1, ], aes(col = "St Peters")) +
+    # Add snr values
+    # geom_text(data = snr_values, aes(x = Inf, y = y_pos, label = annotation, group = variable),
+    #                  hjust = 1.1, vjust = 1, size = 3) +
+    # geom_label(data = snr_values, aes(x = time_period_str, y = value, label = annotation),
+    #            hjust = 0, vjust = -0.5, size = 3, label.size = 0.2) +
+    # Add SNR values as labels next to the last points using geom_label_repel
+    ggrepel::geom_label_repel(data = snr_values, aes(x = time_period_str, y = value, label = annotation),
+                     size = 3, label.size = 0.2, nudge_x = 2, direction = "y", hjust = 0) +
+    
+    # overall plot modifications
+    facet_wrap(~ variable, ncol = 1, strip.position = "top", scales = "free_y") +
+    ambition_theme +
+    scale_color_manual(
+      breaks=c("Candidate school", "St Peters"),
+      values=c("Candidate school" = coral, "St Peters" = navy)) +
+    ylab("Reported value") +
+    ggtitle(paste(df_filtered$school[df_filtered$laestab == laestab2])) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          axis.title.x = element_blank()) +
+    scale_x_discrete(expand = expansion(mult = c(0.05, 0.4))) # Ensure labels are fully shown
+  
+  
+  return(p)
+  
+}
+
+# Loop through pairs and create plots
+plots <- laestab_pairs %>%
+  purrr::pmap(function(laestab1, laestab2) create_plot(df_long, laestab1, laestab2))
+# Display all plots in the R Markdown file
+for (i in seq_along(plots)) {
+  print(plots[[i]])
+  cat("\n\n")  # Add some space between plots
+}
+
+```
+
