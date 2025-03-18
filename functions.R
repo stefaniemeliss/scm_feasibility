@@ -730,9 +730,15 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
     if (is.list(scest.out) && !is.null(scest.out$error)) {
       # save info on weight constraints
       w.constr <- params$w.constr[[1]]
+      
+      if (!"name" %in% names(w.constr)) {
+        w.constr[["name"]] <- "user provided"
+      }
+
       # format weight constraints as string
       w.constr <- w.constr[c("name", "p", "lb", "Q", "dir")]
       w.constr <- paste(names(w.constr), w.constr, sep = " = ", collapse = "; " )
+      # add to params
       params$w.constr.str <- w.constr
       
       return(list(status = scest.out$error,
@@ -749,18 +755,14 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
       # format weight constraints as string
       w.constr <- w.constr[c("name", "p", "lb", "Q", "dir")]
       w.constr <- paste(names(w.constr), w.constr, sep = " = ", collapse = "; " )
+      # add to params
       params$w.constr.str <- w.constr
       
       # save information on number of active donors
       Weights    <- round(scest.out$est.results$w, digits = 3)
       n_active  <- sum(abs(Weights) > 0)
     }
-    
-    # format weight constraints as string
-    w.constr <- w.constr[c("name", "p", "lb", "Q", "dir")]
-    w.constr <- paste(names(w.constr), w.constr, sep = " = ", collapse = "; " )
-    params$w.constr.str <- w.constr
-    
+
     if (cv) {
       # Extract the actual and synthetic control outcomes for all years - PRE
       actual_pre <- scest.out$data$Y.pre
@@ -800,7 +802,6 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
       mspe_post <- NA
       mae_post <- NA 
     }
-    
     
     # compute performance parameters
     sd_treated <- sd(actual_pre, na.rm = TRUE)
