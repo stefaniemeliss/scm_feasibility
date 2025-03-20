@@ -949,7 +949,7 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
 }
 
 # get scpi summary of estimation 
-summarise_scest <- function(object, ...) {
+summarise_scest <- function(object, cv = F) {
   
   J       <- object$data$specs$J
   M       <- object$data$specs$M
@@ -1022,44 +1022,97 @@ summarise_scest <- function(object, ...) {
   cat("#### Synthetic Control Prediction - Fit \n")
   cat("\n\n")
   
+  # Extract the actual and synthetic control outcomes for all years - PRE
+  actual_pre <- object$data$Y.pre
+  synthetic_pre <- object$est.results$Y.pre.fit
+  gap_pre <- actual_pre - synthetic_pre # compute gap as difference between both
+  years_pre <- as.numeric(gsub(paste0(id_treated, "."), "", row.names(actual_pre)))
   
-  # Extract the actual and synthetic control outcomes for all years
-  actual <- object$data$Y.pre
-  synthetic <- object$est.results$Y.pre.fit
-  gap <- actual - synthetic # compute gap as difference between both
-  
+  # Compute fit - PRE
+  rmspe_pre <- sqrt(mean((gap_pre)^2, na.rm = TRUE))
+  mspe_pre <- mean((gap_pre)^2, na.rm = TRUE)
+  mae_pre <- mean(abs(gap_pre), na.rm = TRUE)
   
   # compute descriptive stats
-  rbind(psych::describe(actual, fast = T), psych::describe(synthetic, fast = T), psych::describe(gap, fast = T)) %>%
+  rbind(psych::describe(actual_pre, fast = T), psych::describe(synthetic_pre, fast = T), psych::describe(gap_pre, fast = T)) %>%
     as.data.frame(row.names = c("Treated unit", "Synthetic unit", "Gap")) %>%
     select(-vars) %>%
     mutate(across(where(is.numeric), ~ round(., digits = 2))) %>%
-    kbl() %>%
+    kbl(caption = "Pre-treatment timeseries") %>%
     kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>%
     print()
   cat("\n\n")
   
   # Calculate the RMSPE for all years
   # RMSPE is in the same units as the dependent variable
-  rmspe <- sqrt(mean((gap)^2))
-  cat(paste("\nRMSPE (Root Mean Squared Prediction Error; in unit of DV):", round(rmspe, 3), "\n\n"))
+  cat(paste("\nRMSPE (Root Mean Squared Prediction Error; in unit of DV):", round(rmspe_pre, 3), "\n\n"))
   cat("\n\n")
   
   # Calculate the MSPE for all years
   # MSPE is in the squared units of the dependent variable
-  mspe <- mean((gap)^2)
-  cat(paste("\nMSPE (Mean Squared Prediction Error; in squared units of DV):", round(mspe, 3), "\n\n"))
+  cat(paste("\nMSPE (Mean Squared Prediction Error; in squared units of DV):", round(mspe_pre, 3), "\n\n"))
   cat("\n\n")
   
   # Calculate the MAE for all years
   # MAE is in the squared units of the dependent variable
-  mae <- mean(abs(gap))
-  cat(paste("\nMAE (Mean Absolute Error; in units of DV):", round(mae, 3), "\n\n"))
+  cat(paste("\nMAE (Mean Absolute Error; in units of DV):", round(mae_pre, 3), "\n\n"))
   cat("\n\n")
   
-  ## path plot
-  years <- as.numeric(gsub(paste0(id_treated, "."), "", row.names(actual)))
+  if (cv) {
+    
+    # Extract the actual and synthetic control outcomes for all years - POST
+    actual_post <- object$data$Y.post
+    synthetic_post <- object$est.results$Y.post.fit
+    gap_post <- actual_post - synthetic_post # compute gap as difference between both
+    years_post <- as.numeric(gsub(paste0(id_treated, "."), "", row.names(actual_post)))
+    
+    # Compute fit - POST
+    rmspe_post <- sqrt(mean((gap_post)^2, na.rm = TRUE))
+    mspe_post <- mean((gap_post)^2, na.rm = TRUE)
+    mae_post <- mean(abs(gap_post), na.rm = TRUE)
+    
+    # compute descriptive stats
+    rbind(psych::describe(actual_post, fast = T), psych::describe(synthetic_post, fast = T), psych::describe(gap_post, fast = T)) %>%
+      as.data.frame(row.names = c("Treated unit", "Synthetic unit", "Gap")) %>%
+      select(-vars) %>%
+      mutate(across(where(is.numeric), ~ round(., digits = 2))) %>%
+      kbl(caption = "Post-treatment timeseries") %>%
+      kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>%
+      print()
+    cat("\n\n")
+    
+    # Calculate the RMSPE for all years
+    # RMSPE is in the same units as the dependent variable
+    cat(paste("\nRMSPE (Root Mean Squared Prediction Error; in unit of DV):", round(rmspe_post, 3), "\n\n"))
+    cat("\n\n")
+    
+    # Calculate the MSPE for all years
+    # MSPE is in the squared units of the dependent variable
+    cat(paste("\nMSPE (Mean Squared Prediction Error; in squared units of DV):", round(mspe_post, 3), "\n\n"))
+    cat("\n\n")
+    
+    # Calculate the MAE for all years
+    # MAE is in the squared units of the dependent variable
+    cat(paste("\nMAE (Mean Absolute Error; in units of DV):", round(mae_post, 3), "\n\n"))
+    cat("\n\n")
+    
+    # combine years
+    years <- c(years_pre, years_post)
+    actual <- c(actual_pre, actual_post)
+    synthetic <- c(synthetic_pre, synthetic_post)
+    gap <- c(gap_pre, gap_post)
+    
+  } else {
+    
+    # declare pre to be final
+    years <- years_pre
+    actual <- actual_pre[,1]
+    synthetic <- synthetic_pre[,1]
+    gap <- gap_pre[,1]
+  }
   
+  
+  ## path plot
   plot(years, actual, 
        t = "l", col = "black", lwd = 2, 
        xaxs = "i", yaxs = "i",
@@ -1087,7 +1140,7 @@ summarise_scest <- function(object, ...) {
   # calculate correlation 
   cat("\n\n")
   cat(paste("\n##### Intercorrelation matrix (entries above the diagonal adjusted for multiple tests) \n"))
-  tmp <- psych::corr.test(data.frame(actual = actual[,1], synthetic = synthetic[,1], gap = gap[,1]))
+  tmp <- psych::corr.test(data.frame(actual = actual, synthetic = synthetic, gap = gap))
   corrplot::corrplot(tmp$r,
                      p.mat = tmp$p,
                      method = "number", tl.pos = "d")
