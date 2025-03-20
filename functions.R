@@ -757,17 +757,18 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
       Weights    <- round(scest.out$est.results$w, digits = 3)
       n_active  <- sum(abs(Weights) > 0)
     }
+    
+    # Extract the actual and synthetic control outcomes for all years - PRE
+    actual_pre <- scest.out$data$Y.pre
+    synthetic_pre <- scest.out$est.results$Y.pre.fit
+    gap_pre <- actual_pre - synthetic_pre # compute gap as difference between both
+    
+    # Compute fit - PRE
+    rmspe_pre <- sqrt(mean((gap_pre)^2, na.rm = TRUE))
+    mspe_pre <- mean((gap_pre)^2, na.rm = TRUE)
+    mae_pre <- mean(abs(gap_pre), na.rm = TRUE)
 
     if (cv) {
-      # Extract the actual and synthetic control outcomes for all years - PRE
-      actual_pre <- scest.out$data$Y.pre
-      synthetic_pre <- scest.out$est.results$Y.pre.fit
-      gap_pre <- actual_pre - synthetic_pre # compute gap as difference between both
-      
-      # Compute fit - PRE
-      rmspe_pre <- sqrt(mean((gap_pre)^2, na.rm = TRUE))
-      mspe_pre <- mean((gap_pre)^2, na.rm = TRUE)
-      mae_pre <- mean(abs(gap_pre), na.rm = TRUE)
       
       # Extract the actual and synthetic control outcomes for all years - POST
       actual_post <- scest.out$data$Y.post
@@ -782,15 +783,6 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
       rm(actual_post, synthetic_post, gap_post)
       
     } else {
-      # Extract the actual and synthetic control outcomes for pre-treatment years only
-      actual_pre <- scest.out$data$Y.pre
-      synthetic_pre <- scest.out$est.results$Y.pre.fit
-      gap_pre <- actual_pre - synthetic_pre # compute gap as difference between both
-      
-      # Compute fit - PRE
-      rmspe_pre <- sqrt(mean((gap_pre)^2, na.rm = TRUE))
-      mspe_pre <- mean((gap_pre)^2, na.rm = TRUE)
-      mae_pre <- mean(abs(gap_pre), na.rm = TRUE)
       
       # set NA for fit - POST
       rmspe_post <- NA
