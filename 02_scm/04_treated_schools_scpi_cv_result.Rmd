@@ -1,0 +1,453 @@
+---
+title: "Results of cross-validated gridsearch with *scpi* package"
+author: "Stefanie Meliss"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    self_contained: true
+---
+This markdown summarises the results of the grid search.  
+  
+The grid search iterated through the following parameters:  
+  
+- Was the outcome included as feature? (excl. DV vs. incl. DV)  
+- Was any covariates adjusted for each feature? (none vs. Constant vs. Trend vs. Constant + Trend)  
+- Which rolling window average width was applied to the features? (roll = 1 vs. roll = 2)  
+- Which years were included in the training data? (all years between 2010/11 and 2021/22 vs. excl. 2020/21 vs. excl. 2020/21 and 2021/22)  
+- Which schools were included in the donor pool? (Schools in the same region vs. schools in same and neighbouring region)  
+- Was the donor pool filtered with respect to value of averaged pre-treatment outcome variable in relation to treated unit? (x SD thresholds)  
+- Which weight constraints were defined during the estimation? (Simplex vs. L1-l2 vs. Lasso vs. modified Lasso)  
+  
+  
+Data up to 2021/22 was used to estimate the weights under various settings. The weights were validated using data from 2022/23 and 2023/24.  
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Clear the workspace and run garbage collection
+rm(list = ls())
+gc()
+
+# load libraries
+library(kableExtra)
+library(dplyr)
+library(data.table)
+library(scpi)
+
+# create function to source code
+source_code <- function(root_dir_name = "code", target_repo = "helper_functions", branch = "main", file_name = "file.R") {
+  
+  # construct URL
+  git_url <- paste0("https://raw.githubusercontent.com/stefaniemeliss/", target_repo, "/", branch, "/", file_name)
+  
+  # attempt to download from github
+  tempp_file <- tempfile(fileext = ".R")
+  message <- curl::curl_download(git_url, tempp_file, quiet = F)
+  
+  if(!grepl("Error", message)) {
+    
+    # if successful, source file
+    source(tempp_file)
+    remove(tempp_file)
+    
+  } else { # load local copy of file
+    
+    # Get the current working directory
+    current_dir <- getwd()
+    
+    # Split the current directory into its components
+    dir_components <- strsplit(current_dir, "/")[[1]]
+    
+    # Identify the root directory dynamically based on the provided root directory name
+    root_index <- which(dir_components == root_dir_name)
+    if (length(root_index) == 0) {
+      stop(paste("Root directory", root_dir_name, "not found in the current path"))
+    }
+    root_dir <- do.call(file.path, as.list(dir_components[1:root_index]))
+    
+    # Identify the subdirectory one level below the root and construct its absolute path
+    project_repo <- dir_components[root_index + 1]
+    dir <- file.path(root_dir, project_repo)
+    
+    if (target_repo != project_repo) {
+      dir <- gsub(project_repo, target_repo, dir) 
+    }
+    
+    # Construct the full file path
+    file_path <- file.path(dir, file_name)
+    
+    # Print the directory and file path for debugging
+    print(paste("Directory:", dir))
+    print(paste("File path:", file_path))
+    
+    # Source the file into the parent frame
+    source(file_path, local = parent.frame())
+  }
+}
+
+# source functions
+source_code(target_repo = "scm_feasibility", file_name = "functions.R")
+
+# Define the base directory
+get_directory()
+
+# get file stem name
+file_stem <- get_file_stem()
+
+# process data establishments #
+
+# load in file with timeseries desc
+summary <- read.csv(file.path(dir, "02_scm",  "02_treated_schools_filter_donor_pool_out.csv"))
+
+# only select schools with sufficient donor pool
+summary <- subset(summary, n_pool >= 50)
+
+# save laestab numbers
+list_laestab_treated <- unique(summary$laestab)
+# list_laestab_treated <- list_laestab_treated[1:3] # debug
+# list_laestab_treated <- list_laestab_treated[1:2] # debug
+
+# create df_region as reference
+df_region <- unique(summary[, c("laestab", "same", "neighbouring")])
+```
+
+```{r plot_ts, eval=FALSE, include=F}
+#id_treated = list_laestab[1] # debug
+
+# create df for plotting - treated only
+df_treated <- df %>%
+  filter(laestab == id_treated) %>%
+  arrange(laestab, desc(time_period)) %>%
+  mutate(school = first(school),
+         fte_avg_age_roll = zoo::rollapply(fte_avg_age, width = 2, mean, align = "left", partial = T),
+         pnpupfsm_e_roll = zoo::rollapply(pnpupfsm_e, width = 2, mean, align = "left", partial = T)
+  ) %>%
+  as.data.frame()
+
+
+#### CREATE SPAGHETTI PLOT ####
+
+# create data in long format
+df_long <- df_treated %>%
+  tidyr::pivot_longer(
+    cols = -c(laestab, school, time_period, time_period_str, school, urn),
+    names_to = "variable") %>%
+  mutate(category = case_match(variable, 
+                               "pupil_to_qual_teacher_ratio" ~ "Outcome",
+                               "pupil_to_qual_unqual_teacher_ratio" ~ "Outcome",
+                               "fte_avg_age" ~ "Teacher age",
+                               "fte_avg_age_roll" ~ "Teacher age",
+                               "pnpupfsm_e" ~ "% pupils FSM",
+                               "pnpupfsm_e_roll" ~ "% pupils FSM"
+  ),
+  computation = case_match(variable, 
+                           "pupil_to_qual_teacher_ratio" ~ "Qualified teachers",
+                           "pupil_to_qual_unqual_teacher_ratio" ~ "All teachers",
+                           "fte_avg_age" ~ "Raw",
+                           "fte_avg_age_roll" ~ "Rolling average",
+                           "pnpupfsm_e" ~ "Raw",
+                           "pnpupfsm_e_roll" ~ "Rolling average"
+  ),
+  comment = case_match(variable, 
+                       "pupil_to_qual_teacher_ratio" ~ "Old",
+                       "pupil_to_qual_unqual_teacher_ratio" ~ "Modified",
+                       "fte_avg_age" ~ "Old",
+                       "fte_avg_age_roll" ~ "Modified",
+                       "pnpupfsm_e" ~ "Old",
+                       "pnpupfsm_e_roll" ~ "Modified"
+  ),
+  roll = case_match(variable, 
+                    "pupil_to_qual_teacher_ratio" ~ "Raw",
+                    "pupil_to_qual_unqual_teacher_ratio" ~ "Raw",
+                    "fte_avg_age" ~ "Raw",
+                    "fte_avg_age_roll" ~ "Rolling average",
+                    "pnpupfsm_e" ~ "Raw",
+                    "pnpupfsm_e_roll" ~ "Rolling average"
+  )
+  ) %>%
+  as.data.frame()
+
+df_long$category <- factor(df_long$category, levels = c("Outcome", "% pupils FSM", "Teacher age"))
+
+
+# plot timeseries for each variable
+plt <- ggplot(data = df_long[df_long$variable != "pupil_to_qual_unqual_teacher_ratio", ], aes(x = time_period_str, y = value, col = roll, group = interaction(laestab, roll))) +
+  geom_line() + 
+  geom_point() +
+  facet_wrap(~ category, ncol = 1, strip.position = "top", scales = "free_y") +
+  ambition_theme +
+  ylab("Reported value") +
+  scale_color_manual(values = c("Raw" = coral, "Rolling average" = navy)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.title.x = element_blank(), 
+        legend.title = element_blank())
+
+print(plt)
+cat("\n\n")  # Add some space between plots
+
+
+```
+
+```{r grid, eval=FALSE, include=F}
+#### process data grid search ####
+
+# declare file name
+file_name <- file.path(getwd(), paste0("03_treated_schools_scpi_cv_gridsearch_", gsub(" ", "_", id_name), ".csv"))
+
+# read in results
+results <- read.csv(file_name)
+
+# copy data for editing
+tmp_results <- results
+# apply(results[1:14], 2, unique)
+
+tmp_results$rmspe_ratio <- tmp_results$rmspe_pre / tmp_results$rmspe_post
+
+tmp_results[tmp_results$rmspe_pre < tmp_results$sd_treated & tmp_results$rmspe_post < tmp_results$sd_treated,  ]
+
+# create new vars for facets #
+# DV used
+tmp_results$dv <- ifelse(grepl("pupil_to_qual_teacher_ratio", tmp_results$outcome.var), "Qualified", "All")
+# is DV in features?
+tmp_results$feat_dv <- ifelse(grepl("ratio", tmp_results$features), "incl. DV", "excl. DV")
+tmp_results$feat_dv <- factor(tmp_results$feat_dv)
+# covariate adjustment
+tmp_results$adj <- ifelse(is.na(tmp_results$cov.adj), "none", tmp_results$cov.adj)
+tmp_results$adj <- factor(tmp_results$adj, levels = c("none", "constant", "trend", "constant, trend"),
+                          labels = c("none", "Constant", "Trend", "C + T"))
+# which region was used for filtering
+tmp_results$region <- ifelse(grepl("neighbouring", tmp_results$region.filter), "Same + Neighb.", "Same")
+tmp_results$region <- factor(tmp_results$region)
+# which SD filter was applied?
+if ("50" %in% unique(tmp_results$sd.range)) {
+  # Primary
+  tmp_results$sd <- ifelse(grepl("50", tmp_results$sd.range), "0.5 SD", "1 SD")
+} else {
+  # Secondary
+  tmp_results$sd <- ifelse(grepl("100", tmp_results$sd.range), "1 SD", "No SD")
+}
+tmp_results$sd <- factor(tmp_results$sd)
+# was rolling average computed
+tmp_results$roll <- paste0("roll = ", tmp_results$rolling.window)
+tmp_results$roll <- factor(tmp_results$roll)
+# which years were used in training
+tmp_results$pretreat <- ifelse(grepl("2019, 2020, 2021", tmp_results$period.pre), "all years", 
+                               ifelse(!grepl("2019, 2021", tmp_results$period.pre), "excl. 20/21",
+                                      "excl. 20/21 & 21/22"))
+tmp_results$pretreat <- factor(tmp_results$pretreat)
+# which constraints were applied to the weights
+tmp_results$method <- tstrsplit(tmp_results$w.constr, "; ")[[1]]
+tmp_results$method <- gsub("name = ", "", tmp_results$method)
+tmp_results$method <- factor(tmp_results$method, levels = c("simplex", "L1-L2", "lasso", "user provided"))
+
+# finalise dataset
+tmp_results <- tmp_results %>%
+  # reorder dataset
+  arrange(feat_dv, adj, roll, pretreat, region, sd, method) %>%
+  # create id col
+  mutate(it = as.character(1:nrow(tmp_results))) %>%
+  # select columns
+  select(c(it, dv, feat_dv, adj, region, sd, roll, pretreat, method, sd_treated, rmspe_pre, rmspe_post))
+
+# print donor pool size to markdown
+unique(results[, c("region.filter", "sd.range", "n_pool")]) %>%
+  kbl(caption = "Size of donor pool after filtering", row.names = F) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
+  print()
+cat("\n")
+
+
+
+# convert to long format
+tmp_long <- tmp_results %>%
+  tidyr::pivot_longer(
+    cols = c(rmspe_pre, rmspe_post),
+    names_to = "data",
+    values_to = "rmspe") %>%
+  mutate(data = case_match(data, 
+                           "rmspe_pre" ~ "T",
+                           "rmspe_post" ~ "V")) %>%
+  mutate(data = factor(data)) %>%
+  # Explicitly arrange dataset by all relevant variables
+  arrange(feat_dv, adj, roll, pretreat, region, sd, method, data)
+
+# Define explicit numeric dodge positions
+method_levels <- levels(tmp_results$method)
+dodge_width <- 0.6
+n_methods <- length(method_levels)
+# Create evenly spaced numeric offsets around 0
+method_positions <- seq(-dodge_width/2, dodge_width/2, length.out = n_methods)
+
+# Create a lookup table
+position_lookup <- tibble(
+  method = method_levels,
+  method_position = method_positions
+) %>%
+  mutate(method = factor(method, levels = c("simplex", "L1-L2", "lasso", "user provided"))
+  )
+
+# Merge these positions into your data
+tmp_long <- tmp_long %>%
+  left_join(position_lookup, by = "method") %>%
+  mutate(
+    data_numeric = as.numeric(factor(data)), # numeric x-axis position per 'data'
+    x_position = data_numeric + method_position # final numeric position for plotting
+  )
+
+#### plot data grid search ####
+
+plt <- ggplot(data = tmp_long, aes(x = x_position, y = rmspe, group = it)) +
+  geom_hline(data = function(y) y %>% group_by(feat_dv, adj, roll, pretreat, region, sd) %>% summarise(sd_treated = unique(sd_treated), .groups = 'drop'),
+             aes(yintercept = sd_treated),color = black40, linetype = "dashed") +
+  geom_point(aes(colour = method), size = 1) +
+  geom_line(aes(colour = method)) +
+  scale_x_continuous(
+    breaks = unique(tmp_long$data_numeric),
+    labels = unique(tmp_long$data)
+  ) +
+  ggh4x::facet_grid2(cols = vars(feat_dv, adj, roll), rows = vars(pretreat, region, sd), strip = ggh4x::strip_nested()) +
+  ambition_theme +
+  theme(strip.text = element_text(size = 10),
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 10),
+        axis.title = element_text(size = 10),
+        axis.text = element_text(size = 10),
+        #axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        plot.caption = element_text(size = 10),
+        legend.margin=margin(t = -8)) +
+  ylab("Root Mean Squared Prediction Error (RMSPE)") +
+  xlab("Cross-validation fold") +
+  guides(colour = guide_legend(title = "Weight constraint")) +
+  scale_colour_manual(values = ambition_palette_bright)
+print(plt)
+cat("\n\n")
+
+```
+
+```{r, echo=F, message=FALSE, results='asis', fig.align='center', fig.height=10, fig.width=10}
+for (i in 1:length(list_laestab_treated)) {
+  
+  id_treated <- list_laestab_treated[i]
+  
+  # process data
+  df <- process_data_scm(id_treated = id_treated, read_files = T, export_data.tables = T)
+  regions <- est_treated$gor_name
+  
+  # determine ids of control schools
+  id_cont <- unique(df$laestab[df$laestab != id_treated])
+  
+  cat("# ", id_name, "\n\n")
+  
+  # print some information about the school
+  cat("Type of establishment:", est_treated$typeofestablishment_name, "\n\n")
+  cat("Phase:", est_treated$phaseofeducation_name, "\n\n")
+  cat("Gender of pupils:", est_treated$gender_name, "\n\n")
+  cat("Religious character:", est_treated$religiouscharacter_name, "\n\n")
+  cat("Trust flag:", est_treated$trustschoolflag_name, "\n\n")
+  cat("Local authority:", est_treated$la_name, "\n\n")
+  cat("Region:", est_treated$gor_name, "\n\n")
+  
+  cat("## Timeseries plots \n\n")
+  # Plot data
+  <<plot_ts>>
+    
+    # run grid searcg
+    cat("## Grid search \n\n")
+  <<grid>>
+    
+}
+
+
+```
+
+
+```{r, echo=F, message=FALSE, results='asis', eval = F}
+
+# Generate a list of CSV file paths
+file_list <- list.files(pattern = paste0(file_stem, "_grid"))
+
+# Read and combine all CSV files into one data frame
+df_grid <- do.call(rbind, lapply(file_list, function(file) {
+  data <- read.csv(file)
+  data$school <- gsub(paste0(file_stem, "_gridsearch_"), "", file)
+  data$school <- gsub(".csv", "", data$school)
+  data$school <- gsub("_", " ", data$school)
+  return(data)
+}))
+
+# tmp <- read.csv(file_list[1])
+
+
+tmp_results <- df_grid
+tmp_results$rel_fit <- tmp_results$rmspe_pre / tmp_results$sd_treated
+tmp_results$check <- tmp_results$rel_fit <= .5
+# create new vars for facets
+tmp_results$dv <- ifelse(grepl("pupil_to_qual_teacher_ratio", tmp_results$outcome.var), "Qualified", "All")
+tmp_results$feat_dv <- ifelse(grepl("ratio", tmp_results$features), "incl. DV", "excl. DV")
+tmp_results$feat <- ifelse(grepl("roll", tmp_results$features), "roll", "raw")
+tmp_results$pretreat <- ifelse(grepl("2019", tmp_results$period.pre), "all years", "excl. Covid")
+tmp_results$adj <- ifelse(is.na(tmp_results$cov.adj), "No", "Yes")
+tmp_results$school <- gsub("Dixons ", "", tmp_results$school)
+
+# plot all results
+plt <- ggplot(data = tmp_results, aes(x = feat, y = rel_fit)) +
+  geom_bar(stat = "summary", fun = "mean", position = position_dodge(width = .9), col = black10) +
+  geom_hline(aes(yintercept = .5),color = black40, linetype = "dashed") +
+  geom_point(aes(colour = school), position = position_dodge(width = .9), size = 1) +
+  facet_grid(cols = vars(dv, feat_dv, adj), rows = vars(pretreat)) +
+  ambition_theme +
+  theme(strip.text = element_text(size = 10),
+        axis.text.y = element_text(size = 10),
+        plot.caption = element_text(size = 10),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 10),
+        legend.margin=margin(t = -8)) +
+  ylab("RMSPE / SD (treated unit)") +
+  xlab("Feature transformation") +
+  ggtitle("All SCMs per school") +
+  guides(shape = "none",
+         fill = "none",
+         colour = guide_legend(ncol = 3)) +
+  scale_colour_manual(values = as.vector(pals::polychrome(length(unique(tmp_results$school)))))
+print(plt)
+cat("\n\n")
+
+
+# filter
+filtered_data <- tmp_results %>%
+  mutate(rel_fit = rmspe_pre / sd_treated) %>%
+  # remove all schools with lowest minimum rel_fit above .5
+  filter(rel_fit <= .5) %>%
+  # select best 4 models per school
+  group_by(school) %>%
+  slice_min(order_by = rmspe_pre, n = 4)
+
+
+# plot all results
+plt <- ggplot(data = filtered_data, aes(x = feat, y = rel_fit)) +
+  geom_bar(stat = "summary", fun = "mean", position = position_dodge(width = .9), col = black10) +
+  geom_hline(aes(yintercept = .5),color = black40, linetype = "dashed") +
+  geom_point(aes(colour = school), position = position_dodge(width = .9), size = 2) +
+  facet_grid(cols = vars(dv, feat_dv, adj), rows = vars(pretreat)) +
+  ambition_theme +
+  theme(strip.text = element_text(size = 10),
+        axis.text.y = element_text(size = 10),
+        plot.caption = element_text(size = 10),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 10),
+        legend.margin=margin(t = -8)) +
+  ylab("RMSPE / SD (treated unit)") +
+  xlab("Feature transformation") +
+  ggtitle("Best four SCMs per school that achieved good fit") +
+  guides(shape = "none",
+         fill = "none",
+         colour = guide_legend(ncol = 3)) +
+  scale_colour_manual(values = as.vector(pals::polychrome(length(unique(filtered_data$school)))))
+print(plt)
+cat("\n\n")
+
+```
+
