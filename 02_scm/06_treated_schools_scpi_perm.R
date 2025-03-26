@@ -281,6 +281,49 @@ for (i in 1:length(info)) {
       arrange(laestab, time_period) %>%
       as.data.frame()
     
+    if (decrease == 0) {
+      
+      # check simulated timeseries #
+      
+      # select columns
+      tmp <- df_perm[, c("laestab", "time_period", "time_period_str", "school", "pupil_to_qual_teacher_ratio")]
+      
+      # create data
+      tmp <- tmp %>%
+        mutate(status = ifelse(laestab == paste(id_treated), id_name, "Donor schools")) %>%
+        tidyr::pivot_longer(
+          cols = -c(laestab, school, time_period, time_period_str, status),
+          names_to = "variable") %>%
+        mutate(variable = case_match(variable, 
+                                     "pupil_to_qual_teacher_ratio" ~ "Outcome",
+                                     "fte_avg_age" ~ "Teacher age",
+                                     "pnpupfsm_e" ~ "% pupils FSM"
+        ))
+      tmp$variable <- factor(tmp$variable, levels = c("Outcome", "% pupils FSM", "Teacher age"))
+      
+      # plot timeseries average for each school
+      cols <- c(navy40, coral)
+      names(cols) <- c("Donor schools", id_name)
+      
+      print(ggplot(data = tmp, aes(x = time_period_str, y = value, col = status, group = laestab)) +
+              geom_line(data = tmp[tmp$status == "Donor schools", ], aes(col = paste("Donor schools"))) + 
+              geom_line(data = tmp[tmp$status == paste(id_name), ], aes(col = paste(id_name)), linewidth =.8) +
+              facet_wrap(~ variable, ncol = 1, strip.position = "top", scales = "free_y") +
+              ambition_theme +
+              scale_color_manual(
+                breaks=c(id_name, "Donor schools"),
+                values=cols) +
+              ylab("Reported value") +
+              theme(axis.text.x = element_text(angle = 45, hjust = 1),
+                    axis.title.x = element_blank(), 
+                    legend.title = element_blank()))
+      
+      # determine output filename
+      file_name <- file.path(dir, "02_scm", paste0(file_stem, "_" , gsub(" ", "_", id_name), "_simdata.csv"))
+      # Save results
+      write.csv(df_perm, file = file_name, row.names = F)
+    }
+    
     
     # Define timeseries
     period.post <- c(2024:2026) # Simulated post-treatment period
