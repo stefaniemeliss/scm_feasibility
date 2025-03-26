@@ -1,0 +1,238 @@
+---
+title: "Qualified leavers"
+author: "Stefanie Meliss"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 4
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+knitr::opts_chunk$set(echo = TRUE)
+
+options(scipen = 999)
+# empty work space
+rm(list = ls())
+
+# define directory
+dir <- getwd()
+dir <- gsub("/01_explore", "", dir)
+dir_data <- file.path(dir, "data")
+dir_misc <- file.path(dir, "misc")
+
+
+# load libraries
+library(kableExtra)
+library(dplyr)
+library(ggplot2)
+
+# source ambition theme
+devtools::source_url("https://github.com/stefaniemeliss/scm_feasibility/blob/main/functions.R?raw=TRUE")
+
+
+# # read in misc info about OAT schools
+# misc <- read.csv(file = file.path(dir_misc, "OAT Linked establishments.csv"))
+# misc <- xlsx::read.xlsx(file = file.path(dir_data, "data_government.xlsx"), sheetName = "data_OAT")
+
+# read in workforce data
+leav <- read.csv(file = file.path(dir_data, "school-workforce-in-england", "2023", "data", "workforce_qual_leavers_2010_2022_national.csv"))
+names(leav) <- gsub("X...", "", names(leav), fixed = T)
+
+# subset to focus on school totals 
+leav <- subset(leav, school_type == "Total state-funded schools")
+
+# subset to focus on leavers regardless of reason
+leav <- subset(leav, leaver_type == "Total")
+
+# edit data 
+leav$time_period <- factor(leav$time_period)
+
+# edit demogs
+leav$gender <- factor(leav$gender, levels = c("Total", "Female", "Male", "Gender unclassified"))
+leav <- subset(leav, gender != "Gender unclassified")
+
+leav$age_group <- factor(leav$age_group, levels = c("Total", "Under 25", "25 to 29", "30 to 39", "40 to 49", "50 to 59", "60 and over", "Age unclassified"))
+leav <- subset(leav, age_group != "Age unclassified")
+
+leav$ethnicity_major <- factor(leav$ethnicity_major, levels = c("Total", "White", "Black or Black British", "Asian or Asian British", "Any other Mixed background", "Any other ethnic group", "Refused", "Information not yet obtained"))
+leav <- subset(leav, ethnicity_major != "Refused" & ethnicity_major != "Information not yet obtained")
+
+# edit work place variables
+leav$grade <- factor(leav$grade, levels = c("Total", "Classroom teacher", "Deputy or assistant head", "Head teacher"))
+leav$working_pattern <- factor(leav$working_pattern, levels = c("Total", "Full-time", "Part-time"))
+
+# reduce columns
+leav <- leav[, c("time_period", "gender", "age_group", "ethnicity_major", "grade", "working_pattern", "fte_leavers", "fte_leavers_percent")]
+
+# get FTE all teachers at national level #
+fte <- read.csv(file = file.path(dir_data, "school-workforce-in-england", "2023", "data", "workforce_2010_2023_fte_hc_nat_reg_la.csv"))
+names(fte) <- gsub("X...", "", names(fte), fixed = T)
+
+# filter for national data
+fte <- fte %>% 
+  filter(geographic_level == "National",
+         school_type == "Total state-funded schools") %>%
+  select(time_period, fte_all_teachers, fte_all_teachers_without_qts) %>%
+  mutate(across(!time_period, as.numeric)) %>%
+  mutate(time_period = as.factor(time_period),
+         fte_all_teachers_with_qts = fte_all_teachers - fte_all_teachers_without_qts) %>%
+  select(time_period, fte_all_teachers_with_qts)
+
+# merge with leavers data
+leav <- merge(leav, fte, all.x = T)
+
+# compute percentage of overall teacher fte
+leav$fte_all_teachers_percent <- round((leav$fte_leavers / leav$fte_all_teachers_with_qts) * 100, 1)
+leav$fte_all_teachers_with_qts <- NULL
+
+
+# read in info about dataset
+dict <- read.csv(file = file.path(dir_misc, "meta_qual_leavers.csv"))
+names(dict) <- gsub("X...", "", names(dict), fixed = T)
+dict[nrow(dict) + 1, ] <- c("fte_all_teachers_percent", "Proportion of leavers wrt national teacher workforce")
+
+```
+
+Qualified leavers from teaching  
+
+Filename: workforce_qual_leavers_2010_2022_national.csv  
+Geographic levels: National  
+Time period: 2010/11 to 2022/23  
+Content summary: Full time equivalent qualified teacher leavers by category including school type, gender, age group and type of entrant  
+
+
+```{r, results='asis', echo = F}
+dict %>%
+  kbl(row.names = F) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
+  print()
+```
+
+
+
+```{r working_chunk, echo=FALSE, eval=F}
+
+# create timeseries plot for each variable #
+
+vars <- c("gender", "age_group", "ethnicity_major", 
+          "grade", "working_pattern")
+y_lab = dict$Variable.description[dict$Variable.name == dep_var]
+
+cat("\n## ", y_lab, "\n")
+cat("\n\n")
+cat("\n### Differences by variables\n")
+cat("\n\n")
+
+for (var in vars) {
+  # subset data
+  # for all other categories, use total values
+  df <- leav %>%
+    filter_at(vars(-time_period, -fte_leavers, -fte_leavers_percent, -fte_all_teachers_percent, -{var}), all_vars(. == "Total")) 
+  
+  # create plot
+  plt <- ggplot(data = df, aes(x = time_period, y = get(dep_var), group = get(var), col = get(var))) +
+    geom_point() + 
+    geom_line() + 
+    scale_color_manual(values = c(black, ambition_palette)) +
+    ambition_theme + theme(#legend.position = "none",  
+      axis.text.x = element_text(angle = 45, hjust = 1)) +
+    ylab(paste(y_lab)) + xlab("Academic years") + 
+    guides(color = guide_legend(title = stringr::str_to_sentence(gsub("_", " ", var)),
+                                nrow = 2))
+  print(plt)
+  
+}
+
+cat("\n\n")
+cat("\n### Interaction between and with demographic variables\n")
+cat("\n\n")
+
+# plot demog interactions #
+vars_demog <- c("gender", "age_group", "ethnicity_major")
+
+for (demog in vars_demog) {
+  
+  cat("\n\n")
+  cat("\n####", stringr::str_to_sentence(gsub("_", " ", demog)))
+  cat("\n\n\n")
+  
+  
+  # create new list of variables to filter
+  vars_tmp <- vars[! vars %in% demog]
+  
+  for (var in vars_tmp) {
+    # subset data
+    # for all other categories, use total values
+    df <- leav %>%
+    filter_at(vars(-time_period, -fte_leavers, -fte_leavers_percent, -fte_all_teachers_percent, -{var}, -{demog}), all_vars(. == "Total")) %>%
+      filter(get(var) != "Total")
+    
+    # create plot
+    plt <- ggplot(data = df, aes(x = time_period, y = get(dep_var), group = get(demog), col = get(demog))) +
+      geom_point() + 
+      geom_line() + 
+      scale_color_manual(values = c(black, ambition_palette)) +
+      #scale_color_manual(values = c(navy, red, blue)) +
+      facet_wrap(~ get(var)) +
+      ambition_theme + theme(#legend.position = "none",  
+        axis.text.x = element_text(angle = 45, hjust = 1)) +
+      ylab(paste(y_lab)) + xlab("Academic years") + 
+      guides(color = guide_legend(title = stringr::str_to_sentence(gsub("_", " ", demog)),
+                                  nrow = 2))
+    print(plt)
+    
+  }
+  
+}
+
+cat("\n\n")
+cat("\n### Interaction between role-based variables\n")
+cat("\n\n")
+
+# work variable interaction
+df <- leav %>%
+  filter_at(vars(-time_period, -fte_leavers, -fte_leavers_percent, -fte_all_teachers_percent, -grade, -working_pattern), all_vars(. == "Total")) %>%
+  filter(working_pattern != "Total")
+
+# create plot
+plt <- ggplot(data = df, aes(x = time_period, y = get(dep_var), group = grade, col = grade)) +
+  geom_point() + 
+  geom_line() + 
+  scale_color_manual(values = c(black, ambition_palette)) +
+  #scale_color_manual(values = c(navy, red, blue)) +
+  facet_wrap(~ working_pattern) +
+  ambition_theme + theme(#legend.position = "none",  
+    axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ylab(paste(y_lab)) + xlab("Academic years") + 
+  guides(color = guide_legend(title = "Grade",
+                              nrow = 2))
+print(plt)
+
+```
+
+
+
+```{r, echo = F, results='asis',fig.align='center', warning=FALSE}
+dep_var <- "fte_leavers"
+
+<<working_chunk>>
+
+cat("\n\n")
+
+dep_var <- "fte_leavers_percent"
+
+<<working_chunk>>
+
+cat("\n\n")
+
+dep_var <- "fte_all_teachers_percent"
+
+<<working_chunk>>
+
+cat("\n\n")
+```
+
