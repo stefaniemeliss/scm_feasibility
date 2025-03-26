@@ -59,7 +59,7 @@ est_cont <- est %>%
   filter(
     laestab != id_treated,
     phaseofeducation_name %in% unique(c(est_treated$phaseofeducation_name)),
-    gor_name %in% unique(c(est_treated$gor_name, "East Midlands")),
+    #gor_name %in% unique(c(est_treated$gor_name, "East Midlands")),
     ! parliamentaryconstituency_name %in% unique(c(est_treated$parliamentaryconstituency_name)),
     ! grepl("Boarding school", boarders_name),
     admissionspolicy_name != "Selective"
@@ -265,39 +265,57 @@ df$school <- paste(df$laestab, df$school)
 
 # compute time series average per school #
 
-# pre-treatment outcome average and sd for treated school
-mean_treated <- mean(df[df$laestab == id_treated, var])
-sd_treated <- sd(df[df$laestab == id_treated, var])
+timeseries_ave_per_school <- function(data = df, var = "var", perc = NULL){
+  
+  # pre-treatment outcome average and sd for treated school
+  mean_treated <- mean(data[data$laestab == id_treated, paste(var)])
+  sd_treated <- sd(data[data$laestab == id_treated, var])
 
-# pre-treatment outcome average and sd for control schools
-school_ave <- df %>% 
-  filter(laestab != id_treated) %>%
-  group_by(laestab) %>%
-  summarise(
-    mean_dv = mean(get(var)),
-    sd_dv = sd(get(var))
+  # pre-treatment outcome average and sd for control schools
+  school_ave <- data %>% 
+    filter(laestab != id_treated) %>%
+    group_by(laestab) %>%
+    summarise(
+      mean_dv = mean(get(var), na.rm = T),
+      sd_dv = sd(get(var), na.rm = T)
     ) %>%
-  mutate(
-    # check if average pre-treatment outcome is within [X] SDs of the average for treated school 
-    crit_sd_1.0 = ifelse(mean_dv > (mean_treated + 1.0 * sd_treated) | mean_dv < (mean_treated - 1.0 * sd_treated), FALSE, TRUE),
-    crit_sd_.90 = ifelse(mean_dv > (mean_treated + .90 * sd_treated) | mean_dv < (mean_treated - .90 * sd_treated), FALSE, TRUE),
-    crit_sd_.80 = ifelse(mean_dv > (mean_treated + .80 * sd_treated) | mean_dv < (mean_treated - .80 * sd_treated), FALSE, TRUE),
-    crit_sd_.75 = ifelse(mean_dv > (mean_treated + .75 * sd_treated) | mean_dv < (mean_treated - .75 * sd_treated), FALSE, TRUE),
-    crit_sd_.70 = ifelse(mean_dv > (mean_treated + .70 * sd_treated) | mean_dv < (mean_treated - .70 * sd_treated), FALSE, TRUE),
-    crit_sd_.60 = ifelse(mean_dv > (mean_treated + .60 * sd_treated) | mean_dv < (mean_treated - .60 * sd_treated), FALSE, TRUE),
-    crit_sd_.50 = ifelse(mean_dv > (mean_treated + .50 * sd_treated) | mean_dv < (mean_treated - .50 * sd_treated), FALSE, TRUE),
-    crit_sd_.40 = ifelse(mean_dv > (mean_treated + .40 * sd_treated) | mean_dv < (mean_treated - .40 * sd_treated), FALSE, TRUE),
-    crit_sd_.30 = ifelse(mean_dv > (mean_treated + .30 * sd_treated) | mean_dv < (mean_treated - .30 * sd_treated), FALSE, TRUE),
-    crit_sd_.25 = ifelse(mean_dv > (mean_treated + .25 * sd_treated) | mean_dv < (mean_treated - .25 * sd_treated), FALSE, TRUE),
-    crit_sd_.20 = ifelse(mean_dv > (mean_treated + .20 * sd_treated) | mean_dv < (mean_treated - .20 * sd_treated), FALSE, TRUE),
-    crit_sd_.10 = ifelse(mean_dv > (mean_treated + .10 * sd_treated) | mean_dv < (mean_treated - .10 * sd_treated), FALSE, TRUE),
+    mutate(
+      # check if average pre-treatment outcome is within [X] SDs of the average for treated school 
+      crit_sd_100 = ifelse(mean_dv > (mean_treated + 1.0 * sd_treated) | mean_dv < (mean_treated - 1.0 * sd_treated), FALSE, TRUE),
+      crit_sd_90 = ifelse(mean_dv > (mean_treated + .90 * sd_treated) | mean_dv < (mean_treated - .90 * sd_treated), FALSE, TRUE),
+      crit_sd_80 = ifelse(mean_dv > (mean_treated + .80 * sd_treated) | mean_dv < (mean_treated - .80 * sd_treated), FALSE, TRUE),
+      crit_sd_75 = ifelse(mean_dv > (mean_treated + .75 * sd_treated) | mean_dv < (mean_treated - .75 * sd_treated), FALSE, TRUE),
+      crit_sd_70 = ifelse(mean_dv > (mean_treated + .70 * sd_treated) | mean_dv < (mean_treated - .70 * sd_treated), FALSE, TRUE),
+      crit_sd_60 = ifelse(mean_dv > (mean_treated + .60 * sd_treated) | mean_dv < (mean_treated - .60 * sd_treated), FALSE, TRUE),
+      crit_sd_50 = ifelse(mean_dv > (mean_treated + .50 * sd_treated) | mean_dv < (mean_treated - .50 * sd_treated), FALSE, TRUE),
+      crit_sd_40 = ifelse(mean_dv > (mean_treated + .40 * sd_treated) | mean_dv < (mean_treated - .40 * sd_treated), FALSE, TRUE),
+      crit_sd_30 = ifelse(mean_dv > (mean_treated + .30 * sd_treated) | mean_dv < (mean_treated - .30 * sd_treated), FALSE, TRUE),
+      crit_sd_25 = ifelse(mean_dv > (mean_treated + .25 * sd_treated) | mean_dv < (mean_treated - .25 * sd_treated), FALSE, TRUE),
+      crit_sd_20 = ifelse(mean_dv > (mean_treated + .20 * sd_treated) | mean_dv < (mean_treated - .20 * sd_treated), FALSE, TRUE),
+      crit_sd_10 = ifelse(mean_dv > (mean_treated + .10 * sd_treated) | mean_dv < (mean_treated - .10 * sd_treated), FALSE, TRUE),
     )
+  
+  # summarise results: numbers show count kept
+  print(colSums(school_ave[, c(-1:-3)]))
+  
+  if (!is.null(perc)) {
+    tmp <- school_ave[, c("laestab", paste0("crit_sd_", perc))]
+    names(tmp)[2] <- paste0("crit_sd_", var)
+    data <- merge(data, tmp, by = "laestab", all.x = T)
+    
+    # update the original df in the parent environment
+    assign("df", data, envir = .GlobalEnv)
+    
+  }
+  
+}
 
-# summarise results: numbers show count kept
-colSums(school_ave[, c(-1:-3)])
+timeseries_ave_per_school(data = df, perc = 100, var = "pupil_to_qual_teacher_ratio")
+timeseries_ave_per_school(data = df, perc = 100, var = "fte_avg_age")
+timeseries_ave_per_school(data = df, perc = 100, var = "pnpupfsm_e")
 
 # determine schools not passing threshold
-id_remove <- school_ave$laestab[school_ave$crit_sd_1.0 == F]
+id_remove <- unique(df$laestab[df$crit_sd_pupil_to_qual_teacher_ratio == F | df$crit_sd_fte_avg_age == F | df$crit_sd_pnpupfsm_e])
 
 # remove from df
 df <- df[!df$laestab %in% id_remove, ]
