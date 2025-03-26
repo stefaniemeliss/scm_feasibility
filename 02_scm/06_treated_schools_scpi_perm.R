@@ -6,6 +6,9 @@ knitr::opts_chunk$set(echo = TRUE)
 rm(list = ls())
 gc()
 
+# Set seed
+set.seed(202324)
+
 # load libraries
 library(kableExtra)
 library(dplyr)
@@ -133,7 +136,7 @@ info <- list(
   # Dixons Unity Academy - EXCLUDE
   # Highcrest Academy
   list(school = "The Highcrest Academy",
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
        cov.adj = list(c("constant")),
        region.filter = "same",
        sd.range = NULL)
@@ -204,40 +207,69 @@ for (i in 1:length(info)) {
     
   }
   
+  
+  # simulate data using linear projection for the next three years #
+  
+  # transform data structure
+  df$laestab_f <- factor(df$laestab)
+  df$time_centered <- df$time_period - min(df$time_period)
+
+  # add LA to data
+  df$la <- as.factor(substr(df$laestab, 1, 3))
+  
+  # Fit model
+  # Different baseline levels for each laestab (school)
+  # Different rates of change over time for each la (local authority)
+  m1 <- lmer(pupil_to_qual_teacher_ratio ~ 
+               time_centered + # fixed effect for time_period
+               (1 | laestab_f) + # random intercept for laestab with (1 | laestab)
+               (0 + time_centered | la), # random slope for time_period grouped by la
+             data = df[df$time_period %in% c(2021, 2022, 2023), ])
+  
+  # Check model summary
+  summary(m1)
+  
+  # Generate the prediction data frame for the next three academic years
+  simulated_data <- expand.grid(
+    laestab = unique(df$laestab),
+    time_period = c(2024, 2025, 2026)  # Representing 2024/25, 2025/26, 2026/27
+  )
+  
+  simulated_data$laestab_f <- factor(simulated_data$laestab)
+  simulated_data$la <- as.factor(substr(simulated_data$laestab, 1, 3))
+  simulated_data$time_centered <- simulated_data$time_period - min(df$time_period)
+  simulated_data$time_period_str <- case_match(simulated_data$time_period,
+                                               2024 ~ "2024/25",
+                                               2025 ~ "2025/26",
+                                               2026 ~ "2026/27")
+  
+  # Generate *predictions* conditioned on all random effects
+  predictions <- predict(m1, 
+                         newdata = simulated_data, 
+                         re.form = NULL)
+  
+  # Generate *simulations* conditioned on all random effects with noise
+  simulations <- simulate(m1, nsim = 1,
+                          newdata = simulated_data, 
+                          re.form = NULL, allow.new.levels = FALSE)
+  
+  # Add predictions to the data frame
+  # simulated_data$pred <- predictions
+  simulated_data$sim <- simulations$sim_1
+  
+  # simulate effects (i.e., decrease in pupil-to-teacher ratio)
   for (decrease in increments) {
     
-    # simulate data using linear projection for the next three years #
-    
-    # Fit model using only time as predictor with random intercepts
-    m1 <- lmer(pupil_to_qual_teacher_ratio ~ time_period + (1 | laestab), data = df[df$time_period %in% c(2021, 2022, 2023), ])
-    
-    # Check model summary
-    summary(m1)
-    
-    # Generate the prediction data frame for the next three academic years
-    simulated_data <- expand.grid(
-      laestab = unique(df$laestab),
-      time_period = c(2024, 2025, 2026)  # Representing 2024/25, 2025/26, 2026/27
-    )
-    
-    # Generate predictions using random intercepts model
-    predictions <- predict(m1, 
-                           newdata = simulated_data, 
-                           re.form = ~(1 | laestab))
-    
-    # Add predictions to the data frame
-    simulated_data$pupil_to_qual_teacher_ratio <- predictions
-    simulated_data$time_period_str <- case_match(simulated_data$time_period,
-                                                 2024 ~ "2024/25",
-                                                 2025 ~ "2025/26",
-                                                 2026 ~ "2026/27")
-    
-    # Apply decrease
+    # decrease = increments[5] # debug
     multiplier <- 1 - decrease
-    simulated_data$pupil_to_qual_teacher_ratio <- simulated_data$pupil_to_qual_teacher_ratio * multiplier
     
-    # Combine data
-    df_perm <- bind_rows(df, simulated_data) %>%
+    df_perm <- simulated_data %>%
+      # Apply decrease
+      mutate(pupil_to_qual_teacher_ratio = ifelse(laestab == id_treated, sim*multiplier, sim)) %>%
+      # drop column
+      select(-sim) %>%
+      # Combine data
+      bind_rows(df, .) %>%
       # group by schools
       group_by(laestab) %>%
       arrange(time_period) %>%
@@ -259,11 +291,11 @@ for (i in 1:length(info)) {
     features <- params$features
     cov.adj<- params$cov.adj
     
-    
-    # determine output filename
-    file_name <- file.path(dir, "02_scm", paste0(file_stem, "_" , gsub(" ", "_", id_name), "_decrease_", decrease, ".csv"))
-    
     if (run_placebo) {
+      
+      # determine output filename
+      file_name <- file.path(dir, "02_scm", paste0(file_stem, "_" , gsub(" ", "_", id_name), "_decrease_", decrease, ".csv"))
+      
       # store all schools in a vector
       units <- unique(df_perm$laestab)
       
@@ -321,8 +353,7 @@ for (i in 1:length(info)) {
       
       # Save results
       write.csv(storegaps, file = file_name)
-      
-      
+
     } 
     
   }
