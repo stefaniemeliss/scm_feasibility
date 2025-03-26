@@ -1,0 +1,123 @@
+---
+title: "leavers"
+author: "Stefanie Meliss"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+knitr::opts_chunk$set(echo = TRUE)
+
+options(scipen = 999)
+# empty work space
+rm(list = ls())
+
+# define directory
+dir <- getwd()
+dir <- gsub("/01_explore", "", dir)
+dir_data <- file.path(dir, "data")
+dir_misc <- file.path(dir, "misc")
+
+
+# load libraries
+library(kableExtra)
+library(dplyr)
+library(ggplot2)
+
+# source ambition theme
+devtools::source_url("https://github.com/stefaniemeliss/ambition_theme/blob/main/ambition_theme.R?raw=TRUE")
+
+
+# # read in misc info about OAT schools
+# misc <- read.csv(file = file.path(dir_misc, "OAT Linked establishments.csv"))
+# misc <- xlsx::read.xlsx(file = file.path(dir_data, "data_government.xlsx"), sheetName = "data_OAT")
+
+# read in workforce data
+leav <- read.csv(file = file.path(dir_data, "school-workforce-in-england", "2023", "data", "workforce_qual_leavers_2010_2022_national.csv"))
+names(leav) <- gsub("X...", "", names(leav), fixed = T)
+# read in workforce data
+entr <- read.csv(file = file.path(dir_data, "school-workforce-in-england", "2023", "data", "workforce_qual_entrants_2011_2023_national.csv"))
+names(entr) <- gsub("X...", "", names(entr), fixed = T)
+
+wf_201011 <- read.csv(file = file.path(dir_data, "school-workforce-in-england", "2023", "supporting-files", "workforce_teacher_characteristics_school_2010_2023", "workforce_teacher_characteristics_school_201011.csv"))
+
+wf_202324 <- read.csv(file = file.path(dir_data, "school-workforce-in-england", "2023", "supporting-files", "workforce_teacher_characteristics_school_2010_2023", "workforce_teacher_characteristics_school_202324.csv"))
+
+
+```
+
+## Leavers
+
+
+```{r, results='asis', echo = F}
+vars <- names(leav)
+vars <- vars[which(vars == "school_type"):which(vars == "ethnicity_major")]
+
+for (var in vars) {
+  leav %>% group_by(get(var)) %>%
+    summarise(count = n()) %>% kbl(caption = var, row.names = F) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>%
+    print()
+}
+
+```
+
+## Entrants
+
+
+```{r, results='asis', echo = F}
+
+vars <- names(entr)
+vars <- vars[which(vars == "school_type"):which(vars == "ethnicity_major")]
+
+
+for (var in vars) {
+  entr %>% group_by(get(var)) %>%
+    summarise(count = n()) %>% kbl(caption = var, row.names = F) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>%
+    print()
+}
+
+```
+
+## Workforce teacher characteristics 2011
+
+```{r, results='asis', echo = F}
+
+vars <- names(wf_201011)
+vars <- vars[which(vars == "school_type"):which(vars == "ethnicity_major")]
+
+
+for (var in vars) {
+  wf_201011 %>% group_by(get(var)) %>%
+    summarise(count = n()) %>% kbl(caption = var, row.names = F) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>%
+    print()
+}
+
+```
+
+## Workforce teacher characteristics 202324
+
+```{r, results='asis', echo = F}
+
+##vars <- names(wf_202324)
+#vars <- vars[which(vars == "school_type"):which(vars == "ethnicity_major")]
+
+
+for (var in vars) {
+  wf_201011 %>% group_by(get(var)) %>%
+    summarise(count = n()) %>% kbl(caption = var, row.names = F) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>%
+    print()
+}
+
+```
+
+
+\text{Estimated Leavers} = \sum (\text{Number of Teachers in Category} \times \text{Probability of Leaving for that Category})
+
+
+
