@@ -99,78 +99,62 @@ df_region <- unique(summary[, c("laestab", "school", "same", "neighbouring")])
 
 ```{r est, eval=FALSE, include=F}
 
-# load in df
-if ("region.filter" %in% names(params)) {
-  
-  # define correct regions to use
-  if ("same" %in% params$region.filter) (regions <- unlist(c(df_region[df_region$laestab == id_treated, c("same")])))
-  if ("neighbouring" %in% params$region.filter) (regions <- unlist(c(df_region[df_region$laestab == id_treated, c("same", "neighbouring")])))
-  
-  # process data
-  df <- process_data_scm(id_treated = id_treated, regions = regions)
-  
-}
+# load in simulated data # 
 
-if ("sd.range" %in% names(params) & !is.null(params$sd.range)) {
-  
-  # filter by SD crit
-  df <- sd_filtering(data = df, perc = params$sd.range, var = outcome.var)
-  df[df$laestab == id_treated, paste0("crit_sd_", outcome.var)] <- T
-  df <- subset(df, df[, paste0("crit_sd_", outcome.var)] == T)
-  
-}
+# determine output filename
+file_name <- file.path(dir, "02_scm", paste0("06_treated_schools_scpi_perm_", gsub(" ", "_", id_name), "_simdata.csv"))
 
-
-# simulate data using linear projection for the next three years #
-
-# Fit model using only time as predictor with random intercepts
-m1 <- lmer(pupil_to_qual_teacher_ratio ~ time_period + (1 | laestab), data = df)
-
-# Check model summary
-summary(m1)
-
-# Generate the prediction data frame for the next three academic years
-simulated_data <- expand.grid(
-  laestab = unique(df$laestab),
-  time_period = c(2024, 2025, 2026)  # Representing 2024/25, 2025/26, 2026/27
-)
-
-# Generate predictions using random intercepts model
-predictions <- predict(m1, 
-                       newdata = simulated_data, 
-                       re.form = ~(1 | laestab))
-
-# Add predictions to the data frame
-simulated_data$pupil_to_qual_teacher_ratio <- predictions
-simulated_data$time_period_str <- case_match(simulated_data$time_period,
-                                             2024 ~ "2024/25",
-                                             2025 ~ "2025/26",
-                                             2026 ~ "2026/27")
+# read in results
+df <- read.csv(file_name)
+lookup <- unique(df[, c("time_period", "time_period_str")])
+df_perm <- df
 
 # Apply decrease
 if(apply_effects){
   multiplier <- 1 - decrease
-  simulated_data$pupil_to_qual_teacher_ratio <- simulated_data$pupil_to_qual_teacher_ratio * multiplier
+  df_perm$pupil_to_qual_teacher_ratio[df_perm$laestab == id_treated & df_perm$time_period %in% simulated_years] <- df_perm$pupil_to_qual_teacher_ratio[df_perm$laestab == id_treated & df_perm$time_period %in% simulated_years] * multiplier
+  
+  # print treated unit and donor pool timeseries #
+  
+  # select columns
+  tmp <- df_perm[, c("laestab", "time_period", "time_period_str", "school", "pupil_to_qual_teacher_ratio")]
+  
+  # create data
+  tmp <- tmp %>%
+    mutate(status = ifelse(laestab == paste(id_treated), id_name, "Donor schools")) %>%
+    tidyr::pivot_longer(
+      cols = -c(laestab, school, time_period, time_period_str, status),
+      names_to = "variable") %>%
+    mutate(variable = case_match(variable, 
+                                 "pupil_to_qual_teacher_ratio" ~ "Outcome",
+                                 "fte_avg_age" ~ "Teacher age",
+                                 "pnpupfsm_e" ~ "% pupils FSM"
+    ))
+  tmp$variable <- factor(tmp$variable, levels = c("Outcome", "% pupils FSM", "Teacher age"))
+  
+  # plot timeseries average for each school
+  cols <- c(navy40, coral)
+  names(cols) <- c("Donor schools", id_name)
+  
+  print(ggplot(data = tmp, aes(x = time_period_str, y = value, col = status, group = laestab)) +
+          geom_line(data = tmp[tmp$status == "Donor schools", ], aes(col = paste("Donor schools"))) + 
+          geom_vline(xintercept = "2023/24", linetype = "dotted") +
+          geom_line(data = tmp[tmp$status == paste(id_name), ], aes(col = paste(id_name)), linewidth =.8) +
+          facet_wrap(~ variable, ncol = 1, strip.position = "top", scales = "free_y") +
+          ambition_theme +
+          scale_color_manual(
+            breaks=c(id_name, "Donor schools"),
+            values=cols) +
+          ylab("Reported value") +
+          theme(axis.text.x = element_text(angle = 45, hjust = 1),
+                axis.title.x = element_blank(), 
+                legend.title = element_blank()))
+  cat("\n\n")
+  
 }
 
-# Combine data
-df_perm <- bind_rows(df, simulated_data) %>%
-  # group by schools
-  group_by(laestab) %>%
-  arrange(time_period) %>%
-  mutate(
-    # fill missing values: observations to be carried forward
-    across(c(urn, school),
-           ~zoo::na.locf(., na.rm = FALSE, fromLast = FALSE)))  %>%
-  ungroup() %>%
-  arrange(laestab, time_period) %>%
-  as.data.frame()
-lookup <- unique(df_perm[, c("time_period", "time_period_str")])
-
-
-
 # Define timeseries
-period.post <- c(2024:2026) # Simulated post-treatment period
+period.post <- simulated_years # Simulated post-treatment period
 period.avail <- sort(unique(df_perm$time_period))
 period.pre <- setdiff(period.avail, period.post) # Pre-treatment period
 
@@ -202,10 +186,14 @@ scdata.out <- scdata(df = df_perm,
 scest.out <- scest(data = scdata.out, 
                    w.constr = w.constr
 )
+
+# plot timeseries
 if(apply_effects){
+  # print treated and synthetic units
   print(scplot(result = scest.out, plot.range = period.avail,
                label.xy = list(x.lab = "Start of academic year", y.lab = "Ratio of pupils to qualified teachers")))
 } else {
+  # print treated and synthetic units
   print(scplot(result = scest.out, plot.range = period.pre,
                label.xy = list(x.lab = "Start of academic year", y.lab = "Ratio of pupils to qualified teachers")))
 }
@@ -317,7 +305,6 @@ cat("\n\n")
 ```{r placebo, eval=FALSE, include=F}
 
 # determine output filename
-file_name <- file.path(dir, "02_scm", paste0("06_treated_schools_scpi_perm_gaps_decrease_", decrease, "_", gsub(" ", "_", id_name), ".csv"))
 file_name <- file.path(dir, "02_scm", paste0("06_treated_schools_scpi_perm_", gsub(" ", "_", id_name), "_decrease_", decrease, ".csv"))
 
 # read in results
@@ -325,49 +312,14 @@ storegaps <- read.csv(file_name)
 names(storegaps)[1] <- "time_period"
 names(storegaps) <- gsub("X", "", names(storegaps))
 
-# plot placebo gaps
-df_gaps <- as.data.frame(storegaps) %>%
-  #mutate(time_period = as.numeric(row.names(.))) %>%
-  select(time_period, everything()) %>%
-  tidyr::pivot_longer(., cols = names(.)[-1], names_to = "laestab", values_to = "pupil_to_qual_teacher_ratio") %>%
-  mutate(idx_treat = ifelse(laestab == id_treated, TRUE, FALSE))
-
-### Magnitute of estimated placebo effects as gaps in the outcome between donor units and their synthetic control
-print(ggplot(data = df_gaps, aes(x = time_period, y = pupil_to_qual_teacher_ratio, group = laestab)) +
-        geom_vline(xintercept = 2024, linetype = "dotted") +
-        geom_hline(yintercept = 0, linetype = "dotted") +
-        geom_line(data = df_gaps[!df_gaps$idx_treat, ], aes(col = "Donor schools")) +
-        geom_line(data = df_gaps[df_gaps$idx_treat,], aes(col = "Treated school"), linewidth = .8) +
-        ambition_theme +
-        theme(strip.text = element_text(size = 10),
-              axis.text.x = element_text(angle = 45, hjust = 1),
-              legend.title = element_blank(),
-              plot.caption = element_text(size = 8, face = "plain", hjust = 1)) +
-        coord_cartesian(ylim = c(-5, 5)) +
-        ylab("Ratio") + xlab ("Academic year") +
-        scale_color_manual(
-          breaks=c("Treated school", "Donor schools"),
-          values=c("Donor schools" = navy40, "Treated school" = coral)) +
-        scale_x_continuous(breaks = lookup$time_period, labels = lookup$time_period_str))
-cat("\n\n")
-
-
 # compute ratio of post-reunification RMSPE 
 # to pre-reunification RMSPE                                                  
 rmspe <- function(x){sqrt(mean(x^2))}
 
-preloss <- apply(storegaps[1:length(period.pre), ], 2, rmspe)
-postloss <- apply(storegaps[(1+length(period.pre)):(length(period.pre)+length(period.post)), ], 2, rmspe)
+preloss <- apply(storegaps[1:length(period.pre), -1], 2, rmspe)
+postloss <- apply(storegaps[(1+length(period.pre)):(length(period.pre)+length(period.post)), -1], 2, rmspe)
 ratio <- sort(postloss/preloss)
 observed_statistic <- ratio[names(ratio) == id_treated]
-cutoff_value <- quantile(ratio, 0.95)
-
-# ratio as large as treated unit's ratio
-sum(ratio >= observed_statistic)
-
-# p value
-sum(ratio >= observed_statistic) / length(ratio)
-cat("When assigning the intervention at random in the data, the probability of obtaining a post-period RMSPE / pre-period RMSPE ratio as large as the treated school's is ", round(sum(ratio >= observed_statistic) / length(ratio), digits = 3), ".\n\n", sep = "")
 
 # combine permutation data into df
 perm_results <- data.frame(laestab = names(preloss),
@@ -375,23 +327,117 @@ perm_results <- data.frame(laestab = names(preloss),
                            rmspe_post = postloss,
                            ratio = postloss / preloss)
 
+# identify ill-fitting placebo runs
+perm_results$thresh5 <- perm_results$rmspe_pre < perm_results$rmspe_pre[perm_results$laestab == id_treated] * 5
+n_ill <- sum(perm_results$thresh5 == F)
+cutoff_value <- quantile(perm_results$ratio, 0.95)
+cutoff_thresh5 <- quantile(perm_results$ratio[perm_results$thresh5 == T], 0.95)
+
 # Plot the permutation test results
-print(ggplot(perm_results, aes(x = ratio)) +
-        geom_histogram(fill = navy, alpha = 0.7, boundary = 0) +
+plt <- ggplot(perm_results, aes(x = ratio)) +
+        geom_histogram(data = perm_results[perm_results$thresh5 == T, ], aes(x = ratio), fill = navy40, boundary = 0) +
         geom_vline(aes(xintercept = observed_statistic), colour = red, linetype = "dashed", linewidth = 1) +
-        geom_vline(aes(xintercept = cutoff_value), colour = blue, linetype = "dashed", linewidth = 1) +
-        labs(#title = "Permutation Test Results",
-          x = "Ratio (post-period RMSPE / pre-period RMSPE)",
-          y = "Frequency",
-          caption = "red - observed ratio in the treated unit; blue - 5% cut-off.") +
-        ambition_theme + theme(plot.caption = element_text(size = 8, face = "plain", hjust = 1)))
+        geom_vline(aes(xintercept = cutoff_value), colour = blue, linewidth = 1) +
+        labs(title = "Permutation test results",
+             x = "Ratio (post-period RMSPE / pre-period RMSPE)",
+             y = "Frequency",
+             caption = "red - observed ratio in the treated unit; blue - 5% cut-off.") +
+        ambition_theme + theme(plot.caption = element_text(size = 8, face = "plain", hjust = 1))
+if (n_ill > 0) {
+  plt <- plt + 
+    geom_histogram(data = perm_results[perm_results$thresh5 == F, ], aes(x = ratio), fill = navy, boundary = 0) +
+    geom_vline(aes(xintercept = cutoff_thresh5), colour = purple, linetype = "dashed", linewidth = 1) +
+    labs(caption = "red - observed ratio in the treated unit; blue - 5% cut-off; purple - 5% cut-off (excl. ill-fits).")
+}
+print(plt)
 cat("\n\n")
+
+# ratio as large as treated unit's ratio
+sum(ratio >= observed_statistic)
+
+# p value
+cat("When assigning the intervention at random in the data, the probability of obtaining a post-period RMSPE / pre-period RMSPE ratio as large as the treated school's is ", round(sum(ratio >= observed_statistic) / length(ratio), digits = 3), ".\n\n", sep = "")
+if (n_ill > 0) {
+  cat("After removing any ill-fitted placebo runs (N = " , n_ill, "), the probability is ", round(sum(perm_results$ratio[perm_results$thresh] >= observed_statistic) / sum(perm_results$thresh5), digits = 3), ".\n\n", sep = "")
+  
+}
+
 
 # dotchart(sort(postloss/preloss),
 #          main = "Ratio of Postreunification RMSPE to Prereunification RMSPE",
 #          xlab="Post-Period RMSE / Pre-Period RMSE",
 #          pch=19)
 # 
+
+# plot placebo gaps
+df_gaps <- as.data.frame(storegaps) %>%
+  #mutate(time_period = as.numeric(row.names(.))) %>%
+  select(time_period, everything()) %>%
+  tidyr::pivot_longer(., cols = names(.)[-1], names_to = "laestab", values_to = "pupil_to_qual_teacher_ratio") %>%
+  mutate(idx_treat = ifelse(laestab == id_treated, TRUE, FALSE),
+         thresh5 = laestab %in% perm_results$laestab[perm_results$thresh5])
+
+### Magnitute of estimated placebo effects as gaps in the outcome between donor units and their synthetic control
+print(ggplot(data = df_gaps, aes(x = time_period, y = pupil_to_qual_teacher_ratio, group = laestab)) +
+        geom_line(data = df_gaps[!df_gaps$idx_treat & df_gaps$thresh5, ], aes(col = "Donor schools")) +
+        geom_line(data = df_gaps[!df_gaps$idx_treat & !df_gaps$thresh5, ], aes(col = "Donor schools (ill fitted)")) +
+        geom_vline(xintercept = 2023, linetype = "dotted") +
+        geom_hline(yintercept = 0, linetype = "dotted") +
+        geom_line(data = df_gaps[df_gaps$idx_treat,], aes(col = "Treated school"), linewidth = .8) +
+        ambition_theme +
+        theme(strip.text = element_text(size = 10),
+              axis.text.x = element_text(angle = 45, hjust = 1),
+              legend.title = element_blank(),
+              plot.caption = element_text(size = 8, face = "plain", hjust = 1)) +
+        coord_cartesian(ylim = c(-5, 5)) +
+        ylab("Gap in ratio of pupils to qualified teachers") + xlab ("Academic year") +
+        scale_color_manual(
+          breaks=c("Treated school", "Donor schools", "Donor schools (ill fitted)"),
+          values=c("Donor schools" = navy40, "Donor schools (ill fitted)" = navy, "Treated school" = coral)) +
+        scale_x_continuous(breaks = lookup$time_period, labels = lookup$time_period_str))
+cat("\n\n")
+
+
+
+# compute pre-timeseries stats
+sd_pre <- sd(df$pupil_to_qual_teacher_ratio[df$laestab == id_treated & ! df$time_period %in% simulated_years])
+
+# compute simulated data stats
+mean_base <- mean(df$pupil_to_qual_teacher_ratio[df$laestab == id_treated & df$time_period %in% simulated_years])
+mean_eff <- mean(df_perm$pupil_to_qual_teacher_ratio[df_perm$laestab == id_treated & df_perm$time_period %in% simulated_years])
+
+# effect in absolute terms
+eff_abs <- mean_base - mean_eff
+
+# effect in SD of pretreatment timeseries
+eff_sd <- eff_abs / sd_pre
+
+
+# initialise df for results
+out <- data.frame(
+  laestab = id_treated,
+  school = id_name,
+  n_donors = ncol(storegaps)-1,
+  reduction = decrease,
+  sd_pre = sd_pre,
+  mean_base = mean_base,
+  mean_eff = mean_eff,
+  eff_abs = eff_abs,
+  eff_sd = eff_sd,
+  rmspe_pre = perm_results$rmspe_pre[perm_results$laestab == id_treated],
+  rmspe_post = perm_results$rmspe_post[perm_results$laestab == id_treated],
+  rmspe_ratio = observed_statistic,
+  prob_all = sum(perm_results$ratio >= observed_statistic) / length(ratio),
+  prob_thresh5 = sum(perm_results$ratio[perm_results$thresh] >= observed_statistic) / sum(perm_results$thresh5),
+  n_ill = n_ill
+)
+
+if (decrease == 0) {
+  df_out <- out
+} else {
+  df_out <- rbind(df_out, out)
+}
+
 ```
 
 
@@ -424,7 +470,7 @@ info <- list(
        cov.adj = list(c("constant", "trend")),
        region.filter = "same",
        sd.range = NULL),
-  # Dixons Trinity Academy - EXCLUDED
+  # # Dixons Trinity Academy - EXCLUDED
   # McMillan Academy
   list(school = "Dixons McMillan Academy",
        features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
@@ -461,6 +507,8 @@ outcome.var <- "pupil_to_qual_teacher_ratio" # Dependent variable
 
 w.constr <- list(name = "simplex") # use canonical SC
 
+simulated_years <- 2024:2026
+
 # specify increments for decrease
 increments <- seq(.00, .1, 0.01)
 
@@ -492,10 +540,13 @@ for (i in 1:length(info)) {
   # prepare data and estimate scm
   apply_effects <- FALSE
   <<est>>
-  # inspect results
+    # inspect results
     <<res>> 
     
     for (decrease in increments) {
+      
+      # decrease = increments[1] # debug
+      
       # run grid search
       cat("#### SCM for simulated data -", decrease * 100, "% decrease in ratio \n\n")
       # prepare data and estimate scm
@@ -506,6 +557,29 @@ for (i in 1:length(info)) {
         <<placebo>>
         
     }
+  
+  # show output
+  cat("## Power analysis \n\n")
+  
+  # df_out <- read.csv(file = "02_scm/07_treated_schools_scpi_perm_result_St_Peter's_Catholic_School.csv") # debug
+  
+  
+  kbl(df_out[, -c(grep("laestab|school|pre|mean_base|donor|ill", names(df_out)))], digits = 3, row.names = F, caption = paste(id_name)) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>%
+    row_spec(which(df_out$prob_all < .05), bold = T) %>%
+    add_footnote(c(
+      paste("N =", unique(df_out$n_donors), "donor schools were used for permutation testing. There were N = " , n_ill, "ill-fitted placebo runs."),
+      paste0("The pre-treatment outcome timeseries of the treated school has an SD = ", round(unique(df_out$sd_pre), 3), " and an RMSPE = ", round(unique(df_out$rmspe_pre), 3), "."),
+      paste0("The simulated post-treatment outcome timeseries of the treated school has a mean of = ", round(unique(df_out$mean_base), 3), " before applying any effects."),
+      "Bold indicates that the probability of obtaining such a ratio at random is below 0.05.")) %>%
+    print()
+  cat("\n\n")
+  
+  # determine output filename
+  file_name <- file.path(dir, "02_scm", paste0(file_stem, "_", gsub(" ", "_", id_name), ".csv"))
+  
+  # save output
+  write.csv(df_out, file = file_name, row.names = FALSE)
   
 }
 
