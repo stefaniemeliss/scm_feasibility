@@ -79,7 +79,7 @@ summary <- read.csv(file.path(dir, "02_scm",  "02_treated_schools_filter_donor_p
 
 # only select schools with sufficient donor pool
 summary <- subset(summary, n_pool >= 50)
-# summary <- subset(summary, school %in% c("Dixons Kings Academy", "Dixons Cottingley Academy", "Dixons City Academy"))
+# summary <- subset(summary, school %in% c("Dixons Kings Academy"))
 
 # save laestab numbers
 list_laestab_treated <- unique(summary$laestab)
@@ -124,10 +124,7 @@ for (i in 1:length(list_laestab_treated)) {
   # Define timeseries
   years.avail <- sort(unique(df$time_period))
   
-  # years_excl <- ifelse(id_name == "Dixons Kings Academy", list(c(2011:2015)), 
-  #                      ifelse(id_name == "Dixons Cottingley Academy", list(c(2018)), 
-  #                             ifelse(id_name == "Dixons City Academy", list(c(2010)), NA)))
-  # years.avail <- setdiff(years.avail, years_excl[[1]])
+  if (id_name == "Dixons Kings Academy") years.avail <- setdiff(years.avail, c(2011, 2012))
   
   period.post <- c(2022:2023)
   
