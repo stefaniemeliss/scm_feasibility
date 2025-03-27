@@ -650,58 +650,106 @@ if (run_placebo) {
     
   } # close loop over control units
   
+  # add time_period as column
+  storegaps <- storegaps %>%
+    as.data.frame() %>%
+    mutate(time_period = row.names(.)) %>%
+    relocate(time_period)
+  
   # Save results
-  write.csv(storegaps, file = file_name, row.names = FALSE)
+  write.csv(storegaps, file = file_name, row.names = F)
   
   
 } else {
   
   # read in results
   storegaps <- read.csv(file_name)
+  names(storegaps) <- gsub("X", "", names(storegaps))
 
 }
+lookup <- unique(df[, c("time_period", "time_period_str")])
 
 
 # compute ratio of post-reunification RMSPE 
 # to pre-reunification RMSPE                                                  
 rmspe <- function(x){sqrt(mean(x^2))}
 
-preloss <- apply(storegaps[1:length(period.pre), ], 2, rmspe)
-postloss <- apply(storegaps[(1+length(period.pre)):(length(period.pre)+length(period.post)), ], 2, rmspe)
+preloss <- apply(storegaps[1:length(period.pre), -1], 2, rmspe)
+postloss <- apply(storegaps[(1+length(period.pre)):(length(period.pre)+length(period.post)), -1], 2, rmspe)
 ratio <- sort(postloss/preloss)
-target <- ratio[names(ratio) == id_treated]
+observed_statistic <- ratio[names(ratio) == id_treated]
+
+# combine permutation data into df
+perm_results <- data.frame(laestab = names(preloss),
+                           rmspe_pre = preloss,
+                           rmspe_post = postloss,
+                           ratio = postloss / preloss)
+
+# identify ill-fitting placebo runs
+perm_results$thresh5 <- perm_results$rmspe_pre < perm_results$rmspe_pre[perm_results$laestab == id_treated] * 5
+n_ill <- sum(perm_results$thresh5 == F)
+cutoff_value <- quantile(perm_results$ratio, 0.95)
+cutoff_thresh5 <- quantile(perm_results$ratio[perm_results$thresh5 == T], 0.95)
+
+# Plot the permutation test results
+plt <- ggplot(perm_results, aes(x = ratio)) +
+        geom_histogram(data = perm_results[perm_results$thresh5 == T, ], aes(x = ratio), fill = navy40, boundary = 0) +
+        geom_vline(aes(xintercept = observed_statistic), colour = red, linetype = "dashed", linewidth = 1) +
+        geom_vline(aes(xintercept = cutoff_value), colour = blue, linewidth = 1) +
+        labs(title = "Permutation test results",
+             x = "Ratio (post-period RMSPE / pre-period RMSPE)",
+             y = "Frequency",
+             caption = "red - observed ratio in the treated unit; blue - 5% cut-off.") +
+        ambition_theme + theme(plot.caption = element_text(size = 8, face = "plain", hjust = 1))
+if (n_ill > 0) {
+  plt <- plt + 
+    geom_histogram(data = perm_results[perm_results$thresh5 == F, ], aes(x = ratio), fill = navy, boundary = 0) +
+    geom_vline(aes(xintercept = cutoff_thresh5), colour = purple, linetype = "dashed", linewidth = 1) +
+    labs(caption = "red - observed ratio in the treated unit; blue - 5% cut-off; purple - 5% cut-off (excl. ill-fits).")
+}
+print(plt)
+cat("\n\n")
 
 # ratio as large as treated unit's ratio
-sum(ratio >= target)
+sum(ratio >= observed_statistic)
 
 # p value
-sum(ratio >= target) / length(ratio)
-cat("When assigning the intervention at random in the data, the probability of obtaining a post-period RMSPE / pre-period RMSPE ratio as large as the treated school's is ", round(sum(ratio >= target) / length(ratio), digits = 3), ".\n\n", sep = "")
+cat("When assigning the intervention at random in the data, the probability of obtaining a post-period RMSPE / pre-period RMSPE ratio as large as the treated school's is ", round(sum(ratio >= observed_statistic) / length(ratio), digits = 3), ".\n\n", sep = "")
+if (n_ill > 0) {
+  cat("After removing any ill-fitted placebo runs (N = " , n_ill, "), the probability is ", round(sum(perm_results$ratio[perm_results$thresh] >= observed_statistic) / sum(perm_results$thresh5), digits = 3), ".\n\n", sep = "")
+  
+}
 
 
-# dotchart(sort(postloss/preloss),
-#          main = "Ratio of Postreunification RMSPE to Prereunification RMSPE",
-#          xlab="Post-Period RMSE / Pre-Period RMSE",
-#          pch=19)
-# 
-# df_gaps <- as.data.frame(storegaps) %>%
-#   mutate(time_period = as.numeric(row.names(.))) %>%
-#   select(time_period, everything()) %>%
-#   tidyr::pivot_longer(., cols = names(.)[-1], names_to = "laestab", values_to = "pupil_to_qual_teacher_ratio") %>%
-#   mutate(idx_treat = ifelse(laestab == id_treated, TRUE, FALSE))
-# 
-# ### Magnitute of estimated placebo effects as gaps in the outcome between donor units and their synthetic control 
-# ggplot(data = df_gaps, aes(x = time_period, y = pupil_to_qual_teacher_ratio, group = laestab)) +
-#   #geom_vline(xintercept = 1990, linetype = "dotted") +
-#   geom_hline(yintercept = 0, linetype = "dotted") +
-#   geom_line(data = df_gaps[!df_gaps$idx_treat, ], aes(col = "Donor schools")) +
-#   geom_line(data = df_gaps[df_gaps$idx_treat,], aes(col = "Treated school"), linewidth = .8) +
-#   ambition_theme + theme(plot.caption = element_text(size = 8, face = "plain", hjust = 1)) +
-#   #coord_cartesian(ylim = c(-4500, 4500)) +
-#   ylab("Ratio") + xlab ("Year") +
-#   scale_color_manual(
-#     breaks=c("Treated school", "Donor schools"),
-#     values=c("Donor schools" = navy40, "Treated school" = coral)) 
+# plot placebo gaps
+df_gaps <- as.data.frame(storegaps) %>%
+  #mutate(time_period = as.numeric(row.names(.))) %>%
+  select(time_period, everything()) %>%
+  tidyr::pivot_longer(., cols = names(.)[-1], names_to = "laestab", values_to = "pupil_to_qual_teacher_ratio") %>%
+  mutate(idx_treat = ifelse(laestab == id_treated, TRUE, FALSE),
+         thresh5 = laestab %in% perm_results$laestab[perm_results$thresh5],
+         time_period = as.numeric(time_period))
+
+### Magnitute of estimated placebo effects as gaps in the outcome between donor units and their synthetic control
+print(ggplot(data = df_gaps, aes(x = time_period, y = pupil_to_qual_teacher_ratio, group = laestab)) +
+        geom_line(data = df_gaps[!df_gaps$idx_treat & df_gaps$thresh5, ], aes(col = "Donor schools")) +
+        geom_line(data = df_gaps[!df_gaps$idx_treat & !df_gaps$thresh5, ], aes(col = "Donor schools (ill fitted)")) +
+        geom_vline(xintercept = 2021.5, linetype = "dotted") +
+        geom_hline(yintercept = 0, linetype = "dotted") +
+        geom_line(data = df_gaps[df_gaps$idx_treat,], aes(col = "Treated school"), linewidth = .8) +
+        ambition_theme +
+        theme(strip.text = element_text(size = 10),
+              axis.text.x = element_text(angle = 45, hjust = 1),
+              legend.title = element_blank(),
+              plot.caption = element_text(size = 8, face = "plain", hjust = 1)) +
+        coord_cartesian(ylim = c(-5, 5)) +
+        ylab("Gap in ratio of pupils to qualified teachers") + xlab ("Academic year") +
+        scale_color_manual(
+          breaks=c("Treated school", "Donor schools", "Donor schools (ill fitted)"),
+          values=c("Donor schools" = navy40, "Donor schools (ill fitted)" = navy, "Treated school" = coral)) +
+        scale_x_continuous(breaks = lookup$time_period, labels = lookup$time_period_str))
+cat("\n\n")
+
 ```
 
 
@@ -762,6 +810,8 @@ info <- list(
        sd.range = NULL)
 )
 
+# info <- info[1] # debug
+
 ### Process data ###
 
 # Set options for data preparation
@@ -809,7 +859,6 @@ for (i in 1:length(info)) {
   simulate_data <- FALSE
   <<est>>
     # inspect results
-    #<<res>>
     <<res_cv>>
     run_placebo <- F
   <<placebo>>
@@ -833,7 +882,6 @@ for (i in 1:length(info)) {
     #              label.xy = list(x.lab = "Start of academic year", y.lab = "Ratio of pupils to qualified teachers")))
     # cat("\n\n")
     
-    # run grid search
     cat("## Apply gridsearch parameters \n\n")
   
   # Define timeseries
@@ -844,8 +892,7 @@ for (i in 1:length(info)) {
   <<est>>
     # inspect results
     <<res>>
-    #<<res_cv>>
-    
+
 }
 
 
