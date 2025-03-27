@@ -383,11 +383,11 @@ if (!is.null(scest.out$data$C)) {
                                          labels = c("Outcome", "Teacher age", "% pupils FSM"))
   
   # Plot the feature values
-  print(ggplot(data = comparison_raw, aes(x = Year, y = Value, color = Unit, group = Unit)) +
+  print(ggplot(data = comparison_adjusted, aes(x = Year, y = Value, color = Unit, group = Unit)) +
           geom_line() +
           geom_point() +
           facet_wrap(vars(Variable), ncol = 1, scales = "free_y") +
-          labs(title = "Feature timeseries without covariate adjustment",
+          labs(title = "Feature timeseries with covariate adjustment",
                x = "Academic year",
                y = "Reported value") +
           ambition_theme +
