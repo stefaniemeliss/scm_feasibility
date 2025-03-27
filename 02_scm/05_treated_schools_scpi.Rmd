@@ -878,6 +878,12 @@ for (i in 1:length(info)) {
     # run grid search
     cat("## Evaluate gridsearch parameters \n\n")
   
+  # show params in markdown
+  kbl(sapply(params, paste, collapse = " + "), col.names = NULL) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
+    print()
+  cat("\n")
+  
   # prepare data and estimate scm
   period.post <- c(2022:2023) # Validation period
   simulate_data <- FALSE
@@ -907,6 +913,12 @@ for (i in 1:length(info)) {
     # cat("\n\n")
     
     cat("## Apply gridsearch parameters \n\n")
+  
+  # show params in markdown
+  kbl(sapply(params, paste, collapse = " + "), col.names = NULL) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
+    print()
+  cat("\n")
   
   # Define timeseries
   period.post <- c(2024:2026) # Simulated post-treatment period
