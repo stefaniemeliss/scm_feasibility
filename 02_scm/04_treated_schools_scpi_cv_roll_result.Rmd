@@ -121,9 +121,10 @@ rolling.window = 2
 roll.vars <- c("pupil_to_qual_teacher_ratio", "fte_avg_age", "pnpupfsm_e")
 
 # Define timeseries
-years.avail <- sort(unique(df$time_period))
+period.avail <- sort(unique(df$time_period))
+if (id_name == "Dixons Kings Academy") period.avail <- setdiff(period.avail, c(2011, 2012))
 period.post <- c(2022:2023)
-period.pre <- setdiff(years.avail, period.post)
+period.pre <- setdiff(period.avail, period.post)
 
 # apply rolling window average to pre treatment period
 pre <- df %>%
@@ -279,6 +280,13 @@ tmp_results <- tmp_results %>%
   mutate(it = as.character(1:nrow(tmp_results))) %>%
   # select columns
   select(c(it, dv, feat_dv, adj, region, sd, roll_out, roll_w, pretreat, method, sd_treated, rmspe_pre, rmspe_post))
+
+# print donor pool size to markdown
+unique(results[, c("region.filter", "sd.range", "n_pool")]) %>%
+  kbl(caption = "Size of donor pool after filtering", row.names = F) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
+  print()
+cat("\n")
 
 
 # convert to long format
