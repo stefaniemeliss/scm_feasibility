@@ -644,26 +644,36 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
     
     if ("rolling.window" %in% names(params)) {
       
-      features <- setdiff(params$features[[1]], params$outcome.var)
+      if ("roll.outcome" %in% names(params) & params$roll.outcome == T) {
+        # make sure that outcome is included
+        roll.vars <- union(params$features[[1]], params$outcome.var)
+      } else {
+        # make sure that outcome is NOT included
+        roll.vars <- setdiff(params$features[[1]], params$outcome.var)
+      }
       
+      # add to params
+      params$roll.vars <- paste(roll.vars, collapse = ", ")
+
+      # apply rolling window average to pre treatment period
       pre <- df %>%
         filter(time_period %in% params$period.pre[[1]]) %>%
         group_by(laestab) %>%
         arrange(laestab, desc(time_period)) %>%
         mutate(
-          across(all_of(features), ~ zoo::rollapply(.x, width = params$rolling.window, mean, align = "left", partial = T)),
-          dv_roll = zoo::rollapply(get(params$outcome.var), width = params$rolling.window, mean, align = "left", partial = T)
+          across(all_of(roll.vars), ~ zoo::rollapply(.x, width = params$rolling.window, mean, align = "left", partial = T))
         )
       
+      # apply rolling window average to pre treatment period
       post <- df %>%
         filter(time_period %in% params$period.post[[1]]) %>%
         group_by(laestab) %>%
         arrange(laestab, desc(time_period)) %>%
         mutate(
-          across(all_of(features), ~ zoo::rollapply(.x, width = params$rolling.window, mean, align = "left", partial = T)),
-          dv_roll = zoo::rollapply(get(params$outcome.var), width = params$rolling.window, mean, align = "left", partial = T)
+          across(all_of(roll.vars), ~ zoo::rollapply(.x, width = params$rolling.window, mean, align = "left", partial = T))
         )
       
+      # combine rolled data from time time periods
       df <- bind_rows(pre, post) %>%
         arrange(laestab, desc(time_period)) %>%
         as.data.frame()
@@ -845,6 +855,8 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
         region.filter = ifelse(!is.null(result$params$region.filter[[1]]), result$params$region.filter[[1]], NA),
         sd.range = ifelse(!is.null(result$params$sd.range[[1]]), result$params$sd.range[[1]], NA),
         rolling.window = ifelse(!is.null(result$params$rolling.window), result$params$rolling.window, NA),
+        roll.outcome = ifelse(!is.null(result$params$roll.outcome), result$params$roll.outcome, NA),
+        roll.vars = ifelse(!is.null(result$params$roll.vars), result$params$roll.vars, NA),
         period.pre = ifelse(!is.null(result$params$period.pre[[1]]), 
                             paste(result$params$period.pre[[1]], collapse = ", "), 
                             NA),
@@ -911,6 +923,8 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
         region.filter = ifelse(!is.null(result$params$region.filter[[1]]), paste(result$params$region.filter[[1]], collapse = ", "), NA),
         sd.range = ifelse(!is.null(result$params$sd.range[[1]]), result$params$sd.range[[1]], NA),
         rolling.window = ifelse(!is.null(result$params$rolling.window), result$params$rolling.window, NA),
+        roll.outcome = ifelse(!is.null(result$params$roll.outcome), result$params$roll.outcome, NA),
+        roll.vars = ifelse(!is.null(result$params$roll.vars), result$params$roll.vars, NA),
         period.pre = ifelse(!is.null(result$params$period.pre[[1]]),
                             paste(result$params$period.pre[[1]], collapse = ", "),
                             NA),
