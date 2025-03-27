@@ -99,16 +99,45 @@ df_region <- unique(summary[, c("laestab", "school", "same", "neighbouring")])
 
 ```{r plot_ts, eval=FALSE, include=F}
 #id_treated = list_laestab[1] # debug
+rolling.window = 2
+roll.vars <- c("pupil_to_qual_teacher_ratio", "fte_avg_age", "pnpupfsm_e")
 
-# create df for plotting - treated only
-df_treated <- df %>%
-  filter(laestab == id_treated) %>%
-  arrange(laestab, desc(time_period)) %>%
-  mutate(school = first(school),
-         fte_avg_age_roll = zoo::rollapply(fte_avg_age, width = 2, mean, align = "left", partial = T),
-         pnpupfsm_e_roll = zoo::rollapply(pnpupfsm_e, width = 2, mean, align = "left", partial = T)
-  ) %>%
+# Define timeseries
+years.avail <- sort(unique(df$time_period))
+period.post <- c(2022:2023)
+period.pre <- setdiff(years.avail, period.post)
+
+# apply rolling window average to pre treatment period
+pre <- df %>%
+  filter(time_period %in% period.pre & laestab == id_treated) %>%
+  arrange(desc(time_period)) %>%
+  mutate(
+    across(all_of(roll.vars), ~ zoo::rollapply(.x, width = rolling.window, mean, align = "left", partial = T), .names = "{col}_roll_cv"),
+    fold = "Train"
+  )
+
+# apply rolling window average to pre treatment period
+post <- df %>%
+  filter(time_period %in% period.post & laestab == id_treated) %>%
+  arrange(desc(time_period)) %>%
+  mutate(
+    across(all_of(roll.vars), ~ zoo::rollapply(.x, width = rolling.window, mean, align = "left", partial = T), .names = "{col}_roll_cv"),
+    fold = "Validation"
+  )
+
+# combine rolled data from time time periods
+df_treated <- bind_rows(pre, post) %>%
+  arrange(desc(time_period)) %>%
+  select(- pupil_to_qual_unqual_teacher_ratio) %>%
+    mutate(
+    across(all_of(roll.vars), ~ zoo::rollapply(.x, width = rolling.window, mean, align = "left", partial = T), .names = "{col}_roll")  
+    ) %>%
+    mutate(
+    across(all_of(paste0(roll.vars, "_roll")), ~ ifelse(time_period > 2020, ., NA))  
+    ) %>%
   as.data.frame()
+
+lookup <- unique(df_treated[, c("time_period", "time_period_str")])
 
 
 #### CREATE SPAGHETTI PLOT ####
@@ -116,39 +145,29 @@ df_treated <- df %>%
 # create data in long format
 df_long <- df_treated %>%
   tidyr::pivot_longer(
-    cols = -c(laestab, school, time_period, time_period_str, school, urn),
+    cols = -c(laestab, school, time_period, time_period_str, fold, school, urn),
     names_to = "variable") %>%
   mutate(category = case_match(variable, 
                                "pupil_to_qual_teacher_ratio" ~ "Outcome",
-                               "pupil_to_qual_unqual_teacher_ratio" ~ "Outcome",
+                               "pupil_to_qual_teacher_ratio_roll" ~ "Outcome",
+                               "pupil_to_qual_teacher_ratio_roll_cv" ~ "Outcome",
                                "fte_avg_age" ~ "Teacher age",
                                "fte_avg_age_roll" ~ "Teacher age",
+                               "fte_avg_age_roll_cv" ~ "Teacher age",
                                "pnpupfsm_e" ~ "% pupils FSM",
-                               "pnpupfsm_e_roll" ~ "% pupils FSM"
-  ),
-  computation = case_match(variable, 
-                           "pupil_to_qual_teacher_ratio" ~ "Qualified teachers",
-                           "pupil_to_qual_unqual_teacher_ratio" ~ "All teachers",
-                           "fte_avg_age" ~ "Raw",
-                           "fte_avg_age_roll" ~ "Rolling average",
-                           "pnpupfsm_e" ~ "Raw",
-                           "pnpupfsm_e_roll" ~ "Rolling average"
-  ),
-  comment = case_match(variable, 
-                       "pupil_to_qual_teacher_ratio" ~ "Old",
-                       "pupil_to_qual_unqual_teacher_ratio" ~ "Modified",
-                       "fte_avg_age" ~ "Old",
-                       "fte_avg_age_roll" ~ "Modified",
-                       "pnpupfsm_e" ~ "Old",
-                       "pnpupfsm_e_roll" ~ "Modified"
+                               "pnpupfsm_e_roll" ~ "% pupils FSM",
+                               "pnpupfsm_e_roll_cv" ~ "% pupils FSM"
   ),
   roll = case_match(variable, 
                     "pupil_to_qual_teacher_ratio" ~ "Raw",
-                    "pupil_to_qual_unqual_teacher_ratio" ~ "Raw",
+                    "pupil_to_qual_teacher_ratio_roll" ~ "Rolling average",
+                    "pupil_to_qual_teacher_ratio_roll_cv" ~ "Rolling average CV",
                     "fte_avg_age" ~ "Raw",
                     "fte_avg_age_roll" ~ "Rolling average",
+                    "fte_avg_age_roll_cv" ~ "Rolling average CV",
                     "pnpupfsm_e" ~ "Raw",
-                    "pnpupfsm_e_roll" ~ "Rolling average"
+                    "pnpupfsm_e_roll" ~ "Rolling average",
+                    "pnpupfsm_e_roll_cv" ~ "Rolling average CV"
   )
   ) %>%
   as.data.frame()
@@ -157,18 +176,23 @@ df_long$category <- factor(df_long$category, levels = c("Outcome", "% pupils FSM
 
 
 # plot timeseries for each variable
-plt <- ggplot(data = df_long[df_long$variable != "pupil_to_qual_unqual_teacher_ratio", ], aes(x = time_period_str, y = value, col = roll, group = interaction(laestab, roll))) +
+plt <- ggplot(data = df_long, aes(x = time_period, y = value, col = roll, group = interaction(laestab, roll))) +
+  geom_vline(xintercept = 2021.5, linetype = "dotted") +
   geom_line() + 
   geom_point() +
   facet_wrap(~ category, ncol = 1, strip.position = "top", scales = "free_y") +
   ambition_theme +
   ylab("Reported value") +
-  scale_color_manual(values = c("Raw" = coral, "Rolling average" = navy)) +
+  xlab("Academic year") +
+  scale_color_manual(
+    breaks = c("Raw", "Rolling average CV", "Rolling average"),
+    values = c("Raw" = red, "Rolling average CV" = blue, "Rolling average" = teal)) +
+  scale_x_continuous(breaks = lookup$time_period, labels = lookup$time_period_str) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         axis.title.x = element_blank(), 
         legend.title = element_blank())
 
-print(plt)
+suppressWarnings(print(plt))
 cat("\n\n")  # Add some space between plots
 
 
@@ -480,7 +504,7 @@ comparison_raw$Variable <- factor(comparison_raw$Variable,
 
 # Plot the feature values
 print(ggplot(data = comparison_raw, aes(x = Year, y = Value, color = Unit, group = Unit)) +
-        geom_vline(xintercept = period.pre[length(period.pre)], linetype = "dashed") +
+        geom_vline(xintercept = period.pre[length(period.pre)]+0.5, linetype = "dotted") +
         geom_line() +
         geom_point() +
         facet_wrap(vars(Variable), ncol = 1, scales = "free_y") +
@@ -570,7 +594,7 @@ if (!is.null(scest.out$data$C)) {
   
   # Plot the feature values
   print(ggplot(data = comparison_adjusted, aes(x = Year, y = Value, color = Unit, group = Unit)) +
-          geom_vline(xintercept = period.pre[length(period.pre)], linetype = "dashed") +
+          geom_vline(xintercept = period.pre[length(period.pre)]+0.5, linetype = "dotted") +
           geom_line() +
           geom_point() +
           facet_wrap(vars(Variable), ncol = 1, scales = "free_y") +
@@ -734,7 +758,7 @@ df_gaps <- as.data.frame(storegaps) %>%
 print(ggplot(data = df_gaps, aes(x = time_period, y = pupil_to_qual_teacher_ratio, group = laestab)) +
         geom_line(data = df_gaps[!df_gaps$idx_treat & df_gaps$thresh5, ], aes(col = "Donor schools")) +
         geom_line(data = df_gaps[!df_gaps$idx_treat & !df_gaps$thresh5, ], aes(col = "Donor schools (ill fitted)")) +
-        geom_vline(xintercept = 2021.5, linetype = "dotted") +
+        geom_vline(xintercept = period.pre[length(period.pre)]+0.5, linetype = "dotted") +
         geom_hline(yintercept = 0, linetype = "dotted") +
         geom_line(data = df_gaps[df_gaps$idx_treat,], aes(col = "Treated school"), linewidth = .8) +
         ambition_theme +
