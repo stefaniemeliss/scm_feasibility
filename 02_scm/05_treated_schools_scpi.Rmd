@@ -132,12 +132,12 @@ post <- df %>%
 df_treated <- bind_rows(pre, post) %>%
   arrange(desc(time_period)) %>%
   select(- pupil_to_qual_unqual_teacher_ratio) %>%
-    mutate(
+  mutate(
     across(all_of(roll.vars), ~ zoo::rollapply(.x, width = rolling.window, mean, align = "left", partial = T), .names = "{col}_roll")  
-    ) %>%
-    mutate(
+  ) %>%
+  mutate(
     across(all_of(paste0(roll.vars, "_roll")), ~ ifelse(time_period > 2020, ., NA))  
-    ) %>%
+  ) %>%
   as.data.frame()
 
 lookup <- unique(df_treated[, c("time_period", "time_period_str")])
@@ -204,6 +204,27 @@ cat("\n\n")  # Add some space between plots
 ```{r est, eval=FALSE, include=F}
 ### prepare data ###
 
+# load in df
+if ("region.filter" %in% names(params)) {
+  
+  # define correct regions to use
+  if ("same" %in% params$region.filter) (regions <- unlist(c(df_region[df_region$laestab == id_treated, c("same")])))
+  if ("neighbouring" %in% params$region.filter) (regions <- unlist(c(df_region[df_region$laestab == id_treated, c("same", "neighbouring")])))
+  
+  # process data
+  df <- process_data_scm(id_treated = id_treated, regions = regions)
+  
+}
+
+if ("sd.range" %in% names(params) & !is.null(params$sd.range)) {
+  
+  # filter by SD crit
+  df <- sd_filtering(data = df, perc = params$sd.range, var = outcome.var)
+  df[df$laestab == id_treated, paste0("crit_sd_", outcome.var)] <- T
+  df <- subset(df, df[, paste0("crit_sd_", outcome.var)] == T)
+  
+}
+
 if(simulate_data){
   
   # simulate data using linear projection for the next three years #
@@ -260,29 +281,9 @@ if(simulate_data){
     arrange(laestab, time_period) %>%
     as.data.frame()
   
-} else {
-  
-  # load in df
-  if ("region.filter" %in% names(params)) {
-    
-    # define correct regions to use
-    if ("same" %in% params$region.filter) (regions <- unlist(c(df_region[df_region$laestab == id_treated, c("same")])))
-    if ("neighbouring" %in% params$region.filter) (regions <- unlist(c(df_region[df_region$laestab == id_treated, c("same", "neighbouring")])))
-    
-    # process data
-    df <- process_data_scm(id_treated = id_treated, regions = regions)
-    
-  }
-  
-  if ("sd.range" %in% names(params) & !is.null(params$sd.range)) {
-    
-    # filter by SD crit
-    df <- sd_filtering(data = df, perc = params$sd.range, var = outcome.var)
-    df[df$laestab == id_treated, paste0("crit_sd_", outcome.var)] <- T
-    df <- subset(df, df[, paste0("crit_sd_", outcome.var)] == T)
-    
-  }
 }
+
+
 
 # Define timeseries
 period.avail <- sort(unique(df$time_period))
@@ -707,7 +708,7 @@ if (run_placebo) {
   # read in results
   storegaps <- read.csv(file_name)
   names(storegaps) <- gsub("X", "", names(storegaps))
-
+  
 }
 lookup <- unique(df[, c("time_period", "time_period_str")])
 
@@ -735,14 +736,14 @@ cutoff_thresh5 <- quantile(perm_results$ratio[perm_results$thresh5 == T], 0.95)
 
 # Plot the permutation test results
 plt <- ggplot(perm_results, aes(x = ratio)) +
-        geom_histogram(data = perm_results[perm_results$thresh5 == T, ], aes(x = ratio), fill = navy40, boundary = 0) +
-        geom_vline(aes(xintercept = observed_statistic), colour = red, linetype = "dashed", linewidth = 1) +
-        geom_vline(aes(xintercept = cutoff_value), colour = blue, linewidth = 1) +
-        labs(title = "Permutation test results",
-             x = "Ratio (post-period RMSPE / pre-period RMSPE)",
-             y = "Frequency",
-             caption = "red - observed ratio in the treated unit; blue - 5% cut-off.") +
-        ambition_theme + theme(plot.caption = element_text(size = 8, face = "plain", hjust = 1))
+  geom_histogram(data = perm_results[perm_results$thresh5 == T, ], aes(x = ratio), fill = navy40, boundary = 0) +
+  geom_vline(aes(xintercept = observed_statistic), colour = red, linetype = "dashed", linewidth = 1) +
+  geom_vline(aes(xintercept = cutoff_value), colour = blue, linewidth = 1) +
+  labs(title = "Permutation test results",
+       x = "Ratio (post-period RMSPE / pre-period RMSPE)",
+       y = "Frequency",
+       caption = "red - observed ratio in the treated unit; blue - 5% cut-off.") +
+  ambition_theme + theme(plot.caption = element_text(size = 8, face = "plain", hjust = 1))
 if (n_ill > 0) {
   plt <- plt + 
     geom_histogram(data = perm_results[perm_results$thresh5 == F, ], aes(x = ratio), fill = navy, boundary = 0) +
@@ -946,7 +947,7 @@ for (i in 1:length(info)) {
   <<est>>
     # inspect results
     <<res>>
-
+    
 }
 
 
