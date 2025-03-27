@@ -18,6 +18,9 @@ knitr::opts_chunk$set(echo = TRUE)
 rm(list = ls())
 gc()
 
+# Set seed
+set.seed(202324)
+
 # load libraries
 library(kableExtra)
 library(dplyr)
@@ -103,9 +106,10 @@ rolling.window = 2
 roll.vars <- c("pupil_to_qual_teacher_ratio", "fte_avg_age", "pnpupfsm_e")
 
 # Define timeseries
-years.avail <- sort(unique(df$time_period))
+period.avail <- sort(unique(df$time_period))
+if (id_name == "Dixons Kings Academy") period.avail <- setdiff(period.avail, c(2011, 2012))
 period.post <- c(2022:2023)
-period.pre <- setdiff(years.avail, period.post)
+period.pre <- setdiff(period.avail, period.post)
 
 # apply rolling window average to pre treatment period
 pre <- df %>%
@@ -129,12 +133,12 @@ post <- df %>%
 df_treated <- bind_rows(pre, post) %>%
   arrange(desc(time_period)) %>%
   select(- pupil_to_qual_unqual_teacher_ratio) %>%
-    mutate(
+  mutate(
     across(all_of(roll.vars), ~ zoo::rollapply(.x, width = rolling.window, mean, align = "left", partial = T), .names = "{col}_roll")  
-    ) %>%
-    mutate(
+  ) %>%
+  mutate(
     across(all_of(paste0(roll.vars, "_roll")), ~ ifelse(time_period > 2020, ., NA))  
-    ) %>%
+  ) %>%
   as.data.frame()
 
 lookup <- unique(df_treated[, c("time_period", "time_period_str")])
@@ -199,17 +203,51 @@ cat("\n\n")  # Add some space between plots
 ```
 
 ```{r est, eval=FALSE, include=F}
-### prepare data ###
+# read in data
+df <- process_data_scm(id_treated = id_treated)
+
+# FILTERING #
+
+# load in df
+if ("region.filter" %in% names(params)) {
+  
+  # define correct regions to use
+  if ("same" %in% params$region.filter) (regions <- unlist(c(df_region[df_region$laestab == id_treated, c("same")])))
+  if ("neighbouring" %in% params$region.filter) (regions <- unlist(c(df_region[df_region$laestab == id_treated, c("same", "neighbouring")])))
+  
+  # process data
+  df <- process_data_scm(id_treated = id_treated, regions = regions)
+  
+}
+
+if ("sd.range" %in% names(params) & !is.null(params$sd.range)) {
+  
+  # filter by SD crit
+  df <- sd_filtering(data = df, perc = params$sd.range, var = outcome.var)
+  df[df$laestab == id_treated, paste0("crit_sd_", outcome.var)] <- T
+  df <- subset(df, df[, paste0("crit_sd_", outcome.var)] == T)
+  
+}
 
 if(simulate_data){
   
   # simulate data using linear projection for the next three years #
   
-  # Fit model using only time as predictor with random intercepts
-  m1 <- lmer(pupil_to_qual_teacher_ratio ~ time_period + (1 | laestab), data = df)
+  # transform data structure
+  df$laestab_f <- factor(df$laestab)
+  df$time_centered <- df$time_period - min(df$time_period)
   
-  # Check model summary
-  summary(m1)
+  # add LA to data
+  df$la <- as.factor(substr(df$laestab, 1, 3))
+  
+  # Fit model
+  # Different baseline levels for each laestab (school)
+  # Different rates of change over time for each la (local authority)
+  m1 <- lmer(pupil_to_qual_teacher_ratio ~ 
+               time_centered + # fixed effect for time_period
+               (1 | laestab_f) + # random intercept for laestab with (1 | laestab)
+               (0 + time_centered | la), # random slope for time_period grouped by la
+             data = df[df$time_period %in% c(2021, 2022, 2023), ])
   
   # Generate the prediction data frame for the next three academic years
   simulated_data <- expand.grid(
@@ -217,17 +255,22 @@ if(simulate_data){
     time_period = c(2024, 2025, 2026)  # Representing 2024/25, 2025/26, 2026/27
   )
   
-  # Generate predictions using random intercepts model
-  predictions <- predict(m1, 
-                         newdata = simulated_data, 
-                         re.form = ~(1 | laestab))
-  
-  # Add predictions to the data frame
-  simulated_data$pupil_to_qual_teacher_ratio <- predictions
+  simulated_data$laestab_f <- factor(simulated_data$laestab)
+  simulated_data$la <- as.factor(substr(simulated_data$laestab, 1, 3))
+  simulated_data$time_centered <- simulated_data$time_period - min(df$time_period)
   simulated_data$time_period_str <- case_match(simulated_data$time_period,
                                                2024 ~ "2024/25",
                                                2025 ~ "2025/26",
                                                2026 ~ "2026/27")
+  
+  # Generate *simulations* conditioned on all random effects with noise
+  simulations <- simulate(m1, nsim = 1,
+                          newdata = simulated_data, 
+                          re.form = NULL, allow.new.levels = FALSE)
+  
+  # Add predictions to the data frame
+  # simulated_data$pred <- predictions
+  simulated_data$pupil_to_qual_teacher_ratio <- simulations$sim_1
   
   # Combine data
   df <- bind_rows(df, simulated_data) %>%
@@ -242,33 +285,43 @@ if(simulate_data){
     arrange(laestab, time_period) %>%
     as.data.frame()
   
-} else {
-  
-  # load in df
-  if ("region.filter" %in% names(params)) {
-    
-    # define correct regions to use
-    if ("same" %in% params$region.filter) (regions <- unlist(c(df_region[df_region$laestab == id_treated, c("same")])))
-    if ("neighbouring" %in% params$region.filter) (regions <- unlist(c(df_region[df_region$laestab == id_treated, c("same", "neighbouring")])))
-    
-    # process data
-    df <- process_data_scm(id_treated = id_treated, regions = regions)
-    
-  }
-  
-  if ("sd.range" %in% names(params) & !is.null(params$sd.range)) {
-    
-    # filter by SD crit
-    df <- sd_filtering(data = df, perc = params$sd.range, var = outcome.var)
-    df[df$laestab == id_treated, paste0("crit_sd_", outcome.var)] <- T
-    df <- subset(df, df[, paste0("crit_sd_", outcome.var)] == T)
-    
-  }
 }
+
 
 # Define timeseries
 period.avail <- sort(unique(df$time_period))
+if (id_name == "Dixons Kings Academy") period.avail <- setdiff(period.avail, c(2011, 2012))
 period.pre <- setdiff(period.avail, period.post) # Pre-treatment period
+
+if ("rolling.window" %in% names(params)) {
+  
+  roll.vars <- c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age")
+  
+  # apply rolling window average to pre treatment period
+  pre <- df %>%
+    filter(time_period %in% period.pre) %>%
+    group_by(laestab) %>%
+    arrange(laestab, desc(time_period)) %>%
+    mutate(
+      across(all_of(roll.vars), ~ zoo::rollapply(.x, width = params$rolling.window, mean, align = "left", partial = T))
+    )
+  
+  # apply rolling window average to pre treatment period
+  post <- df %>%
+    filter(time_period %in% period.post) %>%
+    group_by(laestab) %>%
+    arrange(laestab, desc(time_period)) %>%
+    mutate(
+      across(all_of(roll.vars), ~ zoo::rollapply(.x, width = params$rolling.window, mean, align = "left", partial = T))
+    )
+  
+  # combine rolled data from time time periods
+  df <- bind_rows(pre, post) %>%
+    arrange(laestab, desc(time_period)) %>%
+    as.data.frame()
+}
+
+
 
 # determine ids of control schools
 id_cont <- unique(df$laestab[df$laestab != id_treated])
@@ -383,11 +436,11 @@ if (!is.null(scest.out$data$C)) {
                                          labels = c("Outcome", "Teacher age", "% pupils FSM"))
   
   # Plot the feature values
-  print(ggplot(data = comparison_raw, aes(x = Year, y = Value, color = Unit, group = Unit)) +
+  print(ggplot(data = comparison_adjusted, aes(x = Year, y = Value, color = Unit, group = Unit)) +
           geom_line() +
           geom_point() +
           facet_wrap(vars(Variable), ncol = 1, scales = "free_y") +
-          labs(title = "Feature timeseries without covariate adjustment",
+          labs(title = "Feature timeseries with covariate adjustment",
                x = "Academic year",
                y = "Reported value") +
           ambition_theme +
@@ -616,7 +669,7 @@ if (!is.null(scest.out$data$C)) {
 ```{r placebo, eval=FALSE, include=F}
 
 # determine output filename
-file_name <- file.path(dir, "02_scm", paste0(file_stem, "_gaps_cv_", gsub(" ", "_", id_name), ".csv"))
+file_name <- file.path(dir, "02_scm", paste0(file_stem, "_gaps_cv_", setting, "_", gsub(" ", "_", id_name), ".csv"))
 
 if (run_placebo) {
   # store all schools in a vector
@@ -689,7 +742,7 @@ if (run_placebo) {
   # read in results
   storegaps <- read.csv(file_name)
   names(storegaps) <- gsub("X", "", names(storegaps))
-
+  
 }
 lookup <- unique(df[, c("time_period", "time_period_str")])
 
@@ -717,14 +770,14 @@ cutoff_thresh5 <- quantile(perm_results$ratio[perm_results$thresh5 == T], 0.95)
 
 # Plot the permutation test results
 plt <- ggplot(perm_results, aes(x = ratio)) +
-        geom_histogram(data = perm_results[perm_results$thresh5 == T, ], aes(x = ratio), fill = navy40, boundary = 0) +
-        geom_vline(aes(xintercept = observed_statistic), colour = red, linetype = "dashed", linewidth = 1) +
-        geom_vline(aes(xintercept = cutoff_value), colour = blue, linewidth = 1) +
-        labs(title = "Permutation test results",
-             x = "Ratio (post-period RMSPE / pre-period RMSPE)",
-             y = "Frequency",
-             caption = "red - observed ratio in the treated unit; blue - 5% cut-off.") +
-        ambition_theme + theme(plot.caption = element_text(size = 8, face = "plain", hjust = 1))
+  geom_histogram(data = perm_results[perm_results$thresh5 == T, ], aes(x = ratio), fill = navy40, boundary = 0) +
+  geom_vline(aes(xintercept = observed_statistic), colour = red, linetype = "dashed", linewidth = 1) +
+  geom_vline(aes(xintercept = cutoff_value), colour = blue, linewidth = 1) +
+  labs(title = "Permutation test results",
+       x = "Ratio (post-period RMSPE / pre-period RMSPE)",
+       y = "Frequency",
+       caption = "red - observed ratio in the treated unit; blue - 5% cut-off.") +
+  ambition_theme + theme(plot.caption = element_text(size = 8, face = "plain", hjust = 1))
 if (n_ill > 0) {
   plt <- plt + 
     geom_histogram(data = perm_results[perm_results$thresh5 == F, ], aes(x = ratio), fill = navy, boundary = 0) +
@@ -778,7 +831,6 @@ cat("\n\n")
 
 
 ```{r run_code, echo=F, message=FALSE, results='asis'}
-
 ### Best parameter settings from grid search - per school
 info <- list(
   # St Peters
@@ -787,7 +839,12 @@ info <- list(
        cov.adj = list(c("constant")),
        region.filter = "same",
        sd.range = NULL),
-  # Dixon Music primary - EXCLUDED
+  # Dixon Music primary
+  list(school = "Dixons Music Primary",
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
+       cov.adj = list(c("constant")),
+       region.filter = "same",
+       sd.range = 50),
   # Marchbank Primary
   list(school = "Dixons Marchbank Primary",
        features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
@@ -797,44 +854,55 @@ info <- list(
   # Manningham Academy
   list(school = "Dixons Manningham Academy",
        features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
-       cov.adj = NULL,
+       cov.adj = list(c("trend")),
        region.filter = "same",
-       sd.range = 100),
+       sd.range = 50),
   # Kings Academy
   list(school = "Dixons Kings Academy",
        features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
-       cov.adj = list(c("constant", "trend")),
+       cov.adj = list(c("constant")),
        region.filter = "same",
        sd.range = NULL),
-  # Dixons Trinity Academy - EXCLUDED
+  # Dixons Trinity Academy
+  list(school = "Dixons Trinity Academy",
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
+       cov.adj = list(c("constant")),
+       region.filter = "same",
+       sd.range = NULL),
   # McMillan Academy
   list(school = "Dixons McMillan Academy",
        features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
-       cov.adj = list(c("constant")),
+       cov.adj = NULL,
        region.filter = "same",
        sd.range = NULL),
   # Cottingley Academy
   list(school = "Dixons Cottingley Academy",
        features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
-       cov.adj = list(c("constant")),
+       cov.adj = list(c("trend")),
        region.filter = "same",
        sd.range = NULL),
   # City Academy
   list(school = "Dixons City Academy",
        features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
-       cov.adj = NULL,
+       cov.adj = list(c("constant")),
        region.filter = c("same","neighbouring"),
+       sd.range = 100),
+  # Dixons Unity Academy
+  list(school = "Dixons City Academy",
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
+       cov.adj = list(c("constant")),
+       region.filter = "same",
        sd.range = NULL),
-  # Dixons Unity Academy - EXCLUDE
   # Highcrest Academy
   list(school = "The Highcrest Academy",
        features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
        cov.adj = list(c("constant")),
-       region.filter = "same",
-       sd.range = NULL)
+       region.filter = c("same","neighbouring"),
+       sd.range = 100)
 )
 
-# info <- info[1] # debug
+
+# info <- info[1:2] # debug
 
 ### Process data ###
 
@@ -845,6 +913,10 @@ outcome.var <- "pupil_to_qual_teacher_ratio" # Dependent variable
 
 w.constr <- list(name = "simplex") # use canonical SC
 
+# specify windows
+preproc <- c("raw", "roll")
+caption <- c("Raw timeseries as input", "Smoothed timeseries as input")
+window <- c(1, 2)
 
 for (i in 1:length(info)) {
   
@@ -875,48 +947,45 @@ for (i in 1:length(info)) {
   # Plot data
   <<plot_ts>>
     
-    # run grid search
-    cat("## Evaluate gridsearch parameters \n\n")
-  
-  # prepare data and estimate scm
-  period.post <- c(2022:2023) # Validation period
-  simulate_data <- FALSE
-  <<est>>
-    # inspect results
-    <<res_cv>>
-    run_placebo <- F
-  <<placebo>>
-    
-    # # ### SC - prediction with simplex
-    # scpi.out <- scpi(data = scdata.out,
-    #                  w.constr = w.constr,
-    #                  # In-sample uncertainty - model the pseudo-residuals u #
-    #                  u.missp = TRUE, # whether the model is misspecified or not
-    #                  u.order = 1, u.lags = 0, u.design = NULL, # how to model u
-    #                  u.sigma = "HC1", # type of variance-covariance estimator to be used when estimating the conditional variance of u
-    #                  u.alpha = 0.05, # confidence level for in-sample uncertainty
-    #                  # Out-of-sample uncertainty - model the out-of-sample residuals e and estimate relevant moments #
-    #                  e.method = "gaussian", # method to be used in quantifying out-of-sample uncertainty
-    #                  e.order = 1, e.lags = 0, e.design = NULL, # how to model e
-    #                  e.alpha = 0.05, # confidence level for out-of-sample uncertainty
-    #                  
-    #                  cores = 4, verbose = FALSE)
-    # cat("\n\n")
-    # print(scplot(result = scpi.out, plot.range = period.avail,
-    #              label.xy = list(x.lab = "Start of academic year", y.lab = "Ratio of pupils to qualified teachers")))
-    # cat("\n\n")
-    
-    cat("## Apply gridsearch parameters \n\n")
-  
-  # Define timeseries
-  period.post <- c(2024:2026) # Simulated post-treatment period
-  
-  # prepare data and estimate scm
-  simulate_data <- TRUE
-  <<est>>
-    # inspect results
-    <<res>>
-
+    for (j in 1:length(preproc)) {
+      
+      setting = preproc[j]
+      params$rolling.window = window[j]
+      
+      cat("##", caption[j],"\n\n")
+      
+      # show params in markdown
+      kbl(sapply(params, paste, collapse = " + "), col.names = NULL) %>%
+        kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
+        print()
+      cat("\n")
+      
+      # run grid search
+      cat("### Evaluate gridsearch parameters \n\n")
+      
+      
+      # prepare data and estimate scm
+      period.post <- c(2022:2023) # Validation period
+      simulate_data <- FALSE
+      <<est>>
+        # inspect results
+        <<res_cv>>
+        run_placebo <- T
+      <<placebo>>
+        
+        
+        cat("### Apply gridsearch parameters \n\n")
+      
+      # Define timeseries
+      period.post <- c(2024:2026) # Simulated post-treatment period
+      
+      # prepare data and estimate scm
+      simulate_data <- TRUE
+      <<est>>
+        # inspect results
+        <<res>>
+        
+    }
 }
 
 
