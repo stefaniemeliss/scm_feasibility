@@ -81,6 +81,9 @@ source_code(target_repo = "scm_feasibility", file_name = "functions.R")
 
 # Define the base directory
 get_directory()
+# Define directories based on the current working directory
+dir_data <- file.path(dir, "data")
+dir_misc <- file.path(dir, "misc")
 
 # get file stem name
 file_stem <- get_file_stem()
@@ -96,6 +99,66 @@ summary <- subset(summary, n_pool >= 50)
 # create df_region as reference
 df_region <- unique(summary[, c("laestab", "school", "same", "neighbouring")])
 ```
+
+```{r nat, include=F}
+# Copy data files from the source directory to the target directory
+file.copy(
+  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_swf.csv"),
+  dir_data,
+  overwrite = TRUE
+)
+
+# Load data from CSV files into data tables
+swf <- fread(file = file.path(dir_data, "data_swf.csv"))
+dv <- "pupil_to_qual_teacher_ratio"
+
+# Remove rows for years for which there is no outcome data, 
+# and add observation count and count of outliers per school
+z <- swf %>%
+  select(time_period, laestab, school, urn, pupil_to_qual_teacher_ratio) %>%
+  filter(!is.na(get(dv))) %>%
+  group_by(laestab) %>%
+  mutate(
+    obs_count_dv = sum(!is.na(get(dv))), # count number of non-NA obs
+    count_outliers_dv = sum(is_outlier_3sd(get(dv))) # count number of within timeseries outliers
+  ) %>%
+  ungroup() %>%
+  filter(obs_count_dv >= 6) %>%   # remove all with less than 6 obs
+  filter(count_outliers_dv == 0) %>%   # Remove any schools that have an outlier within their timeseries
+  select(time_period, laestab, school, pupil_to_qual_teacher_ratio) %>%
+  as.data.frame()
+
+# Remove outliers from data
+z <- z %>%
+  mutate(
+    outlier_dv = is_outlier_3sd(get(dv))
+  ) %>%
+  group_by(laestab) %>%
+  mutate(
+    count_outliers_dv = sum(outlier_dv)
+  ) %>%
+  ungroup() %>%
+  # Remove any schools that have an outlier within their timeseries
+  filter(count_outliers_dv == 0) %>%
+  select(-outlier_dv, -count_outliers_dv) %>%
+  as.data.frame()
+
+
+# compute timeseries descriptives
+desc <- z %>%
+  group_by(laestab) %>%
+  summarise(
+    mean = mean(pupil_to_qual_teacher_ratio, na.rm = T),
+    sd = sd(pupil_to_qual_teacher_ratio, na.rm = T),
+    min = min(pupil_to_qual_teacher_ratio, na.rm = T),
+    max = max(pupil_to_qual_teacher_ratio, na.rm = T),
+    n = n()
+    )
+
+# extract national standard deviation (averaged)
+sd_nat <- mean(desc$sd)
+```
+
 
 ```{r est, eval=FALSE, include=F}
 
@@ -397,8 +460,6 @@ print(ggplot(data = df_gaps, aes(x = time_period, y = pupil_to_qual_teacher_rati
         scale_x_continuous(breaks = lookup$time_period, labels = lookup$time_period_str))
 cat("\n\n")
 
-
-
 # compute pre-timeseries stats
 sd_pre <- sd(df$pupil_to_qual_teacher_ratio[df$laestab == id_treated & ! df$time_period %in% simulated_years])
 
@@ -412,6 +473,9 @@ eff_abs <- mean_base - mean_eff
 # effect in SD of pretreatment timeseries
 eff_sd <- eff_abs / sd_pre
 
+# effect in national SD
+eff_sd_nat <- eff_abs / sd_nat
+
 
 # initialise df for results
 out <- data.frame(
@@ -424,6 +488,7 @@ out <- data.frame(
   mean_eff = mean_eff,
   eff_abs = eff_abs,
   eff_sd = eff_sd,
+  eff_sd_nat = eff_sd_nat,
   rmspe_pre = perm_results$rmspe_pre[perm_results$laestab == id_treated],
   rmspe_post = perm_results$rmspe_post[perm_results$laestab == id_treated],
   rmspe_ratio = observed_statistic,
@@ -571,6 +636,7 @@ for (i in 1:length(info)) {
       paste("N =", unique(df_out$n_donors), "donor schools were used for permutation testing. There were N = " , n_ill, "ill-fitted placebo runs."),
       paste0("The pre-treatment outcome timeseries of the treated school has an SD = ", round(unique(df_out$sd_pre), 3), " and an RMSPE = ", round(unique(df_out$rmspe_pre), 3), "."),
       paste0("The simulated post-treatment outcome timeseries of the treated school has a mean of = ", round(unique(df_out$mean_base), 3), " before applying any effects."),
+      paste0("The pre-treatment outcome timeseries at national level has an SD = ", round(unique(sd_nat), 3), "."),
       "Bold indicates that the probability of obtaining such a ratio at random is below 0.05.")) %>%
     print()
   cat("\n\n")
