@@ -278,7 +278,7 @@ for (i in 1:length(list_laestab_treated)) {
   # simulated_data$pred <- predictions
   
   # Generate *simulations* conditioned on all random effects with noise
-  simulations <- simulate(m1, nsim = 100, seed = 202324,
+  simulations <- simulate(m1, nsim = 100,
                           newdata = simulated_data, 
                           re.form = NULL, allow.new.levels = FALSE)
   
