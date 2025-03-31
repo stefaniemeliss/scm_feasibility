@@ -223,7 +223,7 @@ period.avail <- sort(unique(df_perm$time_period))
 period.pre <- setdiff(period.avail, period.post) # Pre-treatment period
 
 # determine ids of control schools
-id_cont <- unique(df$laestab[df$laestab != id_treated])
+id_cont <- unique(df_perm$laestab[df_perm$laestab != id_treated])
 
 unit.tr <- id_treated # Treated unit (in terms of id.var)
 unit.co <- id_cont # Donors pool
