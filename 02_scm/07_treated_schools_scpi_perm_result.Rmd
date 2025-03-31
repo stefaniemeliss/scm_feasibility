@@ -604,17 +604,22 @@ for (i in 1:length(info)) {
   cat("Region:", est_treated$gor_name, "\n\n")
   
   # prepare data and estimate scm
+  cat("## SCM for pre-treatment data \n\n")
   apply_effects <- FALSE
   <<est>>
     # inspect results
     <<res>> 
+    
+    # show output
+    cat("## SCM for simulated data \n\n")
+
     
     for (decrease in increments) {
       
       # decrease = increments[1] # debug
       
       # run grid search
-      cat("#### SCM for simulated data -", decrease * 100, "% decrease in ratio \n\n")
+      cat("### ", decrease * 100, "% decrease in ratio \n\n")
       # prepare data and estimate scm
       apply_effects <- TRUE
       <<est>>
