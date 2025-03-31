@@ -5,7 +5,7 @@ date: "`r Sys.Date()`"
 output:
   html_document:
     toc: true
-    toc_depth: 3
+    toc_depth: 4
     toc_float: true
     self_contained: true
 ---
@@ -153,10 +153,86 @@ desc <- z %>%
     min = min(pupil_to_qual_teacher_ratio, na.rm = T),
     max = max(pupil_to_qual_teacher_ratio, na.rm = T),
     n = n()
-    )
+  )
 
 # extract national standard deviation (averaged)
 sd_nat <- mean(desc$sd)
+```
+
+```{r plot_ts, eval=FALSE, include=F}
+#id_treated = list_laestab[1] # debug
+rolling.window = 2
+roll.vars <- c("pupil_to_qual_teacher_ratio", "fte_avg_age", "pnpupfsm_e")
+
+# Define timeseries
+period.avail <- sort(unique(df$time_period))
+# if (id_name == "Dixons Kings Academy") period.avail <- setdiff(period.avail, c(2011, 2012))
+period.post <- period.simulated # Simulated post-treatment period
+period.pre <- setdiff(period.avail, period.post)
+
+# apply rolling window average
+df_treated <- df %>%
+  filter(laestab == id_treated) %>%
+  select(-pupil_to_qual_unqual_teacher_ratio) %>%
+  arrange(desc(time_period)) %>%
+  mutate(
+    across(all_of(roll.vars), ~ zoo::rollapply(.x, width = rolling.window, mean, align = "left", partial = T), .names = "{col}_roll")
+  ) %>%
+  as.data.frame()
+
+
+lookup <- unique(df_treated[, c("time_period", "time_period_str")])
+
+
+#### CREATE SPAGHETTI PLOT ####
+
+# create data in long format
+df_long <- df_treated %>%
+  tidyr::pivot_longer(
+    cols = -c(laestab, school, time_period, time_period_str, school, urn),
+    names_to = "variable") %>%
+  mutate(category = case_match(variable, 
+                               "pupil_to_qual_teacher_ratio" ~ "Outcome",
+                               "pupil_to_qual_teacher_ratio_roll" ~ "Outcome",
+                               "fte_avg_age" ~ "Teacher age",
+                               "fte_avg_age_roll" ~ "Teacher age",
+                               "pnpupfsm_e" ~ "% pupils FSM",
+                               "pnpupfsm_e_roll" ~ "% pupils FSM"
+  ),
+  roll = case_match(variable, 
+                    "pupil_to_qual_teacher_ratio" ~ "Raw",
+                    "pupil_to_qual_teacher_ratio_roll" ~ "Rolling average",
+                    "fte_avg_age" ~ "Raw",
+                    "fte_avg_age_roll" ~ "Rolling average",
+                    "pnpupfsm_e" ~ "Raw",
+                    "pnpupfsm_e_roll" ~ "Rolling average"
+  )
+  ) %>%
+  as.data.frame()
+
+df_long$category <- factor(df_long$category, levels = c("Outcome", "% pupils FSM", "Teacher age"))
+
+
+# plot timeseries for each variable
+plt <- ggplot(data = df_long, aes(x = time_period, y = value, col = roll, group = interaction(laestab, roll))) +
+  geom_line() + 
+  geom_point() +
+  facet_wrap(~ category, ncol = 1, strip.position = "top", scales = "free_y") +
+  ambition_theme +
+  ylab("Reported value") +
+  xlab("Academic year") +
+  scale_color_manual(
+    breaks = c("Raw", "Rolling average"),
+    values = c("Raw" = red, "Rolling average" = blue)) +
+  scale_x_continuous(breaks = lookup$time_period, labels = lookup$time_period_str) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.title.x = element_blank(), 
+        legend.title = element_blank())
+
+suppressWarnings(print(plt))
+cat("\n\n")  # Add some space between plots
+
+
 ```
 
 
@@ -164,65 +240,86 @@ sd_nat <- mean(desc$sd)
 
 # load in simulated data # 
 
-# determine output filename
-file_name <- file.path(dir, "02_scm", paste0("06_treated_schools_scpi_perm_", gsub(" ", "_", id_name), "_simdata.csv"))
+# determine input filename
+file_name <- file.path(dir, "02_scm", paste0("06_treated_schools_scpi_perm_roll_", gsub(" ", "_", id_name), "_simdata.csv"))
 
 # read in results
-df <- read.csv(file_name)
-lookup <- unique(df[, c("time_period", "time_period_str")])
-df_perm <- df
+df_sim_raw <- read.csv(file_name)
+lookup <- unique(df_sim_raw[, c("time_period", "time_period_str")])
+df_sim_int <- df_sim_raw # create copy to simulate interventions
 
-# Apply decrease
+# Define timeseries
+period.post <- period.simulated # Simulated post-treatment period
+period.avail <- sort(unique(df_sim_int$time_period))
+period.pre <- setdiff(period.avail, period.post) # Pre-treatment period
+
+# apply rolling window average to raw data #
+roll.vars <- c("pupil_to_qual_teacher_ratio")
+
+# apply rolling window average to pre treatment period
+pre <- df_sim_raw %>%
+  filter(time_period %in% period.pre) %>%
+  group_by(laestab) %>%
+  arrange(laestab, desc(time_period)) %>%
+  mutate(
+    across(all_of(roll.vars), ~ zoo::rollapply(.x, width = params$rolling.window, mean, align = "left", partial = T), .names = "{.col}_roll")
+  )
+
+# apply rolling window average to pre treatment period
+post <- df_sim_raw %>%
+  filter(time_period %in% period.post) %>%
+  group_by(laestab) %>%
+  arrange(laestab, desc(time_period)) %>%
+  mutate(
+    across(all_of(roll.vars), ~ zoo::rollapply(.x, width = params$rolling.window, mean, align = "left", partial = T), .names = "{.col}_roll")
+  )
+
+# combine rolled data from time time periods
+df_sim_raw <- bind_rows(pre, post) %>%
+  arrange(laestab, desc(time_period)) %>%
+  as.data.frame()
+
+# Apply decrease #
 if(apply_effects){
+  
+  # create multiplier by substracting the decrease from 1
   multiplier <- 1 - decrease
-  df_perm$pupil_to_qual_teacher_ratio[df_perm$laestab == id_treated & df_perm$time_period %in% simulated_years] <- df_perm$pupil_to_qual_teacher_ratio[df_perm$laestab == id_treated & df_perm$time_period %in% simulated_years] * multiplier
-  
-  # print treated unit and donor pool timeseries #
-  
-  # select columns
-  tmp <- df_perm[, c("laestab", "time_period", "time_period_str", "school", "pupil_to_qual_teacher_ratio")]
-  
-  # create data
-  tmp <- tmp %>%
-    mutate(status = ifelse(laestab == paste(id_treated), id_name, "Donor schools")) %>%
-    tidyr::pivot_longer(
-      cols = -c(laestab, school, time_period, time_period_str, status),
-      names_to = "variable") %>%
-    mutate(variable = case_match(variable, 
-                                 "pupil_to_qual_teacher_ratio" ~ "Outcome",
-                                 "fte_avg_age" ~ "Teacher age",
-                                 "pnpupfsm_e" ~ "% pupils FSM"
-    ))
-  tmp$variable <- factor(tmp$variable, levels = c("Outcome", "% pupils FSM", "Teacher age"))
-  
-  # plot timeseries average for each school
-  cols <- c(navy40, coral)
-  names(cols) <- c("Donor schools", id_name)
-  
-  print(ggplot(data = tmp, aes(x = time_period_str, y = value, col = status, group = laestab)) +
-          geom_line(data = tmp[tmp$status == "Donor schools", ], aes(col = paste("Donor schools"))) + 
-          geom_vline(xintercept = "2023/24", linetype = "dotted") +
-          geom_line(data = tmp[tmp$status == paste(id_name), ], aes(col = paste(id_name)), linewidth =.8) +
-          facet_wrap(~ variable, ncol = 1, strip.position = "top", scales = "free_y") +
-          ambition_theme +
-          scale_color_manual(
-            breaks=c(id_name, "Donor schools"),
-            values=cols) +
-          ylab("Reported value") +
-          theme(axis.text.x = element_text(angle = 45, hjust = 1),
-                axis.title.x = element_blank(), 
-                legend.title = element_blank()))
-  cat("\n\n")
+  # apply decrease to treated unit post-treatment years
+  df_sim_int$pupil_to_qual_teacher_ratio[df_sim_int$laestab == id_treated & df_sim_int$time_period %in% period.simulated] <- 
+    df_sim_int$pupil_to_qual_teacher_ratio[df_sim_int$laestab == id_treated & df_sim_int$time_period %in% period.simulated] * multiplier
   
 }
 
-# Define timeseries
-period.post <- simulated_years # Simulated post-treatment period
-period.avail <- sort(unique(df_perm$time_period))
-period.pre <- setdiff(period.avail, period.post) # Pre-treatment period
+# apply rolling window average to intervention data #
+roll.vars <- c("pupil_to_qual_teacher_ratio")
+
+# apply rolling window average to pre treatment period
+pre <- df_sim_int %>%
+  filter(time_period %in% period.pre) %>%
+  group_by(laestab) %>%
+  arrange(laestab, desc(time_period)) %>%
+  mutate(
+    across(all_of(roll.vars), ~ zoo::rollapply(.x, width = params$rolling.window, mean, align = "left", partial = T))
+  )
+
+# apply rolling window average to pre treatment period
+post <- df_sim_int %>%
+  filter(time_period %in% period.post) %>%
+  group_by(laestab) %>%
+  arrange(laestab, desc(time_period)) %>%
+  mutate(
+    across(all_of(roll.vars), ~ zoo::rollapply(.x, width = params$rolling.window, mean, align = "left", partial = T))
+  )
+
+# combine rolled data from time time periods
+df_sim_int <- bind_rows(pre, post) %>%
+  arrange(laestab, desc(time_period)) %>%
+  as.data.frame()
+
+
 
 # determine ids of control schools
-id_cont <- unique(df$laestab[df$laestab != id_treated])
+id_cont <- unique(df_sim_int$laestab[df_sim_int$laestab != id_treated])
 
 unit.tr <- id_treated # Treated unit (in terms of id.var)
 unit.co <- id_cont # Donors pool
@@ -233,7 +330,7 @@ cov.adj<- params$cov.adj
 
 ####################################
 ### Data preparation
-scdata.out <- scdata(df = df_perm, 
+scdata.out <- scdata(df = df_sim_int, 
                      id.var = id.var, 
                      time.var = time.var,
                      outcome.var = outcome.var,
@@ -252,6 +349,46 @@ scest.out <- scest(data = scdata.out,
 
 # plot timeseries
 if(apply_effects){
+  
+  # print treated unit and donor pool timeseries #
+  
+  # select columns
+  tmp <- df_sim_int[, c("laestab", "time_period", "time_period_str", "school", "pupil_to_qual_teacher_ratio")]
+  
+  # create data
+  tmp <- tmp %>%
+    mutate(status = ifelse(laestab == paste(id_treated), id_name, "Donor schools")) %>%
+    tidyr::pivot_longer(
+      cols = -c(laestab, school, time_period, time_period_str, status),
+      names_to = "variable") %>%
+    mutate(variable = case_match(variable, 
+                                 "pupil_to_qual_teacher_ratio" ~ "Outcome",
+                                 "fte_avg_age" ~ "Teacher age",
+                                 "pnpupfsm_e" ~ "% pupils FSM"
+    ))
+  tmp$variable <- factor(tmp$variable, levels = c("Outcome", "% pupils FSM", "Teacher age"))
+  
+  # plot timeseries for each school
+  cols <- c(navy40, coral)
+  names(cols) <- c("Donor schools", id_name)
+  
+  print(ggplot(data = tmp, aes(x = time_period, y = value, col = status, group = laestab)) +
+          geom_line(data = tmp[tmp$status == "Donor schools", ], aes(col = paste("Donor schools"))) + 
+          geom_vline(xintercept = period.pre[length(period.pre)]+0.5, linetype = "dotted") +
+          geom_line(data = tmp[tmp$status == paste(id_name), ], aes(col = paste(id_name)), linewidth =.8) +
+          facet_wrap(~ variable, ncol = 1, strip.position = "top", scales = "free_y") +
+          ambition_theme +
+          scale_x_continuous(breaks = lookup$time_period, labels = lookup$time_period_str) +
+          scale_color_manual(
+            breaks=c(id_name, "Donor schools"),
+            values=cols) +
+          ylab("Reported value") +
+          theme(axis.text.x = element_text(angle = 45, hjust = 1),
+                axis.title.x = element_blank(), 
+                legend.title = element_blank()))
+  cat("\n\n")
+  
+
   # print treated and synthetic units
   print(scplot(result = scest.out, plot.range = period.avail,
                label.xy = list(x.lab = "Start of academic year", y.lab = "Ratio of pupils to qualified teachers")))
@@ -367,16 +504,17 @@ cat("\n\n")
 
 ```{r placebo, eval=FALSE, include=F}
 
-# determine output filename
-file_name <- file.path(dir, "02_scm", paste0("06_treated_schools_scpi_perm_", gsub(" ", "_", id_name), "_decrease_", decrease, ".csv"))
+# process data from placebo runs #
+
+# determine input filename
+file_name <- file.path(dir, "02_scm", paste0("06_treated_schools_scpi_perm_roll_", gsub(" ", "_", id_name), "_", setting, "_decrease_", decrease, ".csv"))
 
 # read in results
 storegaps <- read.csv(file_name)
 names(storegaps)[1] <- "time_period"
 names(storegaps) <- gsub("X", "", names(storegaps))
 
-# compute ratio of post-reunification RMSPE 
-# to pre-reunification RMSPE                                                  
+# compute ratio of post-treatment RMSPE To pre-treatment RMSPE                                                  
 rmspe <- function(x){sqrt(mean(x^2))}
 
 preloss <- apply(storegaps[1:length(period.pre), -1], 2, rmspe)
@@ -398,14 +536,14 @@ cutoff_thresh5 <- quantile(perm_results$ratio[perm_results$thresh5 == T], 0.95)
 
 # Plot the permutation test results
 plt <- ggplot(perm_results, aes(x = ratio)) +
-        geom_histogram(data = perm_results[perm_results$thresh5 == T, ], aes(x = ratio), fill = navy40, boundary = 0) +
-        geom_vline(aes(xintercept = observed_statistic), colour = red, linetype = "dashed", linewidth = 1) +
-        geom_vline(aes(xintercept = cutoff_value), colour = blue, linewidth = 1) +
-        labs(title = "Permutation test results",
-             x = "Ratio (post-period RMSPE / pre-period RMSPE)",
-             y = "Frequency",
-             caption = "red - observed ratio in the treated unit; blue - 5% cut-off.") +
-        ambition_theme + theme(plot.caption = element_text(size = 8, face = "plain", hjust = 1))
+  geom_histogram(data = perm_results[perm_results$thresh5 == T, ], aes(x = ratio), fill = navy40, boundary = 0) +
+  geom_vline(aes(xintercept = observed_statistic), colour = red, linetype = "dashed", linewidth = 1) +
+  geom_vline(aes(xintercept = cutoff_value), colour = blue, linewidth = 1) +
+  labs(title = "Permutation test results",
+       x = "Ratio (post-period RMSPE / pre-period RMSPE)",
+       y = "Frequency",
+       caption = "red - observed ratio in the treated unit; blue - 5% cut-off.") +
+  ambition_theme + theme(plot.caption = element_text(size = 8, face = "plain", hjust = 1))
 if (n_ill > 0) {
   plt <- plt + 
     geom_histogram(data = perm_results[perm_results$thresh5 == F, ], aes(x = ratio), fill = navy, boundary = 0) +
@@ -444,7 +582,7 @@ df_gaps <- as.data.frame(storegaps) %>%
 print(ggplot(data = df_gaps, aes(x = time_period, y = pupil_to_qual_teacher_ratio, group = laestab)) +
         geom_line(data = df_gaps[!df_gaps$idx_treat & df_gaps$thresh5, ], aes(col = "Donor schools")) +
         geom_line(data = df_gaps[!df_gaps$idx_treat & !df_gaps$thresh5, ], aes(col = "Donor schools (ill fitted)")) +
-        geom_vline(xintercept = 2023, linetype = "dotted") +
+        geom_vline(xintercept = period.pre[length(period.pre)]+0.5, linetype = "dotted") +
         geom_hline(yintercept = 0, linetype = "dotted") +
         geom_line(data = df_gaps[df_gaps$idx_treat,], aes(col = "Treated school"), linewidth = .8) +
         ambition_theme +
@@ -460,15 +598,17 @@ print(ggplot(data = df_gaps, aes(x = time_period, y = pupil_to_qual_teacher_rati
         scale_x_continuous(breaks = lookup$time_period, labels = lookup$time_period_str))
 cat("\n\n")
 
-# compute pre-timeseries stats
-sd_pre <- sd(df$pupil_to_qual_teacher_ratio[df$laestab == id_treated & ! df$time_period %in% simulated_years])
+# extract metrics #
 
-# compute simulated data stats
-mean_base <- mean(df$pupil_to_qual_teacher_ratio[df$laestab == id_treated & df$time_period %in% simulated_years])
-mean_eff <- mean(df_perm$pupil_to_qual_teacher_ratio[df_perm$laestab == id_treated & df_perm$time_period %in% simulated_years])
+# compute pre-timeseries stats (AFTER SMOOTHING WAS APPLIED)
+sd_pre <- sd(df_sim_raw$pupil_to_qual_teacher_ratio_roll[df_sim_raw$laestab == id_treated & ! df_sim_raw$time_period %in% period.simulated])
+
+# compute simulated data stats (AFTER SMOOTHING WAS APPLIED)
+mean_pre <- mean(df_sim_raw$pupil_to_qual_teacher_ratio_roll[df_sim_raw$laestab == id_treated & df_sim_raw$time_period %in% period.simulated])
+mean_eff <- mean(df_sim_int$pupil_to_qual_teacher_ratio[df_sim_int$laestab == id_treated & df_sim_int$time_period %in% period.simulated])
 
 # effect in absolute terms
-eff_abs <- mean_base - mean_eff
+eff_abs <- mean_pre - mean_eff
 
 # effect in SD of pretreatment timeseries
 eff_sd <- eff_abs / sd_pre
@@ -481,10 +621,11 @@ eff_sd_nat <- eff_abs / sd_nat
 out <- data.frame(
   laestab = id_treated,
   school = id_name,
+  transform = setting,
   n_donors = ncol(storegaps)-1,
   reduction = decrease,
   sd_pre = sd_pre,
-  mean_base = mean_base,
+  mean_pre = mean_pre,
   mean_eff = mean_eff,
   eff_abs = eff_abs,
   eff_sd = eff_sd,
@@ -497,7 +638,7 @@ out <- data.frame(
   n_ill = n_ill
 )
 
-if (decrease == 0) {
+if (j == 1 & decrease == 0) {
   df_out <- out
 } else {
   df_out <- rbind(df_out, out)
@@ -516,7 +657,12 @@ info <- list(
        cov.adj = list(c("constant")),
        region.filter = "same",
        sd.range = NULL),
-  # Dixon Music primary - EXCLUDED
+  # Dixon Music primary
+  list(school = "Dixons Music Primary",
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
+       cov.adj = list(c("constant")),
+       region.filter = "same",
+       sd.range = 50),
   # Marchbank Primary
   list(school = "Dixons Marchbank Primary",
        features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
@@ -526,41 +672,51 @@ info <- list(
   # Manningham Academy
   list(school = "Dixons Manningham Academy",
        features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
-       cov.adj = NULL,
+       cov.adj = list(c("trend")),
        region.filter = "same",
-       sd.range = 100),
+       sd.range = 50),
   # Kings Academy
   list(school = "Dixons Kings Academy",
        features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
-       cov.adj = list(c("constant", "trend")),
+       cov.adj = list(c("constant")),
        region.filter = "same",
        sd.range = NULL),
-  # # Dixons Trinity Academy - EXCLUDED
+  # Dixons Trinity Academy
+  list(school = "Dixons Trinity Academy",
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
+       cov.adj = list(c("constant")),
+       region.filter = "same",
+       sd.range = NULL),
   # McMillan Academy
   list(school = "Dixons McMillan Academy",
        features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
-       cov.adj = list(c("constant")),
+       cov.adj = NULL,
        region.filter = "same",
        sd.range = NULL),
   # Cottingley Academy
   list(school = "Dixons Cottingley Academy",
        features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
-       cov.adj = list(c("constant")),
+       cov.adj = list(c("trend")),
        region.filter = "same",
        sd.range = NULL),
   # City Academy
   list(school = "Dixons City Academy",
        features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
-       cov.adj = NULL,
+       cov.adj = list(c("constant")),
        region.filter = c("same","neighbouring"),
-       sd.range = NULL),
-  # Dixons Unity Academy - EXCLUDE
-  # Highcrest Academy
-  list(school = "The Highcrest Academy",
+       sd.range = 100),
+  # Dixons Unity Academy
+  list(school = "Dixons City Academy",
        features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
        cov.adj = list(c("constant")),
        region.filter = "same",
-       sd.range = NULL)
+       sd.range = NULL),
+  # Highcrest Academy
+  list(school = "The Highcrest Academy",
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       cov.adj = list(c("constant")),
+       region.filter = c("same","neighbouring"),
+       sd.range = 100)
 )
 
 ### Process data ###
@@ -572,15 +728,24 @@ outcome.var <- "pupil_to_qual_teacher_ratio" # Dependent variable
 
 w.constr <- list(name = "simplex") # use canonical SC
 
-simulated_years <- 2024:2026
+period.simulated <- 2024:2026
+
+# specify windows
+preproc <- c("raw", "roll")
+caption <- c("Raw timeseries as input", "Smoothed timeseries as input")
+window <- c(1, 2)
 
 # specify increments for decrease
 increments <- seq(.00, .1, 0.01)
 
+i = 1 # debug
+j = 2 # debug
+k = 1 # debug
+
 for (i in 1:length(info)) {
   
   # get best parameter for given school
-  # i = 3 # debug
+  # i = 1 # debug
   params <- info[[i]]
   
   # define id_treated
@@ -602,44 +767,89 @@ for (i in 1:length(info)) {
   cat("Local authority:", est_treated$la_name, "\n\n")
   cat("Region:", est_treated$gor_name, "\n\n")
   
-  # prepare data and estimate scm
-  apply_effects <- FALSE
-  <<est>>
-    # inspect results
-    <<res>> 
+  # Plot data
+  <<plot_ts>>
+  
+  
+  for (j in 1:length(preproc)) {
     
-    for (decrease in increments) {
-      
+    cat("##", caption[j],"\n\n")
+    
+    setting = preproc[j]
+    params$rolling.window = window[j]
+    
+    
+    # show params in markdown
+    kbl(sapply(params, paste, collapse = " + "), col.names = NULL) %>%
+      kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>%
+      print()
+    cat("\n")
+    
+    for (k in 1:length(increments)) {
+
+      decrease = increments[k]
       # decrease = increments[1] # debug
       
-      # run grid search
-      cat("#### SCM for simulated data -", decrease * 100, "% decrease in ratio \n\n")
+      if (decrease == 0) {
+        
+        cat("### SCM for pre-treatment data \n\n")
+        
+        
+        # prepare data and estimate scm
+        apply_effects <- FALSE
+        <<est>>
+          # inspect results
+          <<res>> 
+          
+          cat("### SCM for simulated data \n\n")
+        
+        
+      }
+      
+      # simulated data
+      cat("#### ", decrease * 100, "% decrease in ratio \n\n")
+      
       # prepare data and estimate scm
-      apply_effects <- TRUE
-      <<est>>
-        
-        # permutation testing
-        <<placebo>>
-        
-    }
+        apply_effects <- TRUE
+        <<est>>
+          
+          # permutation testing
+          <<placebo>>
+          
+      }
+        # show output
+  cat("### Power analysis \n\n")
   
-  # show output
-  cat("## Power analysis \n\n")
+  #df_out <- read.csv(file = file.path(dir, "02_scm", "07_treated_schools_scpi_perm_roll_result_St_Peter's_Catholic_School.csv")) # debug
   
-  # df_out <- read.csv(file = "02_scm/07_treated_schools_scpi_perm_result_St_Peter's_Catholic_School.csv") # debug
-  
-  
-  kbl(df_out[, -c(grep("laestab|school|pre|mean_base|donor|ill", names(df_out)))], digits = 3, row.names = F, caption = paste(id_name)) %>%
+  tmp <- df_out[df_out$transform == setting, ]
+
+  kbl(tmp[, -c(grep("laestab|school|pre|donor|ill", names(tmp)))], digits = 3, row.names = F, caption = paste(id_name)) %>%
     kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>%
-    row_spec(which(df_out$prob_all < .05), bold = T) %>%
+    row_spec(which(tmp$prob_all < .05), bold = T) %>%
     add_footnote(c(
-      paste("N =", unique(df_out$n_donors), "donor schools were used for permutation testing. There were N = " , n_ill, "ill-fitted placebo runs."),
-      paste0("The pre-treatment outcome timeseries of the treated school has an SD = ", round(unique(df_out$sd_pre), 3), " and an RMSPE = ", round(unique(df_out$rmspe_pre), 3), "."),
-      paste0("The simulated post-treatment outcome timeseries of the treated school has a mean of = ", round(unique(df_out$mean_base), 3), " before applying any effects."),
+      paste("N =", unique(tmp$n_donors), "donor schools were used for permutation testing. There were N = " , n_ill, "ill-fitted placebo runs."),
+      paste0("The pre-treatment outcome timeseries of the treated school has an SD = ", round(unique(tmp$sd_pre), 3), " and an RMSPE = ", round(unique(tmp$rmspe_pre), 3), "."),
+      paste0("The simulated post-treatment outcome timeseries of the treated school has a mean of = ", round(unique(tmp$mean_pre), 3), " before applying any effects."),
       paste0("The pre-treatment outcome timeseries at national level has an SD = ", round(unique(sd_nat), 3), "."),
       "Bold indicates that the probability of obtaining such a ratio at random is below 0.05.")) %>%
     print()
   cat("\n\n")
+
+  #   kbl(df_out[, -c(grep("laestab|school|pre|donor|ill", names(df_out)))], digits = 3, row.names = F, caption = paste(id_name)) %>%
+  #   kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>%
+  #   row_spec(which(df_out$prob_all < .05), bold = T) %>%
+  #   add_footnote(c(
+  #     paste("N =", unique(df_out$n_donors), "donor schools were used for permutation testing. There were N = " , n_ill, "ill-fitted placebo runs."),
+  #     paste0("The pre-treatment outcome timeseries of the treated school has an SD = ", round(unique(df_out$sd_pre), 3), " and an RMSPE = ", round(unique(df_out$rmspe_pre), 3), "."),
+  #     paste0("The simulated post-treatment outcome timeseries of the treated school has a mean of = ", round(unique(df_out$mean_pre), 3), " before applying any effects."),
+  #     paste0("The pre-treatment outcome timeseries at national level has an SD = ", round(unique(sd_nat), 3), "."),
+  #     "Bold indicates that the probability of obtaining such a ratio at random is below 0.05.")) %>%
+  #   print()
+  # cat("\n\n")
+
+    }
+  
   
   # determine output filename
   file_name <- file.path(dir, "02_scm", paste0(file_stem, "_", gsub(" ", "_", id_name), ".csv"))
