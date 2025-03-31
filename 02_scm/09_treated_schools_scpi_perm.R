@@ -14,7 +14,8 @@ library(kableExtra)
 library(dplyr)
 library(data.table)
 library(scpi)
-library(lme4)
+library(foreach)
+library(doParallel)
 
 # create function to source code
 source_code <- function(root_dir_name = "code", target_repo = "helper_functions", branch = "main", file_name = "file.R") {
@@ -178,14 +179,12 @@ w.constr <- list(name = "simplex") # use canonical SC
 #### RUN PERMUTATION IN LOOP ####
 
 # specify increments for decrease
-increments <- seq(.00, .1, 0.02)
-increments <- seq(.01, .09, 0.02)
-
+increments <- seq(.00, .1, 0.01)
 
 run_placebo <- TRUE
 
 sim = 1
-n_sim = 10
+n_sim = 100
 
 # Set options for data preparation
 id.var <- "laestab" # ID variable
@@ -254,8 +253,11 @@ for (i in 1:length(info)) {
   period.avail <- sort(unique(df_sim_raw$time_period))
   period.pre <- setdiff(period.avail, period.post) # Pre-treatment period
   
-  # for each data simultion
+  # for each data simulation
   for (s in sim:n_sim) {
+    
+    # simulate effects (i.e., decrease in pupil-to-teacher ratio)
+    for (k in 1:length(increments)) {
     
     # create copy to simulate interventions
     df_sim_int <- df_sim_raw %>%
@@ -267,20 +269,18 @@ for (i in 1:length(info)) {
       arrange(laestab, time_period) %>%
       as.data.frame()
     
-    # simulate effects (i.e., decrease in pupil-to-teacher ratio)
-    for (k in 1:length(increments)) {
-      
-      decrease = increments[k]      
-      multiplier <- 1 - decrease
-      
-      df_sim_int <- df_sim_int %>%
-        # Apply decrease
-        mutate(sim_eff = ifelse(laestab == id_treated, sim*multiplier, sim)) %>%
-        # replace NAs with simulated values
-        mutate(pupil_to_qual_teacher_ratio = ifelse(is.na(pupil_to_qual_teacher_ratio), sim_eff, pupil_to_qual_teacher_ratio)) %>%
-        arrange(laestab, time_period) %>%
-        as.data.frame()
-      
+    # determine multiplier
+    decrease = increments[k]      
+    multiplier <- 1 - decrease
+    
+    df_sim_int <- df_sim_int %>%
+      # Apply decrease
+      mutate(sim_eff = ifelse(laestab == id_treated, sim*multiplier, sim)) %>%
+      # replace NAs with simulated values
+      mutate(pupil_to_qual_teacher_ratio = ifelse(is.na(pupil_to_qual_teacher_ratio), sim_eff, pupil_to_qual_teacher_ratio)) %>%
+      arrange(laestab, time_period) %>%
+      as.data.frame()
+    
       if (run_placebo) {
         
         start.time <- Sys.time()
@@ -291,17 +291,27 @@ for (i in 1:length(info)) {
         # store all schools in a vector
         units <- unique(df$laestab)
         
-        # create struture to hold results
-        storegaps <- 
-          matrix(NA,
-                 length(period.avail), # rows
-                 length(units) # columns
-          )
-        rownames(storegaps) <- period.avail
-        colnames(storegaps) <- units
+        # # create struture to hold results
+        # storegaps <- 
+        #   matrix(NA,
+        #          length(period.avail), # rows
+        #          length(units) # columns
+        #   )
+        # rownames(storegaps) <- period.avail
+        # colnames(storegaps) <- units
         
-        # loop over all units in the donor pool (incl. treated schools)
-        for(ii in 1:length(units)){
+        # Determine number of cores to use
+        totalCores <- detectCores(logical = FALSE)
+        # Use 75% of available cores to avoid overloading the system
+        cl <- makeCluster(floor(0.75 * totalCores))
+        registerDoParallel(cl)
+        
+        # # loop over all units in the donor pool (incl. treated schools)
+        # for(ii in 1:length(units)){
+        
+        # Parallelize the loop over all units in the donor pool
+        storegaps <- foreach(ii = 1:length(units), .combine = 'cbind', .packages = 'scpi') %dopar% {
+          
           
           unit <- units[ii]
           
@@ -338,10 +348,20 @@ for (i in 1:length(info)) {
           synthetic_post <- scest.out$est.results$Y.post.fit
           gap_post <- actual_post - synthetic_post # compute gap as difference between both
           
-          # store in matrix
-          storegaps[,ii] <- c(gap_pre, gap_post)
+          # # store in matrix
+          # storegaps[,ii] <- c(gap_pre, gap_post)
+          
+          # Return a vector of gaps
+          c(gap_pre, gap_post)
           
         } # close loop over control units
+        
+        # Set row and column names for the resulting matrix
+        rownames(storegaps) <- period.avail
+        colnames(storegaps) <- units
+        
+        # Stop the cluster when done
+        stopCluster(cl)
         
         # Save results
         write.csv(storegaps, file = file_name)
