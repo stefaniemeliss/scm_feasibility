@@ -353,6 +353,32 @@ plt <- ggplot(data = tmp_long, aes(x = x_position, y = rmspe, group = it)) +
 print(plt)
 cat("\n\n")
 
+plt <- ggplot(data = tmp_long[tmp_long$roll_w == "Raw IV", ], aes(x = x_position, y = rmspe, group = it)) +
+  geom_hline(data = function(y) y %>% group_by(feat_dv, adj, pretreat, region, sd) %>% summarise(sd_treated = unique(sd_treated), .groups = 'drop'),
+             aes(yintercept = sd_treated),color = black40, linetype = "dashed") +
+  geom_point(aes(colour = method), size = 1) +
+  geom_line(aes(colour = method)) +
+  scale_x_continuous(
+    breaks = unique(tmp_long$data_numeric),
+    labels = unique(tmp_long$data)
+  ) +
+  ggh4x::facet_grid2(cols = vars(feat_dv, adj), rows = vars(pretreat, region, sd), strip = ggh4x::strip_nested()) +
+  ambition_theme +
+  theme(strip.text = element_text(size = 10),
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 10),
+        axis.title = element_text(size = 10),
+        axis.text = element_text(size = 10),
+        #axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        plot.caption = element_text(size = 10),
+        legend.margin=margin(t = -8)) +
+  ylab("Root Mean Squared Prediction Error (RMSPE)") +
+  xlab("Cross-validation fold") +
+  guides(colour = guide_legend(title = "Weight constraint")) +
+  scale_colour_manual(values = ambition_palette_bright)
+print(plt)
+cat("\n\n")
+
 
 ```
 
