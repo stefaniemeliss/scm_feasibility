@@ -1419,3 +1419,294 @@ process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("
   # Return invisible to suppress output but still allow assignment if desired
   invisible(list(df = df, df_avg = df_avg, df_treat = df_treat, df_donor = df_donor, MATs = MATs))
 }
+
+# Create function to run grid search
+grid_search_scpi_mat <- function(param_grid, cv = FALSE) {
+  
+  # Define default values for parameters
+  default_values <- data.frame(
+    id.var = "group_uid", # ID variable
+    time.var = "time_period", # Time variable
+    period.pre = I(list(2014:2023)), # Pre-treatment period
+    period.post = I(list(2024)), # Post-treatment period
+    outcome.var = "pupil_to_qual_teacher_ratio", # Outcome variable
+    unit.tr = uid_treated, # Treated unit (in terms of id.var)
+    unit.co = NA, # Donors pool
+    features = I(list(NULL)), # No features other than outcome
+    cov.adj = I(list(NULL)), # Covariates for adjustment
+    cointegrated.data = FALSE, # don't belief that the data are cointegrated
+    anticipation = 0, # No anticipation
+    constant = FALSE, # No constant term
+    stringsAsFactors = FALSE
+  )
+  
+  
+  run_scm <- function(df, params) {
+    
+    # debug
+    # params <- param_grid[2158 , ]
+    # params <- param_grid[i , ]
+    # row.names(params) <- 1
+    
+    # Merge with parameters in grid
+    tmp <- default_values[, setdiff(names(default_values), names(params))]
+    params <- merge(params, tmp, by = 0)
+    
+    # Convert "NULL" string to actual NULL
+    swf.filter.param <- if(params$swf.filter == "NULL") NULL else unlist(params$swf.filter)
+    params$swf.filter <- unlist(params$swf.filter)
+    
+    # run processing with the parameters
+    data <- tryCatch({
+      process_data_scm_mat(uid_treated = uid_treated, 
+                           target_regions = unlist(params$regions), 
+                           min_years_obs = params$min.years.obs,
+                           min_schools_per_mat = params$min.schools.per.mat,
+                           min_schools_per_timeperiod = params$min.schools.per.timeperiod,
+                           swf_filter = swf.filter.param)
+    }, error = function(e) {
+      return(list(error = paste("Error in process_data_scm_mat:", e$message)))
+    })
+    
+    
+    # Apply more filtering
+    tmp <- data$MATs
+    tmp$multiple_phases <- grepl(" | ", tmp$phase, fixed = T)
+    tmp$multiple_gor <- grepl(" | ", tmp$gor, fixed = T)
+    tmp <- create_element_columns(tmp, "gor")
+    tmp <- tmp[! tmp$group_uid %in% uid_treated, ]
+    if (params$exclude.single.phase) tmp <- tmp[tmp$multiple_phases, ]
+    if (params$exclude.northwest) tmp <- tmp[! (tmp$multiple_gor == F & tmp$gor_north_west == T), ]
+    
+    
+    # determine ids of control schools
+    id_cont <- unique(tmp$group_uid[tmp$group_uid != uid_treated])
+    params$unit.co = I(list(id_cont)) # update Donors pool
+    
+    # make sure that weight contraints are defined
+    if(! "w.constr" %in% names(params)) {
+      params$w.constr <- I(list(list(name = "simplex")))
+      params$w.constr.str <- NA
+    }
+    
+    scdata.out <- tryCatch({
+      # data preparation
+      scdata(df = data$df_avg, 
+             id.var = params$id.var, 
+             time.var = params$time.var, 
+             outcome.var = params$outcome.var, 
+             period.pre = params$period.pre[[1]], 
+             period.post = params$period.post[[1]], 
+             unit.tr = params$unit.tr[[1]], 
+             unit.co = params$unit.co[[1]], 
+             features = params$features[[1]], 
+             cov.adj = params$cov.adj[[1]], 
+             cointegrated.data = params$cointegrated.data[[1]], 
+             anticipation = params$anticipation[[1]], 
+             constant = params$constant[[1]], 
+             verbose = T)
+    }, error = function(e) {
+      return(list(error = paste("Error in scdata:", e$message)))
+    })
+    
+    if (is.list(scdata.out) && "error" %in% names(scdata.out)) {
+      return(list(status = scdata.out$error,
+                  n_pool = length(id_cont),
+                  n_active = NA, 
+                  sd_treated = sd(data$df_avg[data$df_avg$group_uid == uid_treated & data$df_avg$time_period %in% params$period.pre[[1]], params$outcome.var], na.rm = T), 
+                  m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
+                  rmspe_pre = NA, mspe_pre = NA, mae_pre = NA, 
+                  rmspe_post = NA, mspe_post = NA, mae_post = NA,
+                  rmspe = NA, mspe = NA, mae = NA,
+                  params = params))
+    } else { 
+      n_pool <- length(scdata.out$specs$donors.units)
+    }
+    
+    scest.out <- tryCatch({
+      # estimate synthetic control
+      scest(data = scdata.out, 
+            w.constr = params$w.constr[[1]]
+      )
+      
+    }, error = function(e) {
+      return(list(error = paste("Error in scest:", e$message)))
+    })
+    
+    if (is.list(scest.out) && !is.null(scest.out$error)) {
+      # save info on weight constraints
+      w.constr <- params$w.constr[[1]]
+      
+      if (!"name" %in% names(w.constr)) {
+        w.constr[["name"]] <- "user provided"
+      }
+      
+      # format weight constraints as string
+      w.constr <- w.constr[c("name", "p", "lb", "Q", "dir")]
+      w.constr <- paste(names(w.constr), w.constr, sep = " = ", collapse = "; " )
+      # add to params
+      params$w.constr.str <- w.constr
+      
+      return(list(status = scest.out$error,
+                  n_pool = length(id_cont),
+                  n_active = NA, 
+                  sd_treated = sd(data$df_avg[data$df_avg$group_uid == uid_treated & data$df_avg$time_period %in% params$period.pre[[1]], params$outcome.var], na.rm = T), 
+                  m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
+                  rmspe_pre = NA, mspe_pre = NA, mae_pre = NA, 
+                  rmspe_post = NA, mspe_post = NA, mae_post = NA,
+                  rmspe = NA, mspe = NA, mae = NA,
+                  params = params))
+    } else {
+      # save info on weight constraints
+      w.constr <- scest.out$est.results$w.constr
+      # format weight constraints as string
+      w.constr <- w.constr[c("name", "p", "lb", "Q", "dir")]
+      w.constr <- paste(names(w.constr), w.constr, sep = " = ", collapse = "; " )
+      # add to params
+      params$w.constr.str <- w.constr
+      
+      # save information on number of active donors
+      Weights    <- round(scest.out$est.results$w, digits = 3)
+      n_active  <- sum(abs(Weights) > 0)
+    }
+    
+    # Extract the actual and synthetic control outcomes for all years - PRE
+    actual_pre <- scest.out$data$Y.pre
+    synthetic_pre <- scest.out$est.results$Y.pre.fit
+    gap_pre <- actual_pre - synthetic_pre # compute gap as difference between both
+    
+    # Compute fit - PRE
+    rmspe_pre <- sqrt(mean((gap_pre)^2, na.rm = TRUE))
+    mspe_pre <- mean((gap_pre)^2, na.rm = TRUE)
+    mae_pre <- mean(abs(gap_pre), na.rm = TRUE)
+    
+    if (cv) {
+      
+      # Extract the actual and synthetic control outcomes for all years - POST
+      actual_post <- scest.out$data$Y.post
+      synthetic_post <- scest.out$est.results$Y.post.fit
+      gap_post <- actual_post - synthetic_post # compute gap as difference between both
+      
+      # Compute fit - POST
+      rmspe_post <- sqrt(mean((gap_post)^2, na.rm = TRUE))
+      mspe_post <- mean((gap_post)^2, na.rm = TRUE)
+      mae_post <- mean(abs(gap_post), na.rm = TRUE)
+      
+      # Compute fit - whole TS
+      rmspe <- sqrt(mean((c(gap_pre, gap_post))^2, na.rm = TRUE))
+      mspe <- mean((c(gap_pre, gap_post))^2, na.rm = TRUE)
+      mae <- mean(abs(c(gap_pre, gap_post)), na.rm = TRUE)
+      
+      rm(actual_post, synthetic_post, gap_post)
+      
+    } else {
+      
+      # set NA for fit - POST
+      rmspe_post <- NA
+      mspe_post <- NA
+      mae_post <- NA 
+      
+      # set NA for fit - whole TS
+      rmspe <- NA
+      mspe <- NA
+      mae <- NA 
+      
+    }
+    
+    
+    # compute performance parameters
+    sd_treated <- sd(actual_pre, na.rm = TRUE)
+    m_gap <- mean(gap_pre, na.rm = TRUE)
+    sd_gap <- sd(gap_pre, na.rm = TRUE)
+    min_gap <- min(gap_pre, na.rm = TRUE)
+    max_gap <- max(gap_pre, na.rm = TRUE)
+    cor <- cor(actual_pre, synthetic_pre)[1]
+    
+    rm(actual_pre, synthetic_pre, gap_pre)
+    
+    return(list(status = "scest() completed",
+                n_pool = n_pool,
+                n_active = n_active, 
+                sd_treated = sd_treated, 
+                m_gap = m_gap, sd_gap = sd_gap, min_gap = min_gap, max_gap = max_gap, cor = cor,
+                rmspe_pre = rmspe_pre, mspe_pre = mspe_pre, mae_pre = mae_pre, 
+                rmspe_post = rmspe_post, mspe_post = mspe_post, mae_post = mae_post, 
+                rmspe = rmspe, mspe = mspe, mae = mae, 
+                params = params))
+    
+  }
+  
+  # Perform grid search without parallel processing
+  results <- do.call(rbind, lapply(1:nrow(param_grid), function(i) {
+    message(i)
+    params <- param_grid[i, ]
+    row.names(params) <- 1
+    
+    result <- tryCatch({
+      run_scm(df, params)
+    }, error = function(e) {
+      return(list(status=paste("Error in run_scm:", e$message),
+                  n_pool = length(id_cont),
+                  n_active = NA, 
+                  sd_treated = sd(data$df_avg[data$df_avg$group_uid == uid_treated & data$df_avg$time_period %in% params$period.pre[[1]], params$outcome.var], na.rm = T), 
+                  m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
+                  rmspe_pre = NA, mspe_pre = NA, mae_pre = NA,
+                  rmspe_post = NA, mspe_post = NA, mae_post = NA,
+                  rmspe = NA, mspe = NA, mae = NA,
+                  params = params))
+    })
+    
+    # Create a list to store the results
+    result_list <- list(
+      outcome.var = ifelse(!is.null(result$params$outcome.var[[1]]), paste(result$params$outcome.var[[1]], collapse = ", "), NA),
+      features = ifelse(!is.null(result$params$features[[1]]), paste(result$params$features[[1]], collapse = ", "), NA),
+      cov.adj = ifelse(!is.null(result$params$cov.adj[[1]]),
+                       paste(sapply(result$params$cov.adj[[1]], function(x) paste(x, collapse = ", ")), collapse = "; \n"),
+                       NA),
+      
+      regions = ifelse(!is.null(result$params$regions[[1]]), paste(result$params$regions[[1]], collapse = ", "), NA),
+      exclude.single.phase = ifelse(!is.null(result$params$exclude.single.phase), result$params$exclude.single.phase, NA),
+      exclude.northwest = ifelse(!is.null(result$params$exclude.northwest), result$params$exclude.northwest, NA),
+      min.years.obs = ifelse(!is.null(result$params$min.years.obs), result$params$min.years.obs, NA),
+      min.schools.per.mat = ifelse(!is.null(result$params$min.schools.per.mat), result$params$min.schools.per.mat, NA),
+      min.schools.per.timeperiod = ifelse(!is.null(result$params$min.schools.per.timeperiod), result$params$min.schools.per.timeperiod, NA),
+      
+      period.pre = ifelse(!is.null(result$params$period.pre[[1]]),
+                          paste(result$params$period.pre[[1]], collapse = ", "),
+                          NA),
+      period.post = ifelse(!is.null(result$params$period.post[[1]]),
+                           paste(result$params$period.post[[1]], collapse = ", "),
+                           NA),
+      w.constr = ifelse(!is.null(result$params$w.constr[[1]]), result$params$w.constr.str, NA),
+      cointegrated.data = ifelse(!is.null(result$params$cointegrated.data), result$params$cointegrated.data, NA),
+      anticipation = ifelse(!is.null(result$params$anticipation), result$params$anticipation, NA),
+      constant = ifelse(!is.null(result$params$constant), result$params$constant, NA),
+      status = ifelse(is.null(result$status), "run_scm() completed", result$status),
+      n_pool = result$n_pool,
+      n_active = result$n_active,
+      sd_treated = result$sd_treated,
+      m_gap = result$m_gap,
+      sd_gap = result$sd_gap,
+      min_gap = result$min_gap,
+      max_gap = result$max_gap,
+      cor = result$cor,
+      rmspe_pre = result$rmspe_pre,
+      mspe_pre = result$mspe_pre,
+      mae_pre = result$mae_pre,
+      rmspe_post = result$rmspe_post,
+      mspe_post = result$mspe_post,
+      mae_post = result$mae_post,
+      rmspe = result$rmspe,
+      mspe = result$mspe,
+      mae = result$mae
+    )
+    
+    # Convert the list to a data frame
+    result_df <- as.data.frame(result_list, stringsAsFactors = FALSE)
+    
+    return(result_df)
+  }))
+  
+  return(results)
+}
+
