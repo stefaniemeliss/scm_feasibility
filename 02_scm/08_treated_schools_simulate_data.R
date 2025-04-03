@@ -13,7 +13,6 @@ set.seed(202324)
 library(kableExtra)
 library(dplyr)
 library(data.table)
-library(scpi)
 library(lme4)
 
 # create function to source code
@@ -86,7 +85,8 @@ summary <- subset(summary, n_pool >= 50)
 
 # save laestab numbers
 list_laestab_treated <- unique(summary$laestab)
-list_laestab_treated <- list_laestab_treated[1] # focus on St. Peters for now
+# list_laestab_treated <- list_laestab_treated[1] # focus on St. Peters for now
+list_laestab_treated <- list_laestab_treated[c(1, 3, 4, 9)] # focus on St. Peters, Marchbank Primary, Manningham Academy and City for now
 
 # create df_region as reference
 df_region <- unique(summary[, c("laestab", "school", "same", "neighbouring")])
@@ -148,7 +148,7 @@ info <- list(
        region.filter = c("same","neighbouring"),
        sd.range = 100),
   # Dixons Unity Academy
-  list(school = "Dixons City Academy",
+  list(school = "Dixons Unity Academy",
        features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
        cov.adj = list(c("constant")),
        region.filter = "same",
@@ -160,6 +160,10 @@ info <- list(
        region.filter = c("same","neighbouring"),
        sd.range = 100)
 )
+
+# info <- info[c(4, 9)] # focus on Manningham Academy and City for now
+info <- info[c(1, 3, 4, 9)] # focus on St. Peters, Marchbank Primary, Manningham Academy and City for now
+
 
 ### Process data ###
 
@@ -192,7 +196,9 @@ for (i in 1:length(list_laestab_treated)) {
   id_treated <- list_laestab_treated[i]
   id_name <- unique(summary$school[summary$laestab == id_treated])
   
+  
   cat("# ", id_name, "\n\n")
+  print(params$school == id_name)
   
   ## PROCESS DATA ##
   
