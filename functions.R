@@ -1195,9 +1195,10 @@ process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("
   # Define target regions for filtering the donor pool
   # Create combinations of region names for later filtering
   # This includes individual regions and combined strings with both regions in different orders
-  combinations <- c(target_regions, 
-                    paste(target_regions, collapse = " | "), 
-                    paste(rev(target_regions), collapse = " | "))
+  if(length(target_regions) == 1) region_pairing <- c(target_regions, "North West") else region_pairing <- target_regions
+  combinations <- c(region_pairing, 
+                    paste(region_pairing, collapse = " | "), 
+                    paste(rev(region_pairing), collapse = " | "))
   
   # ---- Initial data cleaning ----
   # Remove establishments that have left a group
@@ -1284,7 +1285,7 @@ process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("
       gor = paste(unique(gor_name), collapse = " | ")) %>%
     ungroup() %>%
     filter(n_linked >= min_schools_per_mat) %>%      # Keep MATs with at least min_schools_per_mat schools
-    filter(n_gor <= length(target_regions)) %>%      # Keep MATs with no more than specified regions
+    filter(n_gor <= length(region_pairing)) %>%      # Keep MATs with no more than specified regions
     filter(gor %in% combinations)                    # Keep MATs in target region combinations
   
   # Update list of MAT UIDs based on filtering criteria
