@@ -1183,7 +1183,8 @@ compute_pairwise_correlations <- function(data, vars, new_names) {
 
 process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("Not applicable"), 
                                  dv = "pupil_to_qual_teacher_ratio", var1 = "fte_avg_age", var2 = "pnpupfsm_e",
-                                 min_years_obs = 4, min_schools_per_mat = 2, min_schools_per_timeperiod = 2) {
+                                 min_years_obs = 4, min_schools_per_mat = 2, min_schools_per_timeperiod = 2, 
+                                 swf_filter = NULL, pup_filter = NULL) {
   # ---- Get info on treated group ----
   id_group <- groups %>% 
     filter(group_uid == uid_treated) %>% 
