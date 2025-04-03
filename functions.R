@@ -1248,6 +1248,7 @@ process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("
   list_laestab <- df %>% 
     group_by(laestab) %>%
     summarise(n = n()) %>%
+    ungroup() %>%
     filter(n >= min_years_obs) %>%
     pull(laestab) %>% 
     unique()
@@ -1268,6 +1269,7 @@ process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("
       n_linked = n(),                                # Count schools per MAT
       n_gor = length(unique(gor_name)),              # Count unique regions per MAT
       gor = paste(unique(gor_name), collapse = " | ")) %>%
+    ungroup() %>%
     filter(n_linked >= min_schools_per_mat) %>%      # Keep MATs with at least min_schools_per_mat schools
     filter(n_gor <= length(target_regions)) %>%      # Keep MATs with no more than specified regions
     filter(gor %in% combinations)                    # Keep MATs in target region combinations
@@ -1289,7 +1291,7 @@ process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("
       !!sym(dv) := mean(!!sym(dv)),
       !!sym(var1) := mean(!!sym(var1)),
       !!sym(var2) := mean(!!sym(var2)),
-      n = n()
+      n = n(), .groups = "drop"
     ) %>% 
     ungroup()
   
@@ -1304,9 +1306,11 @@ process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("
   # Keep only MATs with complete time series
   list_uid <- df_avg %>% 
     group_by(group_uid) %>% 
-    summarise(n = n()) %>% 
+    summarise(n = n()) %>%
+    ungroup() %>%
     filter(n == n_complete_timeseries) %>% 
     pull(group_uid)
+  
   df_avg <- df_avg %>% 
     filter(group_uid %in% list_uid)
   
@@ -1382,8 +1386,8 @@ process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("
       name = paste(unique(group_name), collapse = " | "),
       schools = length(unique(laestab)),
       phase = paste(unique(phaseofeducation_name), collapse = " | "),
-      gor = paste(unique(gor_name), collapse = " | ")
-    ) %>%
+      gor = paste(unique(gor_name), collapse = " | ")) %>%
+    ungroup() %>%
     mutate(name = iconv(name, from = "ASCII", to = "UTF-8")) %>%
     as.data.frame()
   
