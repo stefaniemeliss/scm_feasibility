@@ -1378,8 +1378,8 @@ process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("
     as.data.frame()
   
   # ---- Summary information ----
-  # Create summary information about MATs in the donor pool
-  donor <- df %>% 
+  # Create summary information about MATs in the pool
+  MATs <- df %>% 
     filter(group_uid %in% list_uid) %>%
     group_by(group_uid) %>%
     summarise(
@@ -1396,8 +1396,8 @@ process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("
   assign("df_avg", df_avg, envir = .GlobalEnv)
   assign("df_treat", df_treat, envir = .GlobalEnv)
   assign("df_donor", df_donor, envir = .GlobalEnv)
-  assign("donor", donor, envir = .GlobalEnv)  
+  assign("MATs", MATs, envir = .GlobalEnv)  
   
   # Return invisible to suppress output but still allow assignment if desired
-  invisible(list(df = df, df_avg = df_avg, df_treat = df_treat, df_donor = df_donor, donor = donor))
+  invisible(list(df = df, df_avg = df_avg, df_treat = df_treat, df_donor = df_donor, MATs = MATs))
 }
