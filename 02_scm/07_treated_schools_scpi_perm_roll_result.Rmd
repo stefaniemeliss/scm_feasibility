@@ -559,7 +559,7 @@ sum(ratio >= observed_statistic)
 # p value
 cat("When assigning the intervention at random in the data, the probability of obtaining a post-period RMSPE / pre-period RMSPE ratio as large as the treated school's is ", round(sum(ratio >= observed_statistic) / length(ratio), digits = 3), ".\n\n", sep = "")
 if (n_ill > 0) {
-  cat("After removing any ill-fitted placebo runs (N = " , n_ill, "), the probability is ", round(sum(perm_results$ratio[perm_results$thresh] >= observed_statistic) / sum(perm_results$thresh5), digits = 3), ".\n\n", sep = "")
+  cat("After removing any ill-fitted placebo runs (N = " , n_ill, "), the probability is ", round(sum(perm_results$ratio[perm_results$thresh5] >= observed_statistic) / sum(perm_results$thresh5), digits = 3), ".\n\n", sep = "")
   
 }
 
@@ -706,7 +706,7 @@ info <- list(
        region.filter = c("same","neighbouring"),
        sd.range = 100),
   # Dixons Unity Academy
-  list(school = "Dixons City Academy",
+  list(school = "Dixons Unity Academy",
        features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
        cov.adj = list(c("constant")),
        region.filter = "same",
