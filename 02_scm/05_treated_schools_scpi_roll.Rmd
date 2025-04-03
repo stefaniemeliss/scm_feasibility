@@ -181,7 +181,7 @@ df_long$category <- factor(df_long$category, levels = c("Outcome", "% pupils FSM
 
 # plot timeseries for each variable
 plt <- ggplot(data = df_long, aes(x = time_period, y = value, col = roll, group = interaction(laestab, roll))) +
-  geom_vline(xintercept = 2021.5, linetype = "dotted") +
+  geom_vline(xintercept = period.pre[length(period.pre)]+0.5, linetype = "dotted") +
   geom_line() + 
   geom_point() +
   facet_wrap(~ category, ncol = 1, strip.position = "top", scales = "free_y") +
