@@ -84,14 +84,14 @@ summary <- read.csv(file.path(dir, "02_scm",  "02_treated_schools_filter_donor_p
 # only select schools with sufficient donor pool
 summary <- subset(summary, n_pool >= 50)
 
-# create df_region as reference
+# create df_region as reference 
 df_region <- unique(summary[, c("laestab", "school", "same", "neighbouring")])
 
 #### Define best parameter settings from grid search - per school ####
 info <- list(
   # St Peters
   list(school = "St Peter's Catholic School",
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
        cov.adj = list(c("constant")),
        region.filter = "same",
        sd.range = NULL),
@@ -144,14 +144,14 @@ info <- list(
        region.filter = c("same","neighbouring"),
        sd.range = 100),
   # Dixons Unity Academy
-  list(school = "Dixons City Academy",
+  list(school = "Dixons Unity Academy",
        features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
        cov.adj = list(c("constant")),
        region.filter = "same",
        sd.range = NULL),
   # Highcrest Academy
   list(school = "The Highcrest Academy",
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
        cov.adj = list(c("constant")),
        region.filter = c("same","neighbouring"),
        sd.range = 100)
