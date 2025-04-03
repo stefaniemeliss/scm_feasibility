@@ -152,7 +152,7 @@ info <- list(
        region.filter = c("same","neighbouring"),
        sd.range = 100),
   # Dixons Unity Academy
-  list(school = "Dixons City Academy",
+  list(school = "Dixons Unity Academy",
        features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
        cov.adj = list(c("constant")),
        region.filter = "same",
@@ -164,7 +164,8 @@ info <- list(
        region.filter = c("same","neighbouring"),
        sd.range = 100)
 )
-info <- info[1] # focus on St. Peters for now
+info <- info[c(1, 3, 4, 9)] # focus on St. Peters, Marchbank Primary, Manningham Academy and City for now
+# info <- info[c(3)] # focus on St. Peters, Marchbank Primary, Manningham Academy and City for now
 
 ### Process data ###
 
