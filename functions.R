@@ -1181,3 +1181,219 @@ compute_pairwise_correlations <- function(data, vars, new_names) {
   return(cor_df)
 }
 
+process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("Not applicable"), 
+                                 dv = "pupil_to_qual_teacher_ratio", var1 = "fte_avg_age", var2 = "pnpupfsm_e",
+                                 min_years_obs = 4, min_schools_per_mat = 1, min_schools_per_timeperiod = 1) {
+  # ---- Get info on treated group ----
+  id_group <- groups %>% 
+    filter(group_uid == uid_treated) %>% 
+    pull(group_name) %>% 
+    unique()
+  
+  # ---- Region definition ----
+  # Define target regions for filtering the donor pool
+  # Create combinations of region names for later filtering
+  # This includes individual regions and combined strings with both regions in different orders
+  combinations <- c(target_regions, 
+                    paste(target_regions, collapse = " | "), 
+                    paste(rev(target_regions), collapse = " | "))
+  
+  # ---- Initial data cleaning ----
+  # Remove establishments that have left a group
+  groups <- groups %>% 
+    filter(is.na(date_left_group))
+  
+  # Remove special provision schools (where phase is "Not applicable")
+  groups <- groups %>%
+    filter(!phaseofeducation_name %in% filter_phase)
+  
+  # ---- MAT and school identification ----
+  # Get unique MAT UIDs with schools in the target regions
+  list_uid <- groups %>% 
+    filter(gor_name %in% target_regions) %>%
+    pull(group_uid) %>% 
+    unique()
+  
+  # Get unique LAESTABs (school identifiers) associated with MATs in target regions
+  list_laestab <- groups %>% 
+    filter(group_uid %in% list_uid) %>%
+    pull(laestab) %>% 
+    unique()
+  
+  # ---- Dataset creation ----
+  # Filter School Workforce (SWF) data to create outcome dataset with selected variables
+  z <- swf %>%
+    filter(laestab %in% list_laestab) %>%
+    select(time_period, laestab, !!sym(dv), !!sym(var1))
+  
+  # Filter pupil data to create predictor dataset with selected variables
+  x <- pup %>% 
+    filter(laestab %in% list_laestab) %>%
+    select(time_period, laestab, !!sym(var2))
+  
+  # Combine outcome and predictor datasets
+  df <- merge(z, x, all = T, by = c("laestab", "time_period"))
+  
+  # Remove any rows with missing values
+  df <- na.omit(df)
+  
+  # Add MAT information to the dataset
+  # Create lookup table with relevant group information (avoiding duplicates)
+  lookup <- groups[, c("laestab", "group_uid", "group_name", "gor_name", "phaseofeducation_name")]
+  lookup <- lookup[!duplicated(lookup), ]
+  df <- merge(df, lookup, by = "laestab", all.x = T)
+  
+  # ---- Longitudinal data filtering ----
+  # Update list of schools to include only those with min_years_obs+ years of observations
+  list_laestab <- df %>% 
+    group_by(laestab) %>%
+    summarise(n = n()) %>%
+    filter(n >= min_years_obs) %>%
+    pull(laestab) %>% 
+    unique()
+  
+  # Update dataset to include only schools with min_years_obs+ years of observations
+  df <- df %>%
+    filter(laestab %in% list_laestab)
+  
+  # ---- MAT-level filtering ----
+  # Identify MATs that meet specific criteria:
+  # - Have multiple schools with min_years_obs+ years of data
+  # - Schools are only in the specified regions
+  # - MATs with schools in the target region combinations
+  tmp <- groups %>%
+    filter(laestab %in% list_laestab) %>% 
+    group_by(group_uid) %>% 
+    summarise(
+      n_linked = n(),                                # Count schools per MAT
+      n_gor = length(unique(gor_name)),              # Count unique regions per MAT
+      gor = paste(unique(gor_name), collapse = " | ")) %>%
+    filter(n_linked >= min_schools_per_mat) %>%      # Keep MATs with at least min_schools_per_mat schools
+    filter(n_gor <= length(target_regions)) %>%      # Keep MATs with no more than specified regions
+    filter(gor %in% combinations)                    # Keep MATs in target region combinations
+  
+  # Update list of MAT UIDs based on filtering criteria
+  list_uid <- tmp %>%
+    pull(group_uid) %>% 
+    unique()
+  
+  # Update dataset to include only schools from filtered MATs
+  df <- df %>%
+    filter(group_uid %in% list_uid)
+  
+  # ---- Data aggregation ----
+  # Compute MAT-level averages for each time period
+  df_avg <- df %>% 
+    group_by(group_uid, time_period) %>% 
+    summarise(
+      !!sym(dv) := mean(!!sym(dv)),
+      !!sym(var1) := mean(!!sym(var1)),
+      !!sym(var2) := mean(!!sym(var2)),
+      n = n()
+    ) %>% 
+    ungroup()
+  
+  # Keep only MAT-time periods with data from at least min_schools_per_timeperiod schools
+  df_avg <- df_avg %>% 
+    filter(n >= min_schools_per_timeperiod)
+  
+  # Determine the number of time periods that make up a complete time series
+  # by counting unique time periods in the dataset
+  n_complete_timeseries <- length(unique(df_avg$time_period))
+  
+  # Keep only MATs with complete time series
+  list_uid <- df_avg %>% 
+    group_by(group_uid) %>% 
+    summarise(n = n()) %>% 
+    filter(n == n_complete_timeseries) %>% 
+    pull(group_uid)
+  df_avg <- df_avg %>% 
+    filter(group_uid %in% list_uid)
+  
+  # ---- Outlier detection and removal ----
+  # Check for within-MAT time series outliers and remove MATs with any outliers
+  df_avg <- df_avg %>%
+    group_by(group_uid) %>%
+    mutate(
+      count_outliers_dv = sum(is_outlier_3sd(!!sym(dv))),
+      count_outliers_var1 = sum(is_outlier_3sd(!!sym(var1))),
+      count_outliers_var2 = sum(is_outlier_3sd(!!sym(var2)))
+    ) %>%
+    ungroup() %>%
+    # Remove any MATs that have an outlier within their timeseries
+    filter(count_outliers_dv == 0, count_outliers_var1 == 0, count_outliers_var2 == 0) %>%
+    select(-count_outliers_dv, -count_outliers_var1, -count_outliers_var2) %>%
+    as.data.frame()
+  
+  # Extract data for the treated MAT
+  df_treat <- df_avg %>%
+    filter(group_uid == uid_treated) %>%
+    as.data.frame()
+  
+  # Create donor pool by removing the treated MAT and any MATs with outliers
+  df_donor <- df_avg %>%
+    filter(group_uid != uid_treated) %>%
+    mutate(
+      # Here outliers are calculated across all MATs in the donor pool
+      outlier_dv = is_outlier_3sd(!!sym(dv)),
+      outlier_var1 = is_outlier_3sd(!!sym(var1)),
+      outlier_var2 = is_outlier_3sd(!!sym(var2))
+    ) %>%
+    group_by(group_uid) %>%
+    mutate(
+      count_outliers_dv = sum(outlier_dv),
+      count_outliers_var1 = sum(outlier_var1),
+      count_outliers_var2 = sum(outlier_var2)
+    ) %>%
+    ungroup() %>%
+    # Remove any MATs that have an outlier compared to other MATs
+    filter(count_outliers_dv == 0, count_outliers_var1 == 0, count_outliers_var2 == 0) %>%
+    select(-outlier_dv, -outlier_var1, -outlier_var2, -count_outliers_dv, -count_outliers_var1, -count_outliers_var2) %>%
+    as.data.frame()
+  
+  # ---- Final dataset preparation ----
+  # Combine treated and donor data, format time periods
+  df_avg <- df_treat %>%
+    bind_rows(df_donor) %>%
+    arrange(group_uid, time_period) %>%
+    mutate(
+      status = ifelse(group_uid == uid_treated, id_group, "Donor MATs"),
+      # Convert time_period to string with slash (e.g., "2018/19")
+      time_period_str = insert_slash(time_period),
+      # Extract year only from time_period (e.g., "2018" from "201819")
+      time_period = as.numeric(substr(time_period, 0, 4))
+    ) %>%
+    as.data.frame()
+  
+  # ---- School-level dataset synchronization ----
+  # Update the school-level dataset (df) to only include schools from MATs in the final df_avg
+  # This ensures consistency between school-level and MAT-level datasets
+  df <- df %>%
+    filter(group_uid %in% unique(df_avg$group_uid)) %>%
+    mutate(status = ifelse(group_uid == uid_treated, id_group, "Donor MATs")) %>%
+    as.data.frame()
+  
+  # ---- Summary information ----
+  # Create summary information about MATs in the donor pool
+  donor <- df %>% 
+    filter(group_uid %in% list_uid) %>%
+    group_by(group_uid) %>%
+    summarise(
+      name = paste(unique(group_name), collapse = " | "),
+      schools = length(unique(laestab)),
+      phase = paste(unique(phaseofeducation_name), collapse = " | "),
+      gor = paste(unique(gor_name), collapse = " | ")
+    ) %>%
+    mutate(name = iconv(name, from = "ASCII", to = "UTF-8")) %>%
+    as.data.frame()
+  
+  # Assign dataframes to the global environment
+  assign("df", df, envir = .GlobalEnv)
+  assign("df_avg", df_avg, envir = .GlobalEnv)
+  assign("df_treat", df_treat, envir = .GlobalEnv)
+  assign("df_donor", df_donor, envir = .GlobalEnv)
+  assign("donor", donor, envir = .GlobalEnv)  
+  
+  # Return invisible to suppress output but still allow assignment if desired
+  invisible(list(df = df, df_avg = df_avg, df_treat = df_treat, df_donor = df_donor, donor = donor))
+}
