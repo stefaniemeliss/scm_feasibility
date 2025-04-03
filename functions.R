@@ -1338,6 +1338,13 @@ process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("
       count_outliers_var2 = sum(is_outlier_3sd(!!sym(var2)))
     ) %>%
     ungroup() %>%
+    mutate(
+      status = ifelse(group_uid == uid_treated, id_group, "Donor MATs"),
+      # Convert time_period to string with slash (e.g., "2018/19")
+      time_period_str = insert_slash(time_period),
+      # Extract year only from time_period (e.g., "2018" from "201819")
+      time_period = as.numeric(substr(time_period, 0, 4))
+    ) %>%
     # Remove any MATs that have an outlier within their timeseries
     filter(count_outliers_dv == 0, count_outliers_var1 == 0, count_outliers_var2 == 0) %>%
     select(-count_outliers_dv, -count_outliers_var1, -count_outliers_var2) %>%
@@ -1374,13 +1381,6 @@ process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("
   df_avg <- df_treat %>%
     bind_rows(df_donor) %>%
     arrange(group_uid, time_period) %>%
-    mutate(
-      status = ifelse(group_uid == uid_treated, id_group, "Donor MATs"),
-      # Convert time_period to string with slash (e.g., "2018/19")
-      time_period_str = insert_slash(time_period),
-      # Extract year only from time_period (e.g., "2018" from "201819")
-      time_period = as.numeric(substr(time_period, 0, 4))
-    ) %>%
     as.data.frame()
   
   # ---- School-level dataset synchronization ----
