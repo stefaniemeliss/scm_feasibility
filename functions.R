@@ -1223,13 +1223,25 @@ process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("
   # ---- Dataset creation ----
   # Filter School Workforce (SWF) data to create outcome dataset with selected variables
   z <- swf %>%
-    filter(laestab %in% list_laestab) %>%
-    select(time_period, laestab, !!sym(dv), !!sym(var1))
+    filter(laestab %in% list_laestab)
+  
+  # Apply additional filter to SWF data if provided
+  if (!is.null(swf_filter)) {
+    z <- z %>% filter(!!rlang::parse_expr(swf_filter))
+  }
+  
+  z <- z %>% select(time_period, laestab, !!sym(dv), !!sym(var1))
   
   # Filter pupil data to create predictor dataset with selected variables
   x <- pup %>% 
-    filter(laestab %in% list_laestab) %>%
-    select(time_period, laestab, !!sym(var2))
+    filter(laestab %in% list_laestab)
+  
+  # Apply additional filter to pupil data if provided
+  if (!is.null(pup_filter)) {
+    x <- x %>% filter(!!rlang::parse_expr(pup_filter))
+  }
+  
+  x <- x %>% select(time_period, laestab, !!sym(var2))
   
   # Combine outcome and predictor datasets
   df <- merge(z, x, all = T, by = c("laestab", "time_period"))
