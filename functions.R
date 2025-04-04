@@ -1461,7 +1461,7 @@ grid_search_scpi_mat <- function(param_grid, cv = FALSE) {
     data <- tryCatch({
       process_data_scm_mat(uid_treated = uid_treated, 
                            target_regions = unlist(params$regions), 
-                           filter_phase = params$filter_phase,
+                           filter_phase = unlist(params$filter_phase),
                            min_years_obs = params$min.years.obs,
                            min_schools_per_mat = params$min.schools.per.mat,
                            min_schools_per_timeperiod = params$min.schools.per.timeperiod,
