@@ -222,7 +222,7 @@ df_treat %>%
 # create data in long format
 df_long <- df_treat %>%
   tidyr::pivot_longer(
-    cols = -c(group_uid, n, time_period, time_period_str, status),
+    cols = c(pupil_to_qual_teacher_ratio, fte_avg_age, pnpupfsm_e),
     names_to = "variable") %>%
   mutate(category = case_match(variable, 
                                "pupil_to_qual_teacher_ratio" ~ "Outcome",
@@ -336,7 +336,7 @@ cat("\n\n")
 # create data in long format
 df_long <- df_avg %>%
   tidyr::pivot_longer(
-    cols = -c(group_uid, n, time_period, time_period_str, status),
+    cols = c(pupil_to_qual_teacher_ratio, fte_avg_age, pnpupfsm_e),
     names_to = "variable") %>%
   mutate(category = case_match(variable, 
                                "pupil_to_qual_teacher_ratio" ~ "Outcome",
