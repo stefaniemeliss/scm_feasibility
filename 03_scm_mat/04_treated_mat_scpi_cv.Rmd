@@ -1,0 +1,438 @@
+---
+title: "Results of cross-validated gridsearch with *scpi* package"
+author: "Stefanie Meliss"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    self_contained: true
+---
+This markdown summarises the results of the grid search.  
+
+The grid search iterated through the following parameters:  
+
+- Was the outcome included as feature? (excl. DV vs. incl. DV)  
+- Was any covariates adjusted for each feature? (none vs. Constant vs. Trend vs. Constant + Trend)  
+- How many years of observations did each school need to have to be included at MT level? (4 vs. 6 vs. 8)  
+- How many schools needed to have an observation for a specific year for the year to be included? (2 vs. 3 vs. 4)  
+- How many complete school timeseries needed to be available at MAT level? (2 vs. 3 vs. 4)  
+- Which years were included in the training data? (all years between 2010/11 and 2021/22 vs. excl. 2010/11 - 2011/12 vs.  excl. 2010/11 - 2013/14)  
+- Which schools were included in the donor pool? (Schools in the same region vs. schools in same and neighbouring region)  
+- Where trusts excluded if all their schools were located in the neighbouring region only? (yes vs. no)  
+- At whole trust level, Where trusts excluded if their timeseries was based on one phase only? (yes vs. no)  
+- Which weight constraints were defined during the estimation? (Simplex vs. L1-l2)  
+
+
+Data up to 2021/22 was used to estimate the weights under various settings. The weights were validated using data from 2022/23 and 2023/24.  
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+options(scipen = 999)
+# empty work space
+rm(list = ls())
+gc()
+
+# load libraries
+library(kableExtra)
+library(dplyr)
+library(data.table)
+library(ggplot2)
+
+# create function to source code
+source_code <- function(root_dir_name = "code", target_repo = "helper_functions", branch = "main", file_name = "file.R") {
+  
+  # construct URL
+  git_url <- paste0("https://raw.githubusercontent.com/stefaniemeliss/", target_repo, "/", branch, "/", file_name)
+  
+  # attempt to download from github
+  tempp_file <- tempfile(fileext = ".R")
+  message <- curl::curl_download(git_url, tempp_file, quiet = F)
+  
+  if(!grepl("Error", message)) {
+    
+    # if successful, source file
+    source(tempp_file)
+    remove(tempp_file)
+    
+  } else { # load local copy of file
+    
+    # Get the current working directory
+    current_dir <- getwd()
+    
+    # Split the current directory into its components
+    dir_components <- strsplit(current_dir, "/")[[1]]
+    
+    # Identify the root directory dynamically based on the provided root directory name
+    root_index <- which(dir_components == root_dir_name)
+    if (length(root_index) == 0) {
+      stop(paste("Root directory", root_dir_name, "not found in the current path"))
+    }
+    root_dir <- do.call(file.path, as.list(dir_components[1:root_index]))
+    
+    # Identify the subdirectory one level below the root and construct its absolute path
+    project_repo <- dir_components[root_index + 1]
+    dir <- file.path(root_dir, project_repo)
+    
+    if (target_repo != project_repo) {
+      dir <- gsub(project_repo, target_repo, dir) 
+    }
+    
+    # Construct the full file path
+    file_path <- file.path(dir, file_name)
+    
+    # Print the directory and file path for debugging
+    print(paste("Directory:", dir))
+    print(paste("File path:", file_path))
+    
+    # Source the file into the parent frame
+    source(file_path, local = parent.frame())
+  }
+}
+
+# source functions
+source_code(target_repo = "scm_feasibility", file_name = "functions.R")
+
+# Define the base directory
+dir <- get_directory()
+dir_data <- file.path(dir, "data")
+dir_misc <- file.path(dir, "misc")
+
+# get file stem name
+file_stem <- get_file_stem()
+
+# copy data #
+file.copy(
+  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_swf.csv"), dir_data, overwrite = T)
+file.copy(
+  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_pupils.csv"), dir_data, overwrite = T)
+file.copy(
+  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_establishments_search.csv"), dir_data, overwrite = T)
+file.copy(
+  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_establishments_groups.csv"), dir_data, overwrite = T)
+
+# load data #
+
+swf <- fread(file.path(dir_data, "data_swf.csv"))
+pup <- fread(file.path(dir_data, "data_pupils.csv"))
+est <- fread(file.path(dir_data, "data_establishments_search.csv"), na.strings = "")
+groups <- fread(file.path(dir_data, "data_establishments_groups.csv"), na.strings = "")
+
+
+# process data establishments #
+
+# load in file with timeseries desc
+summary <- read.csv(file.path(dir, "03_scm_mat",  "01_treated_mat_examine_dv_preds_out.csv"))
+
+# only select schools with sufficent obs
+summary <- subset(summary, n >= 4)
+
+# save laestab numbers
+list_laestab_treated <- unique(summary$laestab)
+
+# get information on establishment 
+est_treated <- est %>% 
+  filter(laestab %in% list_laestab_treated) %>%
+  mutate(school = "treated") %>% 
+  as.data.frame()
+
+# get info on treated group
+uid_treated <- 2939
+
+
+```
+
+
+
+
+```{r plot_ts, echo=FALSE, eval=F}
+# add info about schools
+groups %>% 
+  filter(laestab %in% df$laestab[df$group_uid == uid_treated]) %>%
+  select(-c(urn, establishmentnumber, la_code, group_uid, group_id, establishmenttypegroup_name, group_name, group_closed_date, date_left_group, laestab, establishment_closedate, reasonestablishmentclosed_name)) %>%
+  kbl(caption = paste0("Schools used for MAT timeseries"), row.names = F, digits = 3) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
+  print()
+
+# show MAT level timeseries data
+df_treat %>%
+  select(-group_uid) %>%
+  relocate(., n, .after = time_period) %>%
+  rename(., n_schools = n) %>%
+  kbl(caption = paste0("MAT timeseries data"), row.names = F, digits = 3) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
+  print()
+
+##### CREATE SPAGHETTI PLOT ####
+
+# create data in long format
+df_long <- df_treat %>%
+  tidyr::pivot_longer(
+    cols = -c(group_uid, n, time_period, time_period_str, status),
+    names_to = "variable") %>%
+  mutate(category = case_match(variable, 
+                               "pupil_to_qual_teacher_ratio" ~ "Outcome",
+                               "fte_avg_age" ~ "Teacher age",
+                               "pnpupfsm_e" ~ "% pupils FSM")  ) %>%
+  as.data.frame()
+
+df_long$category <- factor(df_long$category, levels = c("Outcome", "Teacher age", "% pupils FSM"))
+
+
+# plot timeseries for each variable
+options(repr.plot.width = 8, repr.plot.height = 6)
+lookup <- data.frame(time_period = sort(unique(swf$time_period)))
+lookup$time_period_str <- insert_slash(lookup$time_period)
+lookup$time_period <- as.numeric(substr(lookup$time_period, 0, 4))
+
+period.avail <- sort(unique(df_long$time_period))
+period.pre <- setdiff(period.avail, c(2022:2023)) # Pre-treatment period
+
+
+plt <- ggplot(data = df_long, aes(x = time_period, y = value, group = group_uid)) +
+  geom_vline(xintercept = period.pre[length(period.pre)]+0.5, linetype = "dotted") +
+  geom_line(col = coral) + 
+  geom_point(col = coral, aes(size = n/2)) +
+  facet_wrap(~ category, ncol = 1, strip.position = "top", scales = "free_y") +
+  ambition_theme +
+  ylab("Reported value") + xlab("Academic year") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.title = element_blank(),
+        legend.position = "none") +
+  scale_x_continuous(breaks = lookup$time_period, labels = lookup$time_period_str)
+  
+  
+  print(plt)
+cat("\n\n")  # Add some space between plots
+
+```
+
+```{r grid, eval=FALSE, include=F}
+#### process data grid search ####
+
+# declare file name
+file_name <- file.path(getwd(), paste0("03_treated_mat_scpi_cv_", tolower(phase), ".csv"))
+
+# read in results
+results <- read.csv(file_name)
+
+# copy data for editing
+tmp_results <- results
+apply(results[1:17], 2, unique)
+
+# create new vars for facets #
+# DV used
+tmp_results$dv <- ifelse(grepl("pupil_to_qual_teacher_ratio", tmp_results$outcome.var), "Qualified", "All")
+# is DV in features?
+tmp_results$feat_dv <- ifelse(grepl("ratio", tmp_results$features), "incl. DV", "excl. DV")
+tmp_results$feat_dv <- factor(tmp_results$feat_dv)
+# covariate adjustment
+tmp_results$adj <- ifelse(is.na(tmp_results$cov.adj), "none", tmp_results$cov.adj)
+tmp_results$adj <- factor(tmp_results$adj, levels = c("none", "constant", "trend", "constant, trend"),
+                          labels = c("none", "Constant", "Trend", "C + T"))
+# which region was used for filtering
+tmp_results$region <- ifelse(grepl("North West", tmp_results$regions), "YS&H + NW", "YS&H")
+tmp_results$region <- factor(tmp_results$region)
+# were any MATs excluded?
+if (phase == "mixed") {
+  tmp_results$phase <- ifelse(tmp_results$exclude.single.phase, "excl. phase", "incl. phase")
+  tmp_results$phase <- factor(tmp_results$phase)
+} else {
+  tmp_results$phase <- ifelse(!tmp_results$exclude.single.phase, "same phase", "excl. same phase")
+  tmp_results$phase <- factor(tmp_results$phase)
+}
+tmp_results$mats_in_nw<- ifelse(tmp_results$exclude.northwest, "excl. NW based MATs", "incl. NW based MATs")
+tmp_results$mats_in_nw<- factor(tmp_results$mats_in_nw)
+# How was the average timeseries obtained?
+tmp_results$min_pretreat <- paste0(tmp_results$min.years.obs, "Y")
+tmp_results$min_pretreat <- factor(tmp_results$min_pretreat)
+tmp_results$min_obs_per_year <- paste0(tmp_results$min.schools.per.timeperiod, "S/Y")
+tmp_results$min_obs_per_year <- factor(tmp_results$min_obs_per_year)
+tmp_results$min_size_mat <- paste0(tmp_results$min.schools.per.mat, "S")
+tmp_results$min_size_mat <- factor(tmp_results$min_size_mat)
+# which years were used in training
+# Function to extract min and max year
+extract_min_max_years <- function(period_string) {
+  years <- as.numeric(unlist(strsplit(period_string, ", ")))
+  min_year <- min(years)
+  max_year <- max(years)
+  return(c(min_year, max_year))
+}
+tmp_results$min_year <- sapply(tmp_results$period.pre, function(x) extract_min_max_years(x)[1])
+tmp_results$max_year <- sapply(tmp_results$period.pre, function(x) extract_min_max_years(x)[2])
+tmp_results$pretreat <- paste0(tmp_results$min_year, ":", tmp_results$max_year)
+tmp_results$pretreat <- factor(tmp_results$pretreat)
+# which constraints were applied to the weights
+tmp_results$method <- tstrsplit(tmp_results$w.constr, "; ")[[1]]
+tmp_results$method <- gsub("name = ", "", tmp_results$method)
+tmp_results$method <- factor(tmp_results$method, levels = c("simplex", "L1-L2", "lasso", "user provided"))
+
+tmp_results$error <- grepl("Error", tmp_results$status)
+
+# finalise dataset
+tmp_results <- tmp_results %>%
+  # reorder dataset
+  arrange(feat_dv, adj, region, phase, mats_in_nw, min_pretreat, min_obs_per_year, min_size_mat, pretreat, method) %>%
+  # create id col
+  mutate(it = as.character(1:nrow(tmp_results))) %>%
+  # select columns
+  select(c(it, dv, feat_dv, adj, region, phase, mats_in_nw, min_pretreat, min_obs_per_year, min_size_mat, pretreat, method, n_pool, sd_treated, rmspe_pre, rmspe_post, error))
+
+# convert to long format
+tmp_long <- tmp_results %>%
+  tidyr::pivot_longer(
+    cols = c(rmspe_pre, rmspe_post),
+    names_to = "data",
+    values_to = "rmspe") %>%
+  mutate(data = case_match(data, 
+                           "rmspe_pre" ~ "T",
+                           "rmspe_post" ~ "V"  )) %>%
+  mutate(data = factor(data, levels = c("T", "V"))) %>%
+  # Explicitly arrange dataset by all relevant variables
+  arrange(feat_dv, adj, region, phase, mats_in_nw, min_pretreat, min_obs_per_year, min_size_mat, pretreat, method, data)
+
+# Define explicit numeric dodge positions
+method_levels <- unique(tmp_results$method)
+dodge_width <- 0.6
+n_methods <- length(method_levels)
+# Create evenly spaced numeric offsets around 0
+method_positions <- seq(-dodge_width/2, dodge_width/2, length.out = n_methods)
+
+# Create a lookup table
+position_lookup <- tibble(
+  method = method_levels,
+  method_position = method_positions
+) %>%
+  mutate(method = factor(method, levels = c("simplex", "L1-L2", "lasso", "user provided"))
+  )
+
+# Merge these positions into your data
+tmp_long <- tmp_long %>%
+  left_join(position_lookup, by = "method") %>%
+  mutate(
+    data_numeric = as.numeric(factor(data)), # numeric x-axis position per 'data'
+    x_position = data_numeric + method_position # final numeric position for plotting
+  )
+
+#### plot size of donor pool ####
+
+plt <- ggplot(data = tmp_long[tmp_long$data == "T" & tmp_long$error == F, ], aes(x = min_size_mat, y = n_pool)) + 
+  geom_point(col = blue) +
+  ggh4x::facet_grid2(cols = vars(min_pretreat, min_obs_per_year), rows = vars(pretreat, region, phase, mats_in_nw), strip = ggh4x::strip_nested()) +
+  ambition_theme +
+  theme(strip.text = element_text(size = 10),
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 10),
+        axis.title = element_text(size = 10),
+        axis.text = element_text(size = 10),
+        # axis.title.x = element_blank(),
+        # axis.text.x = element_blank(),
+        plot.caption = element_text(size = 10),
+        legend.margin=margin(t = -8)) +
+  ylab("Size of donor pool") + xlab("Mininum number of schools averaged in MAT timeseries")
+print(plt)
+cat("\n\n")
+
+#### plot data grid search ####
+
+
+plt <- ggplot(data = tmp_long[tmp_long$feat_dv == "excl. DV" & tmp_long$error == F, ], aes(x = x_position, y = rmspe, group = it)) +
+  geom_hline(data = function(y) y %>% group_by(feat_dv, adj, min_pretreat, min_obs_per_year, min_size_mat, pretreat, region, phase, mats_in_nw) %>% summarise(sd_treated = unique(sd_treated), .groups = 'drop'),
+             aes(yintercept = sd_treated),color = black40, linetype = "dashed") +
+  geom_point(aes(colour = method), size = 1) +
+  geom_line(aes(colour = method)) +
+  scale_x_continuous(
+    breaks = unique(tmp_long$data_numeric),
+    labels = unique(tmp_long$data)
+  ) +
+  ggh4x::facet_grid2(cols = vars(feat_dv, adj, min_pretreat, min_obs_per_year, min_size_mat), rows = vars(pretreat, region, phase, mats_in_nw), strip = ggh4x::strip_nested()) +
+  ambition_theme +
+  theme(strip.text = element_text(size = 10),
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 10),
+        axis.title = element_text(size = 10),
+        axis.text = element_text(size = 10),
+        #axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        plot.caption = element_text(size = 10),
+        legend.margin=margin(t = -8)) +
+  ylab("Root Mean Squared Prediction Error (RMSPE)") +
+  xlab("Cross-validation fold") +
+  guides(colour = guide_legend(title = "Weight constraint")) +
+  scale_colour_manual(values = ambition_palette_bright)
+print(plt)
+cat("\n\n")
+
+
+for (i in 1:length(unique(tmp_results$adj))) {
+  
+  plt <- ggplot(data = tmp_long[tmp_long$feat_dv == "incl. DV" & tmp_long$error == F & tmp_long$adj == unique(tmp_results$adj)[i], ], aes(x = x_position, y = rmspe, group = it)) +
+  geom_hline(data = function(y) y %>% group_by(feat_dv, adj, min_pretreat, min_obs_per_year, min_size_mat, pretreat, region, phase, mats_in_nw) %>% summarise(sd_treated = unique(sd_treated), .groups = 'drop'),
+             aes(yintercept = sd_treated),color = black40, linetype = "dashed") +
+  geom_point(aes(colour = method), size = 1) +
+  geom_line(aes(colour = method)) +
+  scale_x_continuous(
+    breaks = unique(tmp_long$data_numeric),
+    labels = unique(tmp_long$data)
+  ) +
+  ggh4x::facet_grid2(cols = vars(feat_dv, adj, min_pretreat, min_obs_per_year, min_size_mat), rows = vars(pretreat, region, phase, mats_in_nw), strip = ggh4x::strip_nested()) +
+  ambition_theme +
+  theme(strip.text = element_text(size = 10),
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 10),
+        axis.title = element_text(size = 10),
+        axis.text = element_text(size = 10),
+        #axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        plot.caption = element_text(size = 10),
+        legend.margin=margin(t = -8)) +
+  ylab("Root Mean Squared Prediction Error (RMSPE)") +
+  xlab("Cross-validation fold") +
+  guides(colour = guide_legend(title = "Weight constraint")) +
+  scale_colour_manual(values = ambition_palette_bright)
+print(plt)
+cat("\n\n")
+
+}
+
+
+```
+
+```{r, echo=F, message=FALSE, results='asis', fig.align='center', fig.height=20, fig.width=25, out.width='100%', out.height='100%'}
+# define phases to loop through
+phases <- c("mixed", "Secondary", "Primary")
+headings <- c("Whole MAT", "Secondary schools only", "Primary schools only")
+for (p in 1:length(phases)) {
+  
+  phase = phases[p]
+  
+  # define different filter option for each phase #
+  
+  if (phase == "mixed") {
+    swf_filter = NULL
+    filter_phase = "Not applicable"
+  } else if (phase == "Secondary") {
+    swf_filter = "! time_period %in% c(201011, 201112)"
+    filter_phase = unique(groups$phaseofeducation_name)[!grepl("econdary", unique(groups$phaseofeducation_name))]
+  } else if (phase == "Primary") {
+    swf_filter = "! time_period %in% c(201011, 201112, 201213, 201314)"
+    filter_phase = unique(groups$phaseofeducation_name)[!grepl("imary", unique(groups$phaseofeducation_name))]
+  }
+  
+  # Define target regions for filtering the donor pool
+  regions <- c("Yorkshire and the Humber", "North West")
+  
+  # process data at MAT level
+  process_data_scm_mat(uid_treated = uid_treated, target_regions = regions, filter_phase = filter_phase,
+                       swf_filter = swf_filter)
+  
+  cat("# ", headings[p], "\n\n")
+  
+  # Plot timeseries
+  <<plot_ts>>
+    
+    <<grid>>
+    
+}
+
+```
