@@ -1527,7 +1527,6 @@ grid_search_scpi_mat <- function(param_grid, cv = FALSE) {
                   m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
                   rmspe_pre = NA, mspe_pre = NA, mae_pre = NA, 
                   rmspe_post = NA, mspe_post = NA, mae_post = NA,
-                  rmspe = NA, mspe = NA, mae = NA,
                   params = params))
     } else { 
       n_pool <- length(scdata.out$specs$donors.units)
@@ -1564,7 +1563,6 @@ grid_search_scpi_mat <- function(param_grid, cv = FALSE) {
                   m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
                   rmspe_pre = NA, mspe_pre = NA, mae_pre = NA, 
                   rmspe_post = NA, mspe_post = NA, mae_post = NA,
-                  rmspe = NA, mspe = NA, mae = NA,
                   params = params))
     } else {
       # save info on weight constraints
@@ -1602,11 +1600,6 @@ grid_search_scpi_mat <- function(param_grid, cv = FALSE) {
       mspe_post <- mean((gap_post)^2, na.rm = TRUE)
       mae_post <- mean(abs(gap_post), na.rm = TRUE)
       
-      # Compute fit - whole TS
-      rmspe <- sqrt(mean((c(gap_pre, gap_post))^2, na.rm = TRUE))
-      mspe <- mean((c(gap_pre, gap_post))^2, na.rm = TRUE)
-      mae <- mean(abs(c(gap_pre, gap_post)), na.rm = TRUE)
-      
       rm(actual_post, synthetic_post, gap_post)
       
     } else {
@@ -1615,11 +1608,6 @@ grid_search_scpi_mat <- function(param_grid, cv = FALSE) {
       rmspe_post <- NA
       mspe_post <- NA
       mae_post <- NA 
-      
-      # set NA for fit - whole TS
-      rmspe <- NA
-      mspe <- NA
-      mae <- NA 
       
     }
     
@@ -1641,7 +1629,6 @@ grid_search_scpi_mat <- function(param_grid, cv = FALSE) {
                 m_gap = m_gap, sd_gap = sd_gap, min_gap = min_gap, max_gap = max_gap, cor = cor,
                 rmspe_pre = rmspe_pre, mspe_pre = mspe_pre, mae_pre = mae_pre, 
                 rmspe_post = rmspe_post, mspe_post = mspe_post, mae_post = mae_post, 
-                rmspe = rmspe, mspe = mspe, mae = mae, 
                 params = params))
     
   }
@@ -1668,7 +1655,6 @@ grid_search_scpi_mat <- function(param_grid, cv = FALSE) {
                   m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
                   rmspe_pre = NA, mspe_pre = NA, mae_pre = NA,
                   rmspe_post = NA, mspe_post = NA, mae_post = NA,
-                  rmspe = NA, mspe = NA, mae = NA,
                   params = params))
 
     }
@@ -1713,10 +1699,7 @@ grid_search_scpi_mat <- function(param_grid, cv = FALSE) {
       mae_pre = result$mae_pre,
       rmspe_post = result$rmspe_post,
       mspe_post = result$mspe_post,
-      mae_post = result$mae_post,
-      rmspe = result$rmspe,
-      mspe = result$mspe,
-      mae = result$mae
+      mae_post = result$mae_post
     )
     
     # Convert the list to a data frame
