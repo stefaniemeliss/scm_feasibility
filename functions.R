@@ -1253,7 +1253,7 @@ process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("
   
   # Add MAT information to the dataset
   # Create lookup table with relevant group information (avoiding duplicates)
-  lookup <- groups[, c("laestab", "group_uid", "group_name", "gor_name", "phaseofeducation_name")]
+  lookup <- groups[, c("laestab", "establishmentname", "group_uid", "group_name", "gor_name", "phaseofeducation_name")]
   lookup <- lookup[!duplicated(lookup), ]
   df <- merge(df, lookup, by = "laestab", all.x = T)
   
