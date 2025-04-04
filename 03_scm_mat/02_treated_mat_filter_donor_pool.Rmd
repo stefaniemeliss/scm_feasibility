@@ -197,21 +197,9 @@ Including both regions also ensures a sufficient number of schools and MATs for 
 
 ##### Summary information
 
-- Creates a summary of MATs in the donor pool, including names, number of schools, educational phases, and regions.
+- Creates a summary of MATs in the donor pool, including names, number of schools, educational phases, and regions.  
 
-
-# Whole MAT
-```{r data_prep, include=F}
-# Define target regions for filtering the donor pool
-regions <- c("Yorkshire and the Humber", "North West")
-
-# process data at MAT level
-process_data_scm_mat(uid_treated = uid_treated, target_regions = regions)
-```
-
-## Treated MAT  
-
-```{r check_treated, echo=FALSE, results='asis', eval=T}
+```{r check_treated, echo=FALSE, results='asis', eval=F}
 # add info about schools
 groups %>% 
   filter(laestab %in% df$laestab[df$group_uid == uid_treated]) %>%
@@ -223,7 +211,6 @@ groups %>%
 # show MAT level timeseries data
 df_treat %>%
   select(-group_uid) %>%
-  mutate(time_period = insert_slash(time_period)) %>%
   relocate(., n, .after = time_period) %>%
   rename(., n_schools = n) %>%
   kbl(caption = paste0("MAT timeseries data"), row.names = F, digits = 3) %>%
@@ -235,7 +222,7 @@ df_treat %>%
 # create data in long format
 df_long <- df_treat %>%
   tidyr::pivot_longer(
-    cols = -c(group_uid, n, time_period),
+    cols = -c(group_uid, n, time_period, time_period_str, status),
     names_to = "variable") %>%
   mutate(category = case_match(variable, 
                                "pupil_to_qual_teacher_ratio" ~ "Outcome",
@@ -249,6 +236,8 @@ df_long$category <- factor(df_long$category, levels = c("Outcome", "Teacher age"
 
 
 # plot timeseries for each variable
+options(repr.plot.width = 8, repr.plot.height = 6)
+
 plt <- ggplot(data = df_long, aes(x = time_period_str, y = value, group = group_uid)) +
   geom_line(col = coral) + 
   geom_point(col = coral, aes(size = n/2)) +
@@ -330,11 +319,7 @@ cat("\n")
 
 ```
 
-
-## MAT donor pool  
-
-
-```{r check_donors, echo=FALSE, results='asis', eval=T}
+```{r check_donors, echo=FALSE, results='asis', eval=F}
 knitr::opts_chunk$set(echo = TRUE)
 # format information on MATs
 MATs$multiple_phases <- grepl(" | ", MATs$phase, fixed = T)
@@ -343,9 +328,10 @@ MATs$multiple_gors <- grepl(" | ", MATs$gor, fixed = T)
 MATs <- create_element_columns(data = MATs, column_name = "gor", drop = F)
 
 # Display summary information in a formatted table
-DT::datatable(MATs, rownames = F,
-              # caption = paste0("MATs (J = ", nrow(MATs), ") included in donor pool"),
-              filter = 'top', options = list(pageLength = 10))
+kbl(MATs, caption = paste0("Schools used for MAT timeseries"), row.names = F, digits = 3) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
+  print()
+cat("\n\n")
 
 ##### CREATE SPAGHETTI PLOT ####
 
@@ -384,83 +370,165 @@ cat("\n\n")  # Add some space between plots
 
 ```
 
+```{r grid_search, echo=FALSE, results='asis', eval = F}
 
-## Different filter settings
-
-```{r, echo=FALSE, results='asis', message=FALSE, eval = T}
-knitr::opts_chunk$set(echo = TRUE)
-
-file_name <- file.path(dir, "03_scm_mat", paste0(file_stem, "_mixed.csv"))
+file_name <- file.path(dir, "03_scm_mat", paste0(file_stem, "_", tolower(phase), ".csv"))
 
 if (run_gridsearch) {
   
-  # define options for filtering
-  filter_options <- list(
-    "NULL",  # This will be interpreted as NULL later
-    "! time_period %in% c(201011, 201112)"
-  )
+  # Define timeseries
+  years.avail <- c(2010:2023)
+  period.post <- c(2022:2023)
   
-  # Create the grid
-  filter_grid <- expand.grid(
-    min_years_obs = c(4, 6, 8),
-    min_schools_per_mat = c(2, 3, 4), 
-    min_schools_per_timeperiod = c(2, 3, 4),
-    swf_filter_idx = 1:length(filter_options),
-    regions = I(list(c("Yorkshire and the Humber", "North West"), c("Yorkshire and the Humber"))),
-    exclude_single_phase = c(TRUE, FALSE),
-    exclude_northwest = c(TRUE, FALSE)
+  years.avail <- setdiff(years.avail, period.post)
+  
+
+  
+  ####################################
+  ### define grid
+  
+  if (phase == "mixed") {
+    # define options for filtering
+    filter.options <- list(
+      "NULL",  # This will be interpreted as NULL later
+      "! time_period %in% c(201011, 201112)"
+    )
+    
+    # define options for donor pool
+    min.years.obs.options = c(4, 6, 8)
+    min.schools.per.mat.options = c(2, 3, 4)
+    min.schools.per.timeperiod.options = c(2, 3, 4)
+    
+    regions.options = list(c("Yorkshire and the Humber", "North West"), c("Yorkshire and the Humber"))
+    
+    exclude.single.phase.options = c(TRUE, FALSE)
+    exclude.northwest.options = c(TRUE, FALSE)
+    
+    filter_phase = "Not applicable"
+    
+  } else if (phase == "Secondary") {
+    
+    # define options for filtering
+    filter.options <- list(
+      "! time_period %in% c(201011, 201112)",
+      "! time_period %in% c(201011, 201112, 201213, 201314)"
+    )
+    
+    # define options for donor pool
+    min.years.obs.options = c(4, 6, 8)
+    min.schools.per.mat.options = c(2, 3, 4)
+    min.schools.per.timeperiod.options = c(2, 3, 4)
+    
+    regions.options = list(c("Yorkshire and the Humber", "North West"))
+    
+    exclude.single.phase.options = c(FALSE)
+    exclude.northwest.options = c(TRUE, FALSE)
+    
+    filter_phase = unique(groups$phaseofeducation_name)[!grepl("econdary", unique(groups$phaseofeducation_name))]
+    
+  } else if (phase == "Primary") {
+    
+    # define options for filtering
+    filter.options <- list(
+      "! time_period %in% c(201011, 201112, 201213, 201314)",
+      "! time_period %in% c(201011, 201112, 201213, 201314, 201415)"
+    )
+    
+    # define options for donor pool
+    min.years.obs.options = c(4, 6, 8)
+    min.schools.per.mat.options = c(2, 3, 4)
+    min.schools.per.timeperiod.options = c(2, 3, 4)
+    
+    regions.options = list(c("Yorkshire and the Humber", "North West"), c("Yorkshire and the Humber"))
+    
+    exclude.single.phase.options = c(FALSE)
+    exclude.northwest.options = c(TRUE, FALSE)
+    
+    filter_phase = unique(groups$phaseofeducation_name)[!grepl("imary", unique(groups$phaseofeducation_name))]
+    
+  }
+  
+  
+  # Create initial parameter grid
+  param_grid <- expand.grid(
+    min.years.obs = min.years.obs.options,
+    min.schools.per.mat = min.schools.per.mat.options, 
+    min.schools.per.timeperiod = min.schools.per.timeperiod.options,
+    swf.filter.idx = 1:length(filter.options),
+    regions = I(regions.options),
+    exclude.single.phase = exclude.single.phase.options,
+    exclude.northwest = exclude.northwest.options,
+    filter_phase = I(list(filter_phase)),
+    stringsAsFactors = FALSE
   )
   
   # remove the options that don't include North West to begin with and then exclude north west later (redundant)
-  filter_grid <- filter_grid[! (!grepl("North West", filter_grid$regions)& filter_grid$exclude_northwest == T), ]
+  param_grid <- param_grid[! (!grepl("North West", param_grid$regions)& param_grid$exclude.northwest == T), ]
   
   # remove options where all years are used but min_schools_per_timeperiod is larger than 2
-  filter_grid <- filter_grid[ !(filter_grid$swf_filter_idx == 1 & filter_grid$min_schools_per_timeperiod > 2), ]
+  param_grid <- param_grid[ !(param_grid$swf.filter.idx == 1 & param_grid$min.schools.per.timeperiod > 2), ]
   
   # Add the actual filter expressions
-  filter_grid$swf_filter <- filter_options[filter_grid$swf_filter_idx]
+  param_grid$swf.filter <- filter.options[param_grid$swf.filter.idx]
   
   # Remove the index column
-  filter_grid$swf_filter_idx <- NULL
+  param_grid$swf.filter.idx <- NULL
+  
+  # manually define period.pre based on filters
+  if (phase == "mixed") {
+    param_grid$period.pre <- ifelse(param_grid$swf.filter == "NULL", I(list(c(sort(years.avail)))), I(list(c(sort(setdiff(years.avail, c(2010:2011)))))))
+  } else if (phase == "Secondary") {
+    param_grid$period.pre <- ifelse(grepl("201314", param_grid$swf.filter), I(list(c(sort(setdiff(years.avail, c(2010:2013)))))), I(list(c(sort(setdiff(years.avail, c(2010:2011)))))))
+  } else if (phase == "Primary") {
+    param_grid$period.pre <- ifelse(grepl("201415", param_grid$swf.filter), I(list(c(sort(setdiff(years.avail, c(2010:2014)))))), I(list(c(sort(setdiff(years.avail, c(2010:2013)))))))
+  }
+  
   
   # Add coluns with NAs that will be filled when iterating through the grid
-  filter_grid$treated_incl <- NA
-  filter_grid$n_donors <- NA
+  param_grid$treated_incl <- NA
+  param_grid$n_donors <- NA
   
-  results <- do.call(rbind, lapply(1:nrow(filter_grid[, ]), function(i) {
+  results <- do.call(rbind, lapply(1:nrow(param_grid[, ]), function(i) {
     message(i)
-    # Extract filters
-    filters <- filter_grid[i, ]
+    
+    # Extract params
+    params <- param_grid[i, ]
     
     # Convert "NULL" string to actual NULL
-    swf_filter_param <- if(filters$swf_filter == "NULL") NULL else unlist(filters$swf_filter)
-    filters$swf_filter <- unlist(filters$swf_filter)
+    swf.filter.param <- if(params$swf.filter == "NULL") NULL else unlist(params$swf.filter)
+    params$swf.filter <- unlist(params$swf.filter)
     
     # run processing with the parameters
     result <- tryCatch({
       process_data_scm_mat(uid_treated = uid_treated, 
-                           target_regions = unlist(filters$regions), 
-                           min_years_obs = filters$min_years_obs,
-                           min_schools_per_mat = filters$min_schools_per_mat,
-                           min_schools_per_timeperiod = filters$min_schools_per_timeperiod,
-                           swf_filter = swf_filter_param)
-    }, error = function(e) { return(filters)})
+                           target_regions = unlist(params$regions), 
+                           min_years_obs = params$min.years.obs,
+                           min_schools_per_mat = params$min.schools.per.mat,
+                           min_schools_per_timeperiod = params$min.schools.per.timeperiod,
+                           filter_phase = unlist(params$filter_phase),
+                           swf_filter = swf.filter.param)
+    }, error = function(e) { 
+      return(params)
+      # return(list(error = paste("Error in process_data_scm_mat:", e$message)))
+    })
     
     # Extract information about iteration
     tmp <- result$MATs
     tmp$multiple_phases <- grepl(" | ", tmp$phase, fixed = T)
     tmp$multiple_gor <- grepl(" | ", tmp$gor, fixed = T)
     tmp <- create_element_columns(tmp, "gor")
-    filters$treated_incl <- uid_treated %in% tmp$group_uid
+    params$treated_incl <- uid_treated %in% tmp$group_uid
     tmp <- tmp[! tmp$group_uid %in% uid_treated, ]
-    if (filters$exclude_single_phase) tmp <- tmp[tmp$multiple_phases, ]
-    if (filters$exclude_northwest) tmp <- tmp[! (tmp$multiple_gor == F & tmp$gor_north_west == T), ]
+    if (params$exclude.single.phase) tmp <- tmp[tmp$multiple_phases, ]
+    if (params$exclude.northwest) tmp <- tmp[! (tmp$multiple_gor == F & tmp$gor_north_west == T), ]
     
-    filters$n_donors <- nrow(tmp)
+    params$n_donors <- nrow(tmp)
     
-    filters$regions <- paste(filters$regions, collapse = ", ")
+    params$regions <- paste(params$regions, collapse = ", ")
+    params$filter_phase <- paste(params$filter_phase, collapse = ", ")
+    params$period.pre <- paste(params$period.pre, collapse = ", ")
     
-    return(filters)
+    return(params)
   }))
   
   # save results of grid search
@@ -470,636 +538,111 @@ if (run_gridsearch) {
   results <- read.csv(file = file_name)
 }
 
-# Display summary information in a formatted table
-DT::datatable(results[results$treated_incl == T, ], rownames = F,
-              # caption = paste0("MATs (J = ", nrow(MATs), ") included in donor pool"),
-              filter = 'top', options = list(pageLength = 10))
-
 ```
 
-```{r, echo=F, results='asis', message=FALSE, eval = T, fig.height=15, fig.width=15}
-tmp <- results[results$treated_incl == T, ]
-cat("min t0 = minimum pre-treatment observations\n\n")
-cat("min it = minimum observations in unit i at timepoint t\n\n")
-cat("min size = minimum amount of schools with valid TS in mat t\n\n")
-tmp$min_t0 <- paste("min to:", tmp$min_years_obs)
-tmp$min_it <- paste("min it:", tmp$min_schools_per_timeperiod)
-tmp$min_size <- paste("min size:", tmp$min_schools_per_mat)
+```{r grid_plot, echo=FALSE, results='asis', message=FALSE, eval = F}
 
-tmp$NW <- ifelse(grepl("North West", tmp$regions), "Region: YS&H + NW", "Region: YS&H")
-tmp$single <- ifelse(tmp$exclude_single_phase, "phases: div only", "phases: same + div")
-tmp$excl_nw<- ifelse(tmp$exclude_northwest, "excl. NW based mat", "incl. NW based mat")
-tmp$years <- ifelse(tmp$swf_filter == "NULL", "all years", "excl. 10/11 + 11/12")
+# copy data for editing
+tmp_results <- results
 
-ggplot(data = tmp, aes(x = treated_incl, y = n_donors)) +
-  geom_point() +
-  facet_grid(rows = vars(NW, single, excl_nw, years), cols = vars(min_size, min_it, min_t0))
+# which region was used for filtering
+tmp_results$region <- ifelse(grepl("North West", tmp_results$regions), "YS&H + NW", "YS&H")
+tmp_results$region <- factor(tmp_results$region)
+# were any MATs excluded?
+if (phase == "mixed") {
+  tmp_results$phase <- ifelse(tmp_results$exclude.single.phase, "excl. phase", "incl. phase")
+  tmp_results$phase <- factor(tmp_results$phase)
+} else {
+  tmp_results$phase <- ifelse(!tmp_results$exclude.single.phase, "same phase", "excl. same phase")
+  tmp_results$phase <- factor(tmp_results$phase)
+}
+tmp_results$mats_in_nw<- ifelse(tmp_results$exclude.northwest, "excl. NW MATs", "incl. NW MATs")
+tmp_results$mats_in_nw<- factor(tmp_results$mats_in_nw)
+# How was the average timeseries obtained?
+tmp_results$min_pretreat <- paste0(tmp_results$min.years.obs, "Y")
+tmp_results$min_pretreat <- factor(tmp_results$min_pretreat)
+tmp_results$min_obs_per_year <- paste0(tmp_results$min.schools.per.timeperiod, "S/Y")
+tmp_results$min_obs_per_year <- factor(tmp_results$min_obs_per_year)
+tmp_results$min_size_mat <- paste0(tmp_results$min.schools.per.mat, "S")
+tmp_results$min_size_mat <- factor(tmp_results$min_size_mat)
+# which years were used in training
+# # Function to extract min and max year
+# extract_min_max_years <- function(period_string) {
+#   years <- as.numeric(unlist(strsplit(period_string, ", ")))
+#   min_year <- min(years)
+#   max_year <- max(years)
+#   return(c(min_year, max_year))
+# }
+# tmp_results$min_year <- sapply(tmp_results$period.pre, function(x) extract_min_max_years(x)[1])
+# tmp_results$max_year <- sapply(tmp_results$period.pre, function(x) extract_min_max_years(x)[2])
+# tmp_results$pretreat <- paste0(tmp_results$min_year, ":", tmp_results$max_year)
+tmp_results$pretreat <- tmp_results$period.pre
+tmp_results$pretreat <- factor(tmp_results$pretreat)
 
-```
+#### plot size of donor pool ####
 
-
-
-# Secondary schools only
-
-```{r data_prep_sec, include=F}
-# Define target regions for filtering the donor pool
-regions <- c("Yorkshire and the Humber", "North West")
-
-all_but_secondary = unique(groups$phaseofeducation_name)[!grepl("econdary", unique(groups$phaseofeducation_name))]
-
-# process data at MAT level
-process_data_scm_mat(uid_treated = uid_treated, target_regions = regions, filter_phase = all_but_secondary,
-                    swf_filter = "! time_period %in% c(201011, 201112)")
-```
-
-## Treated MAT  
-
-```{r check_treated_sec, echo=FALSE, results='asis', eval=T}
-# add info about schools
-groups %>% 
-  filter(laestab %in% df$laestab[df$group_uid == uid_treated]) %>%
-  select(-c(urn, establishmentnumber, la_code, group_uid, group_id, establishmenttypegroup_name, group_name, group_closed_date, date_left_group, laestab, establishment_closedate, reasonestablishmentclosed_name)) %>%
-  kbl(caption = paste0("Schools used for MAT timeseries"), row.names = F, digits = 3) %>%
-  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
-  print()
-
-# show MAT level timeseries data
-df_treat %>%
-  select(-group_uid) %>%
-  mutate(time_period = insert_slash(time_period)) %>%
-  relocate(., n, .after = time_period) %>%
-  rename(., n_schools = n) %>%
-  kbl(caption = paste0("MAT timeseries data"), row.names = F, digits = 3) %>%
-  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
-  print()
-
-##### CREATE SPAGHETTI PLOT ####
-
-# create data in long format
-df_long <- df_treat %>%
-  tidyr::pivot_longer(
-    cols = -c(group_uid, n, time_period),
-    names_to = "variable") %>%
-  mutate(category = case_match(variable, 
-                               "pupil_to_qual_teacher_ratio" ~ "Outcome",
-                               "fte_avg_age" ~ "Teacher age",
-                               "pnpupfsm_e" ~ "% pupils FSM"),
-         time_period_str = insert_slash(time_period)
-  ) %>%
-  as.data.frame()
-
-df_long$category <- factor(df_long$category, levels = c("Outcome", "Teacher age", "% pupils FSM"))
-
-
-# plot timeseries for each variable
-plt <- ggplot(data = df_long, aes(x = time_period_str, y = value, group = group_uid)) +
-  geom_line(col = coral) + 
-  geom_point(col = coral, aes(size = n/2)) +
-  facet_wrap(~ category, ncol = 1, strip.position = "top", scales = "free_y") +
+plt <- ggplot(data = tmp_results, aes(x = min_size_mat, y = n_donors)) + 
+  geom_hline(yintercept = 50, linetype = "dotted") +
+  geom_point(aes(col = treated_incl)) +
+  ggh4x::facet_grid2(cols = vars(min_pretreat, min_obs_per_year), rows = vars(pretreat, region, phase, mats_in_nw), strip = ggh4x::strip_nested()) +
   ambition_theme +
-  ylab("Reported value") + xlab("Academic year") +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1),
-        legend.title = element_blank(),
-        legend.position = "none")
-
+  theme(strip.text = element_text(size = 10),
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 10),
+        axis.title = element_text(size = 10),
+        axis.text = element_text(size = 10),
+        # axis.title.x = element_blank(),
+        # axis.text.x = element_blank(),
+        plot.caption = element_text(size = 10),
+        legend.margin=margin(t = -8)) +
+  ylab("Size of donor pool") + xlab("Mininum number of schools averaged in MAT timeseries") + 
+  guides(col=guide_legend(title = "Treated unit survived filtering")) +
+  scale_color_manual(values = c("TRUE" = blue, "FALSE" = red))
 print(plt)
-cat("\n\n")  # Add some space between plots
+cat("\n\n")
 
+```
 
-##### CREATE SUMMARY TABLE ####
-
-
-# compute timeseries descriptives
-ts_desc <- apply(df_treat[, grepl("pup|fte", names(df_treat))], MARGIN = 2, FUN = function(x){psych::describe(x, fast = T)})
-
-# combine to df
-ts_desc <- do.call("rbind",ts_desc)
-ts_desc$vars <- NULL
-
-ts_desc$out_count <- apply(df_treat[, grepl("pup|fte", names(df_treat))], MARGIN = 2, FUN = function(x){sum(is_outlier_3sd(x))})
-
-# compute relative standard deviation
-ts_desc$rsd <- ts_desc$sd / ts_desc$mean
-
-if (nrow(df_treat) > 1) {
+```{r, echo=F, message=FALSE, results='asis', fig.align='center', fig.height=15, fig.width=10, out.width='100%', out.height='100%'}
+# define phases to loop through
+phases <- c("mixed", "Secondary", "Primary")
+headings <- c("Whole MAT", "Secondary schools only", "Primary schools only")
+for (p in 1:length(phases)) {
   
-  # compute timeseries auto correlation
-  max_lag = ceiling(.25 * nrow(df_treat)) # use lags up to about one-quarter of the total number of observations.
-  ts_ac <- apply(df_treat[, grepl("pup|fte", names(df_treat))], MARGIN = 2, FUN = function(x){
-    df_treat <- acf(ts(x), lag.max = max_lag, plot = F)
-    return(df_treat$acf)
-  })
+  cat("# ", headings[p], "\n\n")
   
-  # transpose output
-  ts_ac <- as.data.frame(t(ts_ac))
-  names(ts_ac) <- paste0("ac_l", 0:(ncol(ts_ac)-1))
-  ts_ac$ac_l0 <- NULL
+  phase = phases[p]
   
-  # combine all measures
-  out <- merge(ts_desc, ts_ac, by = 0)
-  # row.names(out) <- out$Row.names
-  # out$Row.names <- NULL
-  # out <- merge(out, ts_adf, by = 0)
-  names(out)[1] <- "Variable"
-} else {
-  out <- ts_desc
-  out$Variable <- row.names(out)
-  out <- out %>% relocate(Variable) %>% as.data.frame()
+  # define different filter option for each phase #
+  
+  if (phase == "mixed") {
+    swf_filter = NULL
+    filter_phase = "Not applicable"
+  } else if (phase == "Secondary") {
+    swf_filter = "! time_period %in% c(201011, 201112)"
+    filter_phase = unique(groups$phaseofeducation_name)[!grepl("econdary", unique(groups$phaseofeducation_name))]
+  } else if (phase == "Primary") {
+    swf_filter = "! time_period %in% c(201011, 201112, 201213, 201314)"
+    filter_phase = unique(groups$phaseofeducation_name)[!grepl("imary", unique(groups$phaseofeducation_name))]
+  }
+  
+  # Define target regions for filtering the donor pool
+  regions <- c("Yorkshire and the Humber", "North West")
+  
+  # process data at MAT level
+  process_data_scm_mat(uid_treated = uid_treated, target_regions = regions, filter_phase = filter_phase,
+                       swf_filter = swf_filter)
+  
+  cat("## Treated MAT \n\n")
+  <<check_treated>>
+    
+    cat("## MAT donor pool \n\n")
+  <<check_donors>>
+    
+    cat("## Different filter settings \n\n")
+  <<grid_search>>
+  <<grid_plot>>
+  
 }
 
-# assign new variable names
-out$Variable <- factor(out$Variable, 
-                       levels = c("pupil_to_qual_teacher_ratio", 
-                                  "pnpupfsm_e", 
-                                  "fte_avg_age"),
-                       labels = c("Outcome",
-                                  "FSM", 
-                                  "Age")
-                       
-)
-# sort 
-out <- out[order(out$Variable), ]
-
-# print to markdown
-out %>% 
-  mutate(Variable = factor(Variable, levels = c("Outcome", "Age", "FSM"))) %>%
-  rename(., `T(0)` = n) %>%
-  kbl(caption = paste0("Descriptives of MAT timeseries data"), row.names = F, digits = 3) %>%
-  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
-  column_spec(c(2, 13), border_right = T) %>%
-  column_spec(c(1, 2, 4, 8, 13), bold = T) %>%
-  print()
-cat("\n")
-
 ```
-
-
-## MAT donor pool  
-
-
-```{r check_donors_sec, echo=FALSE, results='asis', eval=T}
-knitr::opts_chunk$set(echo = TRUE)
-# format information on MATs
-MATs$multiple_phases <- grepl(" | ", MATs$phase, fixed = T)
-MATs <- create_element_columns(data = MATs, column_name = "phase", drop = F)
-MATs$multiple_gors <- grepl(" | ", MATs$gor, fixed = T)
-MATs <- create_element_columns(data = MATs, column_name = "gor", drop = F)
-
-# Display summary information in a formatted table
-DT::datatable(MATs, rownames = F,
-              # caption = paste0("MATs (J = ", nrow(MATs), ") included in donor pool"),
-              filter = 'top', options = list(pageLength = 10))
-
-##### CREATE SPAGHETTI PLOT ####
-
-# create data in long format
-df_long <- df_avg %>%
-  tidyr::pivot_longer(
-    cols = -c(group_uid, n, time_period, time_period_str, status),
-    names_to = "variable") %>%
-  mutate(category = case_match(variable, 
-                               "pupil_to_qual_teacher_ratio" ~ "Outcome",
-                               "fte_avg_age" ~ "Teacher age",
-                               "pnpupfsm_e" ~ "% pupils FSM")) %>%
-  as.data.frame()
-
-df_long$category <- factor(df_long$category, levels = c("Outcome", "Teacher age", "% pupils FSM"))
-
-# plot timeseries average for each school
-cols <- c(navy40, coral)
-names(cols) <- c("Donor MATs", id_group)
-
-print(ggplot(data = df_long, aes(x = time_period_str, y = value, col = status, group = group_uid)) +
-        geom_line(data = df_long[df_long$status == "Donor MATs", ], aes(col = paste("Donor MATs"))) + 
-        geom_line(data = df_long[df_long$status == paste(id_group), ], aes(col = paste(id_group)), linewidth =.8) +
-        geom_point(data = df_long[df_long$status == paste(id_group), ], aes(col = paste(id_group), size = n)) +
-        facet_wrap(~ category, ncol = 1, strip.position = "top", scales = "free_y") +
-        ambition_theme +
-        scale_color_manual(
-          breaks=c(id_group, "Donor MATs"),
-          values=cols) +
-        ylab("Reported value") + xlab("Academic year") +
-        theme(axis.text.x = element_text(angle = 45, hjust = 1),
-              legend.title = element_blank()) +
-        guides(size = "none"))
-cat("\n\n")  # Add some space between plots
-
-
-```
-
-
-## Different filter settings
-
-```{r, echo=FALSE, results='asis', message=FALSE, eval = T}
-knitr::opts_chunk$set(echo = TRUE)
-
-file_name <- file.path(dir, "03_scm_mat", paste0(file_stem, "_secondary.csv"))
-                       
-if (run_gridsearch) {
-  
-  # define options for filtering
-  filter_options <- list(
-    "! time_period %in% c(201011, 201112)",
-    "! time_period %in% c(201011, 201112, 201213, 201314)"
-  )
-  
-  # Create the grid
-  filter_grid <- expand.grid(
-    min_years_obs = c(4, 6, 8),
-    min_schools_per_mat = c(2, 3, 4), 
-    min_schools_per_timeperiod = c(2, 3, 4),
-    swf_filter_idx = 1:length(filter_options),
-    regions = I(list(c("Yorkshire and the Humber", "North West"), c("Yorkshire and the Humber"))),
-    exclude_single_phase = c(FALSE),
-    exclude_northwest = c(TRUE, FALSE)
-  )
-  
-  # remove the options that don't include North West to begin with and then exclude north west later (redundant)
-  filter_grid <- filter_grid[! (!grepl("North West", filter_grid$regions)& filter_grid$exclude_northwest == T), ]
-  
-  # remove options where all years are used but min_schools_per_timeperiod is larger than 2
-  filter_grid <- filter_grid[ !(filter_grid$swf_filter_idx == 1 & filter_grid$min_schools_per_timeperiod > 2), ]
-  
-  # Add the actual filter expressions
-  filter_grid$swf_filter <- filter_options[filter_grid$swf_filter_idx]
-  
-  # Remove the index column
-  filter_grid$swf_filter_idx <- NULL
-  
-  # Add coluns with NAs that will be filled when iterating through the grid
-  filter_grid$treated_incl <- NA
-  filter_grid$n_donors <- NA
-  
-  results <- do.call(rbind, lapply(1:nrow(filter_grid[, ]), function(i) {
-    message(i)
-    # Extract filters
-    filters <- filter_grid[i, ]
-    
-    # Convert "NULL" string to actual NULL
-    swf_filter_param <- if(filters$swf_filter == "NULL") NULL else unlist(filters$swf_filter)
-    filters$swf_filter <- unlist(filters$swf_filter)
-    
-    # run processing with the parameters
-    result <- tryCatch({
-      process_data_scm_mat(uid_treated = uid_treated, 
-                           target_regions = unlist(filters$regions), 
-                           filter_phase = all_but_secondary,
-                           min_years_obs = filters$min_years_obs,
-                           min_schools_per_mat = filters$min_schools_per_mat,
-                           min_schools_per_timeperiod = filters$min_schools_per_timeperiod,
-                           swf_filter = swf_filter_param)
-    }, error = function(e) { return(filters)})
-    
-    # Extract information about iteration
-    tmp <- result$MATs
-    tmp$multiple_phases <- grepl(" | ", tmp$phase, fixed = T)
-    tmp$multiple_gor <- grepl(" | ", tmp$gor, fixed = T)
-    tmp <- create_element_columns(tmp, "gor")
-    filters$treated_incl <- uid_treated %in% tmp$group_uid
-    tmp <- tmp[! tmp$group_uid %in% uid_treated, ]
-    if (filters$exclude_single_phase) tmp <- tmp[tmp$multiple_phases, ]
-    if (filters$exclude_northwest) tmp <- tmp[! (tmp$multiple_gor == F & tmp$gor_north_west == T), ]
-    
-    filters$n_donors <- nrow(tmp)
-    
-    filters$regions <- paste(filters$regions, collapse = ", ")
-    
-    return(filters)
-  }))
-  
-  # save results of grid search
-  write.csv(results, file = file_name, row.names = F)
-  
-} else {
-  results <- read.csv(file = file_name)
-}
-
-# Display summary information in a formatted table
-DT::datatable(results[results$treated_incl == T, ], rownames = F,
-              # caption = paste0("MATs (J = ", nrow(MATs), ") included in donor pool"),
-              filter = 'top', options = list(pageLength = 10))
-
-```
-
-```{r, echo=F, results='asis', message=FALSE, eval = T, fig.height=15, fig.width=15}
-tmp <- results[results$treated_incl == T, ]
-cat("min t0 = minimum pre-treatment observations\n\n")
-cat("min it = minimum observations in unit i at timepoint t\n\n")
-cat("min size = minimum amount of schools with valid TS in mat t\n\n")
-tmp$min_t0 <- paste("min to:", tmp$min_years_obs)
-tmp$min_it <- paste("min it:", tmp$min_schools_per_timeperiod)
-tmp$min_size <- paste("min size:", tmp$min_schools_per_mat)
-
-tmp$NW <- ifelse(grepl("North West", tmp$regions), "Region: YS&H + NW", "Region: YS&H")
-tmp$excl_nw<- ifelse(tmp$exclude_northwest, "excl. NW based mat", "incl. NW based mat")
-tmp$years <- ifelse(grepl("201314", tmp$swf_filter), "excl. 10/11 - 13/14", "excl. 10/11 + 11/12")
-
-ggplot(data = tmp, aes(x = treated_incl, y = n_donors)) +
-  geom_point() +
-  facet_grid(rows = vars(NW, excl_nw, years), cols = vars(min_size, min_it, min_t0))
-
-```
-
-
-
-# Primary schools only
-
-```{r data_prep_prim, include=F}
-# Define target regions for filtering the donor pool
-regions <- c("Yorkshire and the Humber", "North West")
-
-all_but_primary = unique(groups$phaseofeducation_name)[!grepl("imary", unique(groups$phaseofeducation_name))]
-
-# process data at MAT level
-process_data_scm_mat(uid_treated = uid_treated, target_regions = regions, filter_phase = all_but_primary,
-                    swf_filter = "! time_period %in% c(201011, 201112, 201213, 201314)")
-```
-
-## Treated MAT  
-
-```{r check_treated_prim, echo=FALSE, results='asis', eval=T}
-# add info about schools
-groups %>% 
-  filter(laestab %in% df$laestab[df$group_uid == uid_treated]) %>%
-  select(-c(urn, establishmentnumber, la_code, group_uid, group_id, establishmenttypegroup_name, group_name, group_closed_date, date_left_group, laestab, establishment_closedate, reasonestablishmentclosed_name)) %>%
-  kbl(caption = paste0("Schools used for MAT timeseries"), row.names = F, digits = 3) %>%
-  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
-  print()
-
-# show MAT level timeseries data
-df_treat %>%
-  select(-group_uid) %>%
-  mutate(time_period = insert_slash(time_period)) %>%
-  relocate(., n, .after = time_period) %>%
-  rename(., n_schools = n) %>%
-  kbl(caption = paste0("MAT timeseries data"), row.names = F, digits = 3) %>%
-  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
-  print()
-
-##### CREATE SPAGHETTI PLOT ####
-
-# create data in long format
-df_long <- df_treat %>%
-  tidyr::pivot_longer(
-    cols = -c(group_uid, n, time_period),
-    names_to = "variable") %>%
-  mutate(category = case_match(variable, 
-                               "pupil_to_qual_teacher_ratio" ~ "Outcome",
-                               "fte_avg_age" ~ "Teacher age",
-                               "pnpupfsm_e" ~ "% pupils FSM"),
-         time_period_str = insert_slash(time_period)
-  ) %>%
-  as.data.frame()
-
-df_long$category <- factor(df_long$category, levels = c("Outcome", "Teacher age", "% pupils FSM"))
-
-
-# plot timeseries for each variable
-plt <- ggplot(data = df_long, aes(x = time_period_str, y = value, group = group_uid)) +
-  geom_line(col = coral) + 
-  geom_point(col = coral, aes(size = n/2)) +
-  facet_wrap(~ category, ncol = 1, strip.position = "top", scales = "free_y") +
-  ambition_theme +
-  ylab("Reported value") + xlab("Academic year") +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1),
-        legend.title = element_blank(),
-        legend.position = "none")
-
-print(plt)
-cat("\n\n")  # Add some space between plots
-
-
-##### CREATE SUMMARY TABLE ####
-
-
-# compute timeseries descriptives
-ts_desc <- apply(df_treat[, grepl("pup|fte", names(df_treat))], MARGIN = 2, FUN = function(x){psych::describe(x, fast = T)})
-
-# combine to df
-ts_desc <- do.call("rbind",ts_desc)
-ts_desc$vars <- NULL
-
-ts_desc$out_count <- apply(df_treat[, grepl("pup|fte", names(df_treat))], MARGIN = 2, FUN = function(x){sum(is_outlier_3sd(x))})
-
-# compute relative standard deviation
-ts_desc$rsd <- ts_desc$sd / ts_desc$mean
-
-if (nrow(df_treat) > 1) {
-  
-  # compute timeseries auto correlation
-  max_lag = ceiling(.25 * nrow(df_treat)) # use lags up to about one-quarter of the total number of observations.
-  ts_ac <- apply(df_treat[, grepl("pup|fte", names(df_treat))], MARGIN = 2, FUN = function(x){
-    df_treat <- acf(ts(x), lag.max = max_lag, plot = F)
-    return(df_treat$acf)
-  })
-  
-  # transpose output
-  ts_ac <- as.data.frame(t(ts_ac))
-  names(ts_ac) <- paste0("ac_l", 0:(ncol(ts_ac)-1))
-  ts_ac$ac_l0 <- NULL
-  
-  # combine all measures
-  out <- merge(ts_desc, ts_ac, by = 0)
-  # row.names(out) <- out$Row.names
-  # out$Row.names <- NULL
-  # out <- merge(out, ts_adf, by = 0)
-  names(out)[1] <- "Variable"
-} else {
-  out <- ts_desc
-  out$Variable <- row.names(out)
-  out <- out %>% relocate(Variable) %>% as.data.frame()
-}
-
-# assign new variable names
-out$Variable <- factor(out$Variable, 
-                       levels = c("pupil_to_qual_teacher_ratio", 
-                                  "pnpupfsm_e", 
-                                  "fte_avg_age"),
-                       labels = c("Outcome",
-                                  "FSM", 
-                                  "Age")
-                       
-)
-# sort 
-out <- out[order(out$Variable), ]
-
-# print to markdown
-out %>% 
-  mutate(Variable = factor(Variable, levels = c("Outcome", "Age", "FSM"))) %>%
-  rename(., `T(0)` = n) %>%
-  kbl(caption = paste0("Descriptives of MAT timeseries data"), row.names = F, digits = 3) %>%
-  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
-  column_spec(c(2, 13), border_right = T) %>%
-  column_spec(c(1, 2, 4, 8, 13), bold = T) %>%
-  print()
-cat("\n")
-
-```
-
-
-## MAT donor pool  
-
-
-```{r check_donors_prim, echo=FALSE, results='asis', eval=T}
-knitr::opts_chunk$set(echo = TRUE)
-# format information on MATs
-MATs$multiple_phases <- grepl(" | ", MATs$phase, fixed = T)
-MATs <- create_element_columns(data = MATs, column_name = "phase", drop = F)
-MATs$multiple_gors <- grepl(" | ", MATs$gor, fixed = T)
-MATs <- create_element_columns(data = MATs, column_name = "gor", drop = F)
-
-# Display summary information in a formatted table
-DT::datatable(MATs, rownames = F,
-              # caption = paste0("MATs (J = ", nrow(MATs), ") included in donor pool"),
-              filter = 'top', options = list(pageLength = 10))
-
-##### CREATE SPAGHETTI PLOT ####
-
-# create data in long format
-df_long <- df_avg %>%
-  tidyr::pivot_longer(
-    cols = -c(group_uid, n, time_period, time_period_str, status),
-    names_to = "variable") %>%
-  mutate(category = case_match(variable, 
-                               "pupil_to_qual_teacher_ratio" ~ "Outcome",
-                               "fte_avg_age" ~ "Teacher age",
-                               "pnpupfsm_e" ~ "% pupils FSM")) %>%
-  as.data.frame()
-
-df_long$category <- factor(df_long$category, levels = c("Outcome", "Teacher age", "% pupils FSM"))
-
-# plot timeseries average for each school
-cols <- c(navy40, coral)
-names(cols) <- c("Donor MATs", id_group)
-
-print(ggplot(data = df_long, aes(x = time_period_str, y = value, col = status, group = group_uid)) +
-        geom_line(data = df_long[df_long$status == "Donor MATs", ], aes(col = paste("Donor MATs"))) + 
-        geom_line(data = df_long[df_long$status == paste(id_group), ], aes(col = paste(id_group)), linewidth =.8) +
-        geom_point(data = df_long[df_long$status == paste(id_group), ], aes(col = paste(id_group), size = n)) +
-        facet_wrap(~ category, ncol = 1, strip.position = "top", scales = "free_y") +
-        ambition_theme +
-        scale_color_manual(
-          breaks=c(id_group, "Donor MATs"),
-          values=cols) +
-        ylab("Reported value") + xlab("Academic year") +
-        theme(axis.text.x = element_text(angle = 45, hjust = 1),
-              legend.title = element_blank()) +
-        guides(size = "none"))
-cat("\n\n")  # Add some space between plots
-
-
-```
-
-
-## Different filter settings
-
-```{r, echo=FALSE, results='asis', message=FALSE, eval = T}
-knitr::opts_chunk$set(echo = TRUE)
-
-file_name <- file.path(dir, "03_scm_mat", paste0(file_stem, "_primary.csv"))
-                       
-if (run_gridsearch) {
-  
-  # define options for filtering
-  filter_options <- list(
-    "! time_period %in% c(201011, 201112, 201213, 201314)",
-    "! time_period %in% c(201011, 201112, 201213, 201314, 201415)"
-  )
-  
-  # Create the grid
-  filter_grid <- expand.grid(
-    min_years_obs = c(4, 6, 8),
-    min_schools_per_mat = c(2, 3, 4), 
-    min_schools_per_timeperiod = c(2, 3, 4),
-    swf_filter_idx = 1:length(filter_options),
-    regions = I(list(c("Yorkshire and the Humber", "North West"), c("Yorkshire and the Humber"))),
-    exclude_single_phase = c(FALSE),
-    exclude_northwest = c(TRUE, FALSE)
-  )
-  
-  # remove the options that don't include North West to begin with and then exclude north west later (redundant)
-  filter_grid <- filter_grid[! (!grepl("North West", filter_grid$regions)& filter_grid$exclude_northwest == T), ]
-  
-  # remove options where all years are used but min_schools_per_timeperiod is larger than 2
-  filter_grid <- filter_grid[ !(filter_grid$swf_filter_idx == 1 & filter_grid$min_schools_per_timeperiod > 2), ]
-  
-  # Add the actual filter expressions
-  filter_grid$swf_filter <- filter_options[filter_grid$swf_filter_idx]
-  
-  # Remove the index column
-  filter_grid$swf_filter_idx <- NULL
-  
-  # Add coluns with NAs that will be filled when iterating through the grid
-  filter_grid$treated_incl <- NA
-  filter_grid$n_donors <- NA
-  
-  results <- do.call(rbind, lapply(1:nrow(filter_grid[, ]), function(i) {
-    message(i)
-    # Extract filters
-    filters <- filter_grid[i, ]
-    
-    # Convert "NULL" string to actual NULL
-    swf_filter_param <- if(filters$swf_filter == "NULL") NULL else unlist(filters$swf_filter)
-    filters$swf_filter <- unlist(filters$swf_filter)
-    
-    # run processing with the parameters
-    result <- tryCatch({
-      process_data_scm_mat(uid_treated = uid_treated, 
-                           target_regions = unlist(filters$regions), 
-                           filter_phase = all_but_primary,
-                           min_years_obs = filters$min_years_obs,
-                           min_schools_per_mat = filters$min_schools_per_mat,
-                           min_schools_per_timeperiod = filters$min_schools_per_timeperiod,
-                           swf_filter = swf_filter_param)
-    }, error = function(e) { return(filters)})
-    
-    # Extract information about iteration
-    tmp <- result$MATs
-    tmp$multiple_phases <- grepl(" | ", tmp$phase, fixed = T)
-    tmp$multiple_gor <- grepl(" | ", tmp$gor, fixed = T)
-    tmp <- create_element_columns(tmp, "gor")
-    filters$treated_incl <- uid_treated %in% tmp$group_uid
-    tmp <- tmp[! tmp$group_uid %in% uid_treated, ]
-    if (filters$exclude_single_phase) tmp <- tmp[tmp$multiple_phases, ]
-    if (filters$exclude_northwest) tmp <- tmp[! (tmp$multiple_gor == F & tmp$gor_north_west == T), ]
-    
-    filters$n_donors <- nrow(tmp)
-    
-    filters$regions <- paste(filters$regions, collapse = ", ")
-    
-    return(filters)
-  }))
-  
-  # save results of grid search
-  write.csv(results, file = file_name, row.names = F)
-  
-} else {
-  results <- read.csv(file = file_name)
-}
-
-# Display summary information in a formatted table
-DT::datatable(results[results$treated_incl == T, ], rownames = F,
-              # caption = paste0("MATs (J = ", nrow(MATs), ") included in donor pool"),
-              filter = 'top', options = list(pageLength = 10))
-
-```
-
-```{r, echo=F, results='asis', message=FALSE, eval = T, fig.height=15, fig.width=15}
-tmp <- results[results$treated_incl == T, ]
-cat("min t0 = minimum pre-treatment observations\n\n")
-cat("min it = minimum observations in unit i at timepoint t\n\n")
-cat("min size = minimum amount of schools with valid TS in mat t\n\n")
-tmp$min_t0 <- paste("min to:", tmp$min_years_obs)
-tmp$min_it <- paste("min it:", tmp$min_schools_per_timeperiod)
-tmp$min_size <- paste("min size:", tmp$min_schools_per_mat)
-
-tmp$NW <- ifelse(grepl("North West", tmp$regions), "Region: YS&H + NW", "Region: YS&H")
-tmp$excl_nw<- ifelse(tmp$exclude_northwest, "excl. NW based mat", "incl. NW based mat")
-tmp$years <- ifelse(grepl("201415", tmp$swf_filter), "excl. 10/11 - 14/15", "excl. 10/11 - 13/14")
-
-ggplot(data = tmp, aes(x = treated_incl, y = n_donors)) +
-  geom_point() +
-  facet_grid(rows = vars(NW, excl_nw, years), cols = vars(min_size, min_it, min_t0))
-
-```
-
