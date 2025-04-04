@@ -89,9 +89,8 @@ dir_data <- file.path(dir, "data")
 dir_misc <- file.path(dir, "misc")
 
 # get file stem name
-out_file <- paste0(get_file_stem(), "_out.csv")
-#if(file.exists(out_file)) file.remove(out_file)
-
+file_stem <- get_file_stem()
+out_file <- paste0(file_stem, "_out.csv")
 
 # copy data #
 file.copy(
@@ -126,6 +125,7 @@ est_treated <- est %>%
   mutate(school = "treated") %>% 
   as.data.frame()
 
+run_gridsearch <- T
 ```
 
 ```{r process_data, eval=FALSE, include=F}
@@ -268,9 +268,9 @@ out$Variable <- factor(out$Variable,
                        levels = c("pupil_to_qual_teacher_ratio", "pupil_to_qual_teacher_ratio_roll",  
                                   "pnpupfsm_e", "pnpupfsm_e_roll",
                                   "fte_avg_age", "fte_avg_age_roll"),
-                       labels = c("Outcome (raw)", "Outcome (roll)", 
-                                  "FSM (raw)", "FSM (roll)",
-                                  "Age (raw)", "Age (roll)")
+                       labels = c("Outcome", "Outcome (roll)", 
+                                  "FSM", "FSM (roll)",
+                                  "Age", "Age (roll)")
                        
 )
 # sort 
@@ -309,7 +309,7 @@ if (id_treated == list_laestab[1]) {
 # create data in long format
 df_long <- df %>%
   tidyr::pivot_longer(
-    cols = -c(laestab, school, time_period, time_period_str, school, urn),
+    cols = c(pupil_to_qual_teacher_ratio, fte_avg_age, pnpupfsm_e),
     names_to = "variable") %>%
   mutate(category = case_match(variable, 
                                "pupil_to_qual_teacher_ratio" ~ "Outcome",
@@ -400,78 +400,66 @@ cat("\n")
 
 
 # MAT-level data
+```{r check_ts, eval=FALSE, include=F}
+# get school-level data of treated MAT
+df_s <- df %>% filter(laestab %in% list_laestab)
 
-
-```{r, echo=FALSE, results='asis'}
-# update laestab list
-list_laestab <- unique(summary$laestab[summary$n >= 4])
-
-groups %>% 
-  filter(laestab %in% list_laestab) %>%
-  select(-c(urn, establishmentnumber, la_code, group_uid, group_id, establishmenttypegroup_name, group_name, group_closed_date, date_left_group, laestab, establishment_closedate, reasonestablishmentclosed_name)) %>%
-  kbl(caption = paste0("Schools used for MAT timeseries"), row.names = F, digits = 3) %>%
-  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
-  print()
-
-# Filter SWF data to create outcome dataset
-z <- swf %>%
-  filter(laestab %in% list_laestab) %>%
-  select(time_period, laestab, pupil_to_qual_teacher_ratio, fte_avg_age)
-
-# Filter to create predictor dataset
-x <- pup %>% 
-  filter(laestab %in% list_laestab) %>%
-  select(time_period, laestab, pnpupfsm_e)
-
-# Combine
-df <- merge(z, x, all = T, by = c("laestab", "time_period"))
-
-# remove any rows with NAs
-df <- na.omit(df)
-
-# df %>% group_by(laestab) %>% summarise(n = n()) # check that there are more than 4 obs per school
-
-# compute MAT timeseries average
-tmp <- df %>% 
-  group_by(time_period) %>% 
-  summarise(
-    uid_treated = uid_treated,
-    pupil_to_qual_teacher_ratio = mean(pupil_to_qual_teacher_ratio),
-    fte_avg_age = mean(fte_avg_age),
-    pnpupfsm_e = mean(pnpupfsm_e),
-    n = n()
-  )
-
-tmp %>%
-  select(-uid_treated) %>%
-  mutate(time_period = insert_slash(time_period)) %>%
-  relocate(., n, .after = time_period) %>%
-  kbl(caption = paste0("MAT timeseries data"), row.names = F, digits = 3) %>%
-  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
-  print()
-
-#### CREATE SPAGHETTI PLOT ####
+##### CREATE SPAGHETTI PLOT ####
 
 # create data in long format
-df_long <- tmp %>%
+df_s <- df_s %>%
   tidyr::pivot_longer(
-    cols = -c(uid_treated, n, time_period),
+    cols = c(pupil_to_qual_teacher_ratio, fte_avg_age, pnpupfsm_e),
     names_to = "variable") %>%
   mutate(category = case_match(variable, 
                                "pupil_to_qual_teacher_ratio" ~ "Outcome",
                                "fte_avg_age" ~ "Teacher age",
-                               "pnpupfsm_e" ~ "% pupils FSM"),
-         time_period_str = insert_slash(time_period)
-  ) %>%
+                               "pnpupfsm_e" ~ "% pupils FSM")) %>%
   as.data.frame()
 
-df_long$category <- factor(df_long$category, levels = c("Outcome", "% pupils FSM", "Teacher age"))
+df_s$category <- factor(df_s$category, levels = c("Outcome", "Teacher age", "% pupils FSM"))
 
 
 # plot timeseries for each variable
-plt <- ggplot(data = df_long, aes(x = time_period_str, y = value, group = uid_treated)) +
-  geom_line(col = coral) + 
-  geom_point(col = coral, aes(size = n/2)) +
+plt <- ggplot(data = df_s, aes(x = time_period_str, y = value, group = establishmentname, col = establishmentname, fill = establishmentname, shape = phaseofeducation_name)) +
+  geom_line(linewidth = 1) + 
+  geom_point(col = black) +
+  facet_wrap(~ category, ncol = 1, strip.position = "top", scales = "free_y") +
+  ambition_theme +
+  ylab("Reported value") + xlab("Academic year") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 8),
+        legend.position = "right",
+        legend.spacing = unit(0.2, "cm"), 
+        legend.margin = margin(t = 0.1, r = 0.1, b = 0.1, l = 0.1, unit = "cm")) + 
+  scale_colour_manual(values = as.vector(pals::polychrome(length(list_laestab)))) +
+  scale_fill_manual(values = as.vector(pals::polychrome(length(list_laestab)))) +
+  scale_shape_manual(values = c(21:24))
+
+print(plt)
+cat("\n\n")  # Add some space between plots
+
+##### CREATE SPAGHETTI PLOT ####
+
+# create data in long format
+df_long <- df_treat %>%
+  tidyr::pivot_longer(
+    cols = c(pupil_to_qual_teacher_ratio, fte_avg_age, pnpupfsm_e),
+    names_to = "variable") %>%
+  mutate(category = case_match(variable, 
+                               "pupil_to_qual_teacher_ratio" ~ "Outcome",
+                               "fte_avg_age" ~ "Teacher age",
+                               "pnpupfsm_e" ~ "% pupils FSM")  ) %>%
+  as.data.frame()
+
+df_long$category <- factor(df_long$category, levels = c("Outcome", "Teacher age", "% pupils FSM"))
+
+
+# plot timeseries for each variable
+plt <- ggplot(data = df_long, aes(x = time_period_str, y = value, group = group_uid)) +
+  geom_line(linewidth = 1, col = coral) + 
+  geom_point(col = coral) +
   facet_wrap(~ category, ncol = 1, strip.position = "top", scales = "free_y") +
   ambition_theme +
   ylab("Reported value") + xlab("Academic year") +
@@ -482,56 +470,72 @@ plt <- ggplot(data = df_long, aes(x = time_period_str, y = value, group = uid_tr
 print(plt)
 cat("\n\n")  # Add some space between plots
 
+# plot both!!
+# plot timeseries for each variable
+plt <- ggplot() + 
+  geom_point(data = df_s, aes(x = time_period_str, y = value, fill = establishmentname, shape = phaseofeducation_name, colour = establishmentname)) + 
+  geom_line(data = df_long, aes(x = time_period_str, y = value, group = group_uid), linewidth = 1) + 
+  facet_wrap(~ category, ncol = 1, strip.position = "top", scales = "free_y") + 
+  ambition_theme + 
+  ylab("Reported value") + 
+  xlab("Academic year") + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), 
+        legend.title = element_blank(), 
+        legend.text = element_text(size = 8), 
+        legend.position = "right", 
+        legend.spacing = unit(0.2, "cm"), 
+        legend.margin = margin(t = 0.1, r = 0.1, b = 0.1, l = 0.1, unit = "cm")) + 
+  scale_fill_manual(values = as.vector(pals::polychrome(length(list_laestab)))) + 
+  scale_shape_manual(values = c(21:24)) + 
+  scale_colour_manual(values = as.vector(pals::polychrome(length(list_laestab))))
 
-#### CREATE SUMMARY TABLE ####
+print(plt)
+cat("\n\n")  # Add some space between plots
 
+# print averaged TS to markdown
+df_treat %>%
+  select(-c(group_uid, status)) %>%
+  relocate(., n, .after = time_period) %>%
+  kbl(caption = paste0("MAT timeseries data"), row.names = F, digits = 3) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
+  print()
 
 # compute timeseries descriptives
-ts_desc <- apply(tmp[, grepl("pup|fte", names(tmp))], MARGIN = 2, FUN = function(x){psych::describe(x, fast = T)})
+ts_desc <- apply(df_treat[, grepl("pup|fte", names(df_treat))], MARGIN = 2, FUN = function(x){psych::describe(x, fast = T)})
 
 # combine to df
 ts_desc <- do.call("rbind",ts_desc)
 ts_desc$vars <- NULL
 
-ts_desc$out_count <- apply(tmp[, grepl("pup|fte", names(tmp))], MARGIN = 2, FUN = function(x){sum(is_outlier_3sd(x))})
+ts_desc$out_count <- apply(df_treat[, grepl("pup|fte", names(df_treat))], MARGIN = 2, FUN = function(x){sum(is_outlier_3sd(x))})
 
 # compute relative standard deviation
 ts_desc$rsd <- ts_desc$sd / ts_desc$mean
 
-if (nrow(tmp) > 1) {
-  
-  # compute timeseries auto correlation
-  max_lag = ceiling(.25 * nrow(tmp)) # use lags up to about one-quarter of the total number of observations.
-  ts_ac <- apply(tmp[, grepl("pup|fte", names(tmp))], MARGIN = 2, FUN = function(x){
-    tmp <- acf(ts(x), lag.max = max_lag, plot = F)
-    return(tmp$acf)
-  })
-  
-  # transpose output
-  ts_ac <- as.data.frame(t(ts_ac))
-  names(ts_ac) <- paste0("ac_l", 0:(ncol(ts_ac)-1))
-  ts_ac$ac_l0 <- NULL
-  
-  # combine all measures
-  out <- merge(ts_desc, ts_ac, by = 0)
-  # row.names(out) <- out$Row.names
-  # out$Row.names <- NULL
-  # out <- merge(out, ts_adf, by = 0)
-  names(out)[1] <- "Variable"
-} else {
-  out <- ts_desc
-  out$Variable <- row.names(out)
-  out <- out %>% relocate(Variable) %>% as.data.frame()
-}
+# compute timeseries auto correlation
+max_lag = ceiling(.25 * nrow(df_treat)) # use lags up to about one-quarter of the total number of observations.
+ts_ac <- apply(df_treat[, grepl("pup|fte", names(df_treat))], MARGIN = 2, FUN = function(x){
+  df_treat <- acf(ts(x), lag.max = max_lag, plot = F)
+  return(df_treat$acf)
+})
+
+# transpose output
+ts_ac <- as.data.frame(t(ts_ac))
+names(ts_ac) <- paste0("ac_l", 0:(ncol(ts_ac)-1))
+ts_ac$ac_l0 <- NULL
+
+# combine all measures
+out <- merge(ts_desc, ts_ac, by = 0)
+names(out)[1] <- "Variable"
 
 # assign new variable names
 out$Variable <- factor(out$Variable, 
-                       levels = c("pupil_to_qual_teacher_ratio", "pupil_to_qual_teacher_ratio_roll",  
-                                  "pnpupfsm_e", "pnpupfsm_e_roll",
-                                  "fte_avg_age", "fte_avg_age_roll"),
-                       labels = c("Outcome (raw)", "Outcome (roll)", 
-                                  "FSM (raw)", "FSM (roll)",
-                                  "Age (raw)", "Age (roll)")
+                       levels = c("pupil_to_qual_teacher_ratio",  
+                                  "pnpupfsm_e",
+                                  "fte_avg_age"),
+                       labels = c("Outcome", 
+                                  "FSM", 
+                                  "Age")
                        
 )
 # sort 
@@ -539,7 +543,7 @@ out <- out[order(out$Variable), ]
 
 # print to markdown
 out %>% 
-  mutate(Variable = factor(Variable, levels = c("Outcome (raw)", "FSM (raw)", "Age (raw)"))) %>%
+  mutate(Variable = factor(Variable, levels = c("Outcome", "FSM", "Age"))) %>%
   arrange(Variable, sd) %>%
   kbl(caption = paste0("Descriptives of MAT timeseries data"), row.names = F, digits = 3) %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
@@ -549,4 +553,44 @@ out %>%
 cat("\n")
 
 ```
+
+
+```{r, echo=F, message=FALSE, results='asis', fig.align='center', fig.height=10, fig.width=8, out.width='100%', out.height='100%'}
+# define phases to loop through
+phases <- c("mixed", "Secondary", "Primary")
+headings <- c("Whole MAT", "Secondary schools only", "Primary schools only")
+for (p in 1:length(phases)) {
+  
+  cat("## ", headings[p], "\n\n")
+  
+  phase = phases[p]
+  
+  # define different filter option for each phase #
+  
+  if (phase == "mixed") {
+    swf_filter = NULL
+    filter_phase = "Not applicable"
+  } else if (phase == "Secondary") {
+    swf_filter = "! time_period %in% c(201011, 201112)"
+    filter_phase = unique(groups$phaseofeducation_name)[!grepl("econdary", unique(groups$phaseofeducation_name))]
+  } else if (phase == "Primary") {
+    swf_filter = "! time_period %in% c(201011, 201112, 201213, 201314)"
+    filter_phase = unique(groups$phaseofeducation_name)[!grepl("imary", unique(groups$phaseofeducation_name))]
+  }
+  
+  # Define target regions for filtering the donor pool
+  regions <- c("Yorkshire and the Humber", "North West")
+  
+  # process data at MAT level
+  process_data_scm_mat(uid_treated = uid_treated, target_regions = regions, filter_phase = filter_phase,
+                       swf_filter = swf_filter, min_years_obs = 4, min_schools_per_mat = 2, min_schools_per_timeperiod = 2)
+  
+  
+  <<check_ts>>
+    #<<grid_search>>
+}
+
+```
+
+
 
