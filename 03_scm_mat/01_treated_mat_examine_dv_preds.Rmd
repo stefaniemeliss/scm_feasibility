@@ -125,7 +125,7 @@ est_treated <- est %>%
   mutate(school = "treated") %>% 
   as.data.frame()
 
-run_gridsearch <- F
+run_gridsearch <- T
 ```
 
 ```{r process_data, eval=FALSE, include=F}
@@ -227,6 +227,9 @@ ts_desc$vars <- NULL
 
 ts_desc$out_count <- apply(df[, grepl("pup|fte", names(df))], MARGIN = 2, FUN = function(x){sum(is_outlier_3sd(x))})
 
+# compute snr
+ts_desc$snr <- apply(df[, grepl("pup|fte", names(df))], MARGIN = 2, FUN = function(x){calculate_snr(x, window_size = 3)})
+
 # compute relative standard deviation
 ts_desc$rsd <- ts_desc$sd / ts_desc$mean
 
@@ -283,8 +286,8 @@ row_idx <- c(which.min(c(out$sd[1:2])), 2 + which.min(c(out$sd[3:4])), 4 + which
 kbl(out, caption = paste0("Descriptives of timeseries data"), , digits = 2, row.names = F) %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
   add_footnote("Rows in italics describe the timeseries with the smaller SD.") %>%
-  column_spec(c(1, 13), border_right = T) %>%
-  column_spec(c(1, 4, 8, 13), bold = T) %>%
+  column_spec(c(1, 14), border_right = T) %>%
+  column_spec(c(1, 4, 8, 13, 14), bold = T) %>%
   row_spec(row_idx, italic = T) %>%
   print()
 cat("\n")
@@ -369,7 +372,7 @@ for (id_treated in list_laestab) {
 
 # save summary
 write.csv(summary, out_file, row.names = F)
-
+summary <- read.csv(out_file)
 cat("## Summary \n\n")
 
 # print to markdown
@@ -388,11 +391,11 @@ summary %>%
   filter(n >= 4) %>% 
   select(-laestab) %>%
   mutate(Variable = factor(Variable, levels = c("Outcome (qual)", "FSM (roll)", "Age (roll)"))) %>%
-  arrange(Variable, sd) %>%
+  arrange(school, Variable) %>%
   kbl(caption = paste0("Descriptives of timeseries data"), row.names = F) %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
-  column_spec(c(2, 13), border_right = T) %>%
-  column_spec(c(1, 2, 5, 9, 13), bold = T) %>%
+  column_spec(c(2, 15), border_right = T) %>%
+  column_spec(c(1, 2, 5, 9, 14, 15), bold = T) %>%
   print()
 cat("\n")
 
@@ -533,6 +536,9 @@ ts_desc$vars <- NULL
 
 ts_desc$out_count <- apply(df_treat[, grepl("pup|fte", names(df_treat))], MARGIN = 2, FUN = function(x){sum(is_outlier_3sd(x))})
 
+# compute snr
+ts_desc$snr <- apply(df[, grepl("pup|fte", names(df))], MARGIN = 2, FUN = function(x){calculate_snr(x, window_size = 3)})
+
 # compute relative standard deviation
 ts_desc$rsd <- ts_desc$sd / ts_desc$mean
 
@@ -571,8 +577,8 @@ out %>%
   arrange(Variable, sd) %>%
   kbl(caption = paste0("Descriptives of MAT timeseries data"), row.names = F, digits = 3) %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
-  column_spec(c(2, 13), border_right = T) %>%
-  column_spec(c(1, 2, 4, 8, 13), bold = T) %>%
+  column_spec(c(2, 14), border_right = T) %>%
+  column_spec(c(1, 2, 4, 8, 13, 14), bold = T) %>%
   print()
 cat("\n")
 
@@ -742,6 +748,171 @@ if (run_gridsearch) {
 
 ```
 
+```{r grid_search2, echo=FALSE, results='asis', eval = F}
+file_name <- file.path(dir, "03_scm_mat", paste0(file_stem, "_", tolower(phase), "_no_outlier.csv"))
+
+if (run_gridsearch) {
+  
+  # Define timeseries
+  years.avail <- c(2010:2023)
+  
+  ####################################
+  ### define grid
+  
+  if (phase == "mixed") {
+    # define options for filtering
+    filter.options <- list(
+      "! laestab %in% c(3802008)",  # This will be interpreted as NULL later
+      "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)"
+    )
+    
+    # define options for donor pool
+    min.years.obs.options = c(4, 6, 8)
+    min.schools.per.mat.options = c(2, 3, 4)
+    min.schools.per.timeperiod.options = c(2, 3, 4)
+    
+    filter_phase = "Not applicable"
+    
+  } else if (phase == "Secondary") {
+    
+    # define options for filtering
+    filter.options <- list(
+      "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
+      "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112, 201213, 201314)"
+    )
+    
+    # define options for donor pool
+    min.years.obs.options = c(4, 6, 8)
+    min.schools.per.mat.options = c(2, 3, 4)
+    min.schools.per.timeperiod.options = c(2, 3, 4)
+    
+    filter_phase = unique(groups$phaseofeducation_name)[!grepl("econdary", unique(groups$phaseofeducation_name))]
+    
+  } else if (phase == "Primary") {
+    
+    # define options for filtering
+    filter.options <- list(
+      "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112, 201213, 201314)",
+      "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112, 201213, 201314, 201415)"
+    )
+    
+    # define options for donor pool
+    min.years.obs.options = c(4, 6, 8)
+    min.schools.per.mat.options = c(2, 3)
+    min.schools.per.timeperiod.options = c(2, 3)
+    
+    filter_phase = unique(groups$phaseofeducation_name)[!grepl("imary", unique(groups$phaseofeducation_name))]
+    
+  }
+  
+  
+  # Create initial parameter grid
+  param_grid <- expand.grid(
+    min.years.obs = min.years.obs.options,
+    min.schools.per.mat = min.schools.per.mat.options, 
+    min.schools.per.timeperiod = min.schools.per.timeperiod.options,
+    swf.filter.idx = 1:length(filter.options),
+    stringsAsFactors = FALSE
+  )
+  
+  # remove options where all years are used but min_schools_per_timeperiod is larger than 2
+  param_grid <- param_grid[ !(param_grid$swf.filter.idx == 1 & param_grid$min.schools.per.timeperiod > 2), ]
+  
+  # Add the actual filter expressions
+  param_grid$swf.filter <- filter.options[param_grid$swf.filter.idx]
+  
+  # Remove the index column
+  param_grid$swf.filter.idx <- NULL
+  
+  # manually define period.pre based on filters
+  if (phase == "mixed") {
+    param_grid$period.pre <- ifelse(param_grid$swf.filter == "NULL", I(list(c(sort(years.avail)))), I(list(c(sort(setdiff(years.avail, c(2010:2011)))))))
+  } else if (phase == "Secondary") {
+    param_grid$period.pre <- ifelse(grepl("201314", param_grid$swf.filter), I(list(c(sort(setdiff(years.avail, c(2010:2013)))))), I(list(c(sort(setdiff(years.avail, c(2010:2011)))))))
+  } else if (phase == "Primary") {
+    param_grid$period.pre <- ifelse(grepl("201415", param_grid$swf.filter), I(list(c(sort(setdiff(years.avail, c(2010:2014)))))), I(list(c(sort(setdiff(years.avail, c(2010:2013)))))))
+  }
+  
+  # create empty df
+  df_empty = data.frame(id = integer(1),
+                        name = character(1),
+                        time_period = numeric(1),
+                        time_period_str = character(1),
+                        pupil_to_qual_teacher_ratio = numeric(1),
+                        fte_avg_age = numeric(1),
+                        pnpupfsm_e = numeric(1),
+                        n = integer(1),
+                        level = character(1)
+                        )
+  
+  
+  results <- do.call(rbind, lapply(1:nrow(param_grid[, ]), function(i) {
+    message(i)
+    
+    # Extract params
+    params <- param_grid[i, ]
+    
+    # Convert "NULL" string to actual NULL
+    swf.filter.param <- if(params$swf.filter == "NULL") NULL else unlist(params$swf.filter)
+    params$swf.filter <- unlist(params$swf.filter)
+    params$period.pre <- paste(params$period.pre, collapse = ", ")
+    # create df_it
+    df_it <- merge(params, df_empty)
+    
+    # run processing with the parameters
+    result <- tryCatch({
+      process_data_scm_mat(uid_treated = uid_treated, 
+                           target_regions = regions, 
+                           min_years_obs = params$min.years.obs,
+                           min_schools_per_mat = params$min.schools.per.mat,
+                           min_schools_per_timeperiod = params$min.schools.per.timeperiod,
+                           filter_phase = filter_phase,
+                           swf_filter = swf.filter.param)
+    }, error = function(e) { 
+      return(df_it)
+      # return(list(error = paste("Error in process_data_scm_mat:", e$message)))
+    })
+    
+    # Extract information about iteration #
+
+    # if there is a MAT timeseries
+    if (nrow(result$df_treat) > 0) {
+      
+      # select relevant columns: MAT
+      df_treat <- result$df_treat %>%
+        rename(., id = group_uid, name = status) %>%
+        select(c(id, name, time_period, time_period_str, 
+                 pupil_to_qual_teacher_ratio, fte_avg_age, pnpupfsm_e, n)) %>%
+        mutate(level = "MAT")
+      
+      # select relevant columns: school
+      df_s <- result$df %>%
+        filter(laestab %in% list_laestab) %>%
+        rename(., id = laestab, name = establishmentname) %>%
+        select(c(id, name, time_period, time_period_str, 
+                 pupil_to_qual_teacher_ratio, fte_avg_age, pnpupfsm_e)) %>%
+        mutate(n = NA,
+               level = "School")
+      
+      # combine both
+      df_it <- rbind(df_treat, df_s)
+      
+      # merge with parameter info
+      df_it <- merge(params, df_it)
+    }
+    return(df_it)
+  }))
+  
+  # save results of grid search
+  write.csv(results, file = file_name, row.names = F)
+  
+} else {
+  results <- read.csv(file = file_name)
+}
+
+```
+
+
 ```{r grid_plot, eval=FALSE, include=F}
 #### process data grid search ####
 
@@ -829,8 +1000,15 @@ for (p in 1:length(phases)) {
   cat("### Timeseries data \n\n")
   <<check_ts>>
   cat("### Different pre-processing settings \n\n")
+  
+  cat("#### All schools \n\n")
   <<grid_search>>
   <<grid_plot>>
+  
+  cat("#### Outlier removed \n\n")
+  <<grid_search2>>
+  <<grid_plot>>
+
 }
 
 ```
