@@ -227,9 +227,7 @@ df_long <- df_treat %>%
   mutate(category = case_match(variable, 
                                "pupil_to_qual_teacher_ratio" ~ "Outcome",
                                "fte_avg_age" ~ "Teacher age",
-                               "pnpupfsm_e" ~ "% pupils FSM"),
-         time_period_str = insert_slash(time_period)
-  ) %>%
+                               "pnpupfsm_e" ~ "% pupils FSM")  ) %>%
   as.data.frame()
 
 df_long$category <- factor(df_long$category, levels = c("Outcome", "Teacher age", "% pupils FSM"))
