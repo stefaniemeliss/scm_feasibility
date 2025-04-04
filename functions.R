@@ -1388,7 +1388,13 @@ process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("
   # This ensures consistency between school-level and MAT-level datasets
   df <- df %>%
     filter(group_uid %in% unique(df_avg$group_uid)) %>%
-    mutate(status = ifelse(group_uid == uid_treated, id_group, "Donor MATs")) %>%
+    mutate(
+      status = ifelse(group_uid == uid_treated, id_group, "Donor MATs"),
+      # Convert time_period to string with slash (e.g., "2018/19")
+      time_period_str = insert_slash(time_period),
+      # Extract year only from time_period (e.g., "2018" from "201819")
+      time_period = as.numeric(substr(time_period, 0, 4))
+    ) %>%
     as.data.frame()
   
   # ---- Summary information ----
