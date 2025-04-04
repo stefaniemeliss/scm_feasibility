@@ -125,7 +125,7 @@ est_treated <- est %>%
   mutate(school = "treated") %>% 
   as.data.frame()
 
-run_gridsearch <- T
+run_gridsearch <- F
 ```
 
 ```{r process_data, eval=FALSE, include=F}
@@ -430,12 +430,13 @@ plt <- ggplot(data = df_s, aes(x = time_period_str, y = value, group = establish
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         legend.title = element_blank(),
         legend.text = element_text(size = 8),
-        legend.position = "right",
+        legend.position = "bottom", legend.box="vertical",
         legend.spacing = unit(0.2, "cm"), 
         legend.margin = margin(t = 0.1, r = 0.1, b = 0.1, l = 0.1, unit = "cm")) + 
   scale_colour_manual(values = as.vector(pals::polychrome(length(list_laestab)))) +
   scale_fill_manual(values = as.vector(pals::polychrome(length(list_laestab)))) +
-  scale_shape_manual(values = c(21:24))
+  scale_shape_manual(values = c(21:24)) +
+  guides(col = guide_legend(nrow = nrow_legend, byrow = T))
 
 print(plt)
 cat("\n\n")  # Add some space between plots
@@ -482,12 +483,13 @@ plt <- ggplot() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1), 
         legend.title = element_blank(), 
         legend.text = element_text(size = 8), 
-        legend.position = "right", 
+        legend.position = "bottom", legend.box="vertical",
         legend.spacing = unit(0.2, "cm"), 
         legend.margin = margin(t = 0.1, r = 0.1, b = 0.1, l = 0.1, unit = "cm")) + 
   scale_fill_manual(values = as.vector(pals::polychrome(length(list_laestab)))) + 
   scale_shape_manual(values = c(21:24)) + 
-  scale_colour_manual(values = as.vector(pals::polychrome(length(list_laestab))))
+  scale_colour_manual(values = as.vector(pals::polychrome(length(list_laestab)))) +
+  guides(col = guide_legend(nrow = nrow_legend, byrow = F))
 
 print(plt)
 cat("\n\n")  # Add some space between plots
@@ -554,6 +556,220 @@ cat("\n")
 
 ```
 
+```{r grid_search, echo=FALSE, results='asis', eval = F}
+file_name <- file.path(dir, "03_scm_mat", paste0(file_stem, "_", tolower(phase), ".csv"))
+
+if (run_gridsearch) {
+  
+  # Define timeseries
+  years.avail <- c(2010:2023)
+  
+  ####################################
+  ### define grid
+  
+  if (phase == "mixed") {
+    # define options for filtering
+    filter.options <- list(
+      "NULL",  # This will be interpreted as NULL later
+      "! time_period %in% c(201011, 201112)"
+    )
+    
+    # define options for donor pool
+    min.years.obs.options = c(4, 6, 8)
+    min.schools.per.mat.options = c(2, 3, 4)
+    min.schools.per.timeperiod.options = c(2, 3, 4)
+    
+    filter_phase = "Not applicable"
+    
+  } else if (phase == "Secondary") {
+    
+    # define options for filtering
+    filter.options <- list(
+      "! time_period %in% c(201011, 201112)",
+      "! time_period %in% c(201011, 201112, 201213, 201314)"
+    )
+    
+    # define options for donor pool
+    min.years.obs.options = c(4, 6, 8)
+    min.schools.per.mat.options = c(2, 3, 4)
+    min.schools.per.timeperiod.options = c(2, 3, 4)
+    
+    filter_phase = unique(groups$phaseofeducation_name)[!grepl("econdary", unique(groups$phaseofeducation_name))]
+    
+  } else if (phase == "Primary") {
+    
+    # define options for filtering
+    filter.options <- list(
+      "! time_period %in% c(201011, 201112, 201213, 201314)",
+      "! time_period %in% c(201011, 201112, 201213, 201314, 201415)"
+    )
+    
+    # define options for donor pool
+    min.years.obs.options = c(4, 6, 8)
+    min.schools.per.mat.options = c(2, 3)
+    min.schools.per.timeperiod.options = c(2, 3)
+    
+    filter_phase = unique(groups$phaseofeducation_name)[!grepl("imary", unique(groups$phaseofeducation_name))]
+    
+  }
+  
+  
+  # Create initial parameter grid
+  param_grid <- expand.grid(
+    min.years.obs = min.years.obs.options,
+    min.schools.per.mat = min.schools.per.mat.options, 
+    min.schools.per.timeperiod = min.schools.per.timeperiod.options,
+    swf.filter.idx = 1:length(filter.options),
+    stringsAsFactors = FALSE
+  )
+  
+  # remove options where all years are used but min_schools_per_timeperiod is larger than 2
+  param_grid <- param_grid[ !(param_grid$swf.filter.idx == 1 & param_grid$min.schools.per.timeperiod > 2), ]
+  
+  # Add the actual filter expressions
+  param_grid$swf.filter <- filter.options[param_grid$swf.filter.idx]
+  
+  # Remove the index column
+  param_grid$swf.filter.idx <- NULL
+  
+  # manually define period.pre based on filters
+  if (phase == "mixed") {
+    param_grid$period.pre <- ifelse(param_grid$swf.filter == "NULL", I(list(c(sort(years.avail)))), I(list(c(sort(setdiff(years.avail, c(2010:2011)))))))
+  } else if (phase == "Secondary") {
+    param_grid$period.pre <- ifelse(grepl("201314", param_grid$swf.filter), I(list(c(sort(setdiff(years.avail, c(2010:2013)))))), I(list(c(sort(setdiff(years.avail, c(2010:2011)))))))
+  } else if (phase == "Primary") {
+    param_grid$period.pre <- ifelse(grepl("201415", param_grid$swf.filter), I(list(c(sort(setdiff(years.avail, c(2010:2014)))))), I(list(c(sort(setdiff(years.avail, c(2010:2013)))))))
+  }
+  
+  # create empty df
+  df_empty = data.frame(id = integer(1),
+                        name = character(1),
+                        time_period = numeric(1),
+                        time_period_str = character(1),
+                        pupil_to_qual_teacher_ratio = numeric(1),
+                        fte_avg_age = numeric(1),
+                        pnpupfsm_e = numeric(1),
+                        n = integer(1),
+                        level = character(1)
+                        )
+  
+  
+  results <- do.call(rbind, lapply(1:nrow(param_grid[, ]), function(i) {
+    message(i)
+    
+    # Extract params
+    params <- param_grid[i, ]
+    
+    # Convert "NULL" string to actual NULL
+    swf.filter.param <- if(params$swf.filter == "NULL") NULL else unlist(params$swf.filter)
+    params$swf.filter <- unlist(params$swf.filter)
+    params$period.pre <- paste(params$period.pre, collapse = ", ")
+    # create df_it
+    df_it <- merge(params, df_empty)
+    
+    # run processing with the parameters
+    result <- tryCatch({
+      process_data_scm_mat(uid_treated = uid_treated, 
+                           target_regions = regions, 
+                           min_years_obs = params$min.years.obs,
+                           min_schools_per_mat = params$min.schools.per.mat,
+                           min_schools_per_timeperiod = params$min.schools.per.timeperiod,
+                           filter_phase = filter_phase,
+                           swf_filter = swf.filter.param)
+    }, error = function(e) { 
+      return(df_it)
+      # return(list(error = paste("Error in process_data_scm_mat:", e$message)))
+    })
+    
+    # Extract information about iteration #
+
+    # if there is a MAT timeseries
+    if (nrow(result$df_treat) > 0) {
+      
+      # select relevant columns: MAT
+      df_treat <- result$df_treat %>%
+        rename(., id = group_uid, name = status) %>%
+        select(c(id, name, time_period, time_period_str, 
+                 pupil_to_qual_teacher_ratio, fte_avg_age, pnpupfsm_e, n)) %>%
+        mutate(level = "MAT")
+      
+      # select relevant columns: school
+      df_s <- result$df %>%
+        filter(laestab %in% list_laestab) %>%
+        rename(., id = laestab, name = establishmentname) %>%
+        select(c(id, name, time_period, time_period_str, 
+                 pupil_to_qual_teacher_ratio, fte_avg_age, pnpupfsm_e)) %>%
+        mutate(n = NA,
+               level = "School")
+      
+      # combine both
+      df_it <- rbind(df_treat, df_s)
+      
+      # merge with parameter info
+      df_it <- merge(params, df_it)
+    }
+    return(df_it)
+  }))
+  
+  # save results of grid search
+  write.csv(results, file = file_name, row.names = F)
+  
+} else {
+  results <- read.csv(file = file_name)
+}
+
+```
+
+```{r grid_plot, eval=FALSE, include=F}
+#### process data grid search ####
+
+# copy data for editing
+tmp_results <- results
+apply(results[1:5], 2, unique)
+
+# create new vars for facets #
+# How was the average timeseries obtained?
+tmp_results$min_pretreat <- paste0(tmp_results$min.years.obs, "Y")
+tmp_results$min_pretreat <- factor(tmp_results$min_pretreat)
+tmp_results$min_obs_per_year <- paste0(tmp_results$min.schools.per.timeperiod, "S/Y")
+tmp_results$min_obs_per_year <- factor(tmp_results$min_obs_per_year)
+tmp_results$min_size_mat <- paste0(tmp_results$min.schools.per.mat, "S")
+tmp_results$min_size_mat <- factor(tmp_results$min_size_mat)
+# which years were used in training
+tmp_results$pretreat <- factor(tmp_results$period.pre)
+
+tmp_results$error <- is.na(tmp_results$pupil_to_qual_teacher_ratio)
+
+
+#### plot size of donor pool ####
+
+plt <- ggplot(data = tmp_results[tmp_results$level == "MAT", ], aes(x = time_period, y = pupil_to_qual_teacher_ratio, group = id)) + 
+  geom_point(data = tmp_results[tmp_results$level == "School", ], aes(x = time_period, y = pupil_to_qual_teacher_ratio, col = name), size = .5) + 
+  geom_line(linewidth = .8) +
+  ggh4x::facet_grid2(cols = vars(min_pretreat, min_obs_per_year), rows = vars(pretreat, min_size_mat), strip = ggh4x::strip_nested()) +
+  ambition_theme +
+  theme(strip.text = element_text(size = 10),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 8),
+        legend.position = "bottom", legend.box="vertical",
+        legend.spacing = unit(0.2, "cm"), 
+        legend.margin = margin(t = 0.1, r = 0.1, b = 0.1, l = 0.1, unit = "cm"),
+        axis.title = element_text(size = 10),
+        axis.text = element_text(size = 10),
+        # axis.title.x = element_blank(),
+        axis.text.x = element_blank()) +
+  ylab("Reported value") + xlab("Academic year") +
+  scale_colour_manual(values = as.vector(pals::polychrome(length(list_laestab)))) +
+  guides(col = guide_legend(nrow = nrow_legend, byrow = F))
+
+print(plt)
+cat("\n\n")
+
+
+
+```
+
+
 
 ```{r, echo=F, message=FALSE, results='asis', fig.align='center', fig.height=10, fig.width=8, out.width='100%', out.height='100%'}
 # define phases to loop through
@@ -570,12 +786,15 @@ for (p in 1:length(phases)) {
   if (phase == "mixed") {
     swf_filter = NULL
     filter_phase = "Not applicable"
+    nrow_legend = 3
   } else if (phase == "Secondary") {
     swf_filter = "! time_period %in% c(201011, 201112)"
     filter_phase = unique(groups$phaseofeducation_name)[!grepl("econdary", unique(groups$phaseofeducation_name))]
+    nrow_legend = 2
   } else if (phase == "Primary") {
     swf_filter = "! time_period %in% c(201011, 201112, 201213, 201314)"
     filter_phase = unique(groups$phaseofeducation_name)[!grepl("imary", unique(groups$phaseofeducation_name))]
+    nrow_legend = 1
   }
   
   # Define target regions for filtering the donor pool
@@ -585,9 +804,11 @@ for (p in 1:length(phases)) {
   process_data_scm_mat(uid_treated = uid_treated, target_regions = regions, filter_phase = filter_phase,
                        swf_filter = swf_filter, min_years_obs = 4, min_schools_per_mat = 2, min_schools_per_timeperiod = 2)
   
-  
+  cat("### Timeseries data \n\n")
   <<check_ts>>
-    #<<grid_search>>
+  cat("### Grid search \n\n")
+  <<grid_search>>
+  <<grid_plot>>
 }
 
 ```
