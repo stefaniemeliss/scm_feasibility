@@ -404,9 +404,7 @@ cat("\n")
 # get school-level data of treated MAT
 df_s <- df %>% filter(laestab %in% list_laestab)
 
-##### CREATE SPAGHETTI PLOT ####
-
-# create data in long format
+# create data in long format - school level
 df_s <- df_s %>%
   tidyr::pivot_longer(
     cols = c(pupil_to_qual_teacher_ratio, fte_avg_age, pnpupfsm_e),
@@ -419,8 +417,22 @@ df_s <- df_s %>%
 
 df_s$category <- factor(df_s$category, levels = c("Outcome", "Teacher age", "% pupils FSM"))
 
+# create data in long format - MAT
+df_long <- df_treat %>%
+  tidyr::pivot_longer(
+    cols = c(pupil_to_qual_teacher_ratio, fte_avg_age, pnpupfsm_e),
+    names_to = "variable") %>%
+  mutate(category = case_match(variable, 
+                               "pupil_to_qual_teacher_ratio" ~ "Outcome",
+                               "fte_avg_age" ~ "Teacher age",
+                               "pnpupfsm_e" ~ "% pupils FSM")  ) %>%
+  as.data.frame()
 
-# plot timeseries for each variable
+df_long$category <- factor(df_long$category, levels = c("Outcome", "Teacher age", "% pupils FSM"))
+
+##### CREATE SPAGHETTI PLOT ####
+
+# plot school-level timeseries for each variable
 plt <- ggplot(data = df_s, aes(x = time_period_str, y = value, group = establishmentname, col = establishmentname, fill = establishmentname, shape = phaseofeducation_name)) +
   geom_line(linewidth = 1) + 
   geom_point(col = black) +
@@ -437,28 +449,16 @@ plt <- ggplot(data = df_s, aes(x = time_period_str, y = value, group = establish
   scale_fill_manual(values = as.vector(pals::polychrome(length(list_laestab)))) +
   scale_shape_manual(values = c(21:24)) +
   guides(col = guide_legend(nrow = nrow_legend, byrow = T))
-
 print(plt)
 cat("\n\n")  # Add some space between plots
 
-##### CREATE SPAGHETTI PLOT ####
 
-# create data in long format
-df_long <- df_treat %>%
-  tidyr::pivot_longer(
-    cols = c(pupil_to_qual_teacher_ratio, fte_avg_age, pnpupfsm_e),
-    names_to = "variable") %>%
-  mutate(category = case_match(variable, 
-                               "pupil_to_qual_teacher_ratio" ~ "Outcome",
-                               "fte_avg_age" ~ "Teacher age",
-                               "pnpupfsm_e" ~ "% pupils FSM")  ) %>%
-  as.data.frame()
-
-df_long$category <- factor(df_long$category, levels = c("Outcome", "Teacher age", "% pupils FSM"))
-
-
-# plot timeseries for each variable
+# plot MAT AVERAGE timeseries for each variable
+# note: school-level data is added to the plot but in transparent (col = NA)
+# this keeps the scales constant
 plt <- ggplot(data = df_long, aes(x = time_period_str, y = value, group = group_uid)) +
+    geom_point(data = df_s, aes(x = time_period_str, y = value), col = NA) + 
+
   geom_line(linewidth = 1, col = coral) + 
   geom_point(col = coral) +
   facet_wrap(~ category, ncol = 1, strip.position = "top", scales = "free_y") +
@@ -467,14 +467,36 @@ plt <- ggplot(data = df_long, aes(x = time_period_str, y = value, group = group_
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         legend.title = element_blank(),
         legend.position = "none")
+suppressWarnings(print(plt))
+cat("\n\n")  # Add some space between plots
+
+# plot MAT AVERAGE timeseries for each variable
+# add school-level data visibly as POINTS
+plt <- ggplot() + 
+  geom_point(data = df_s, aes(x = time_period_str, y = value, fill = establishmentname, shape = phaseofeducation_name, colour = establishmentname)) + 
+  geom_line(data = df_long, aes(x = time_period_str, y = value, group = group_uid), linewidth = 1) + 
+  facet_wrap(~ category, ncol = 1, strip.position = "top", scales = "free_y") + 
+  ambition_theme + 
+  ylab("Reported value") + 
+  xlab("Academic year") + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), 
+        legend.title = element_blank(), 
+        legend.text = element_text(size = 8), 
+        legend.position = "bottom", legend.box="vertical",
+        legend.spacing = unit(0.2, "cm"), 
+        legend.margin = margin(t = 0.1, r = 0.1, b = 0.1, l = 0.1, unit = "cm")) + 
+  scale_fill_manual(values = as.vector(pals::polychrome(length(list_laestab)))) + 
+  scale_shape_manual(values = c(21:24)) + 
+  scale_colour_manual(values = as.vector(pals::polychrome(length(list_laestab)))) +
+  guides(col = guide_legend(nrow = nrow_legend, byrow = F))
 
 print(plt)
 cat("\n\n")  # Add some space between plots
 
-# plot both!!
-# plot timeseries for each variable
+# plot MAT AVERAGE timeseries for each variable
+# add school-level data visibly as LINES
 plt <- ggplot() + 
-  geom_point(data = df_s, aes(x = time_period_str, y = value, fill = establishmentname, shape = phaseofeducation_name, colour = establishmentname)) + 
+  geom_line(data = df_s, aes(x = time_period_str, y = value, colour = establishmentname, group = establishmentname), linewidth = .5) + 
   geom_line(data = df_long, aes(x = time_period_str, y = value, group = group_uid), linewidth = 1) + 
   facet_wrap(~ category, ncol = 1, strip.position = "top", scales = "free_y") + 
   ambition_theme + 
@@ -806,7 +828,7 @@ for (p in 1:length(phases)) {
   
   cat("### Timeseries data \n\n")
   <<check_ts>>
-  cat("### Grid search \n\n")
+  cat("### Different pre-processing settings \n\n")
   <<grid_search>>
   <<grid_plot>>
 }
