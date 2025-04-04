@@ -1512,10 +1512,12 @@ grid_search_scpi_mat <- function(param_grid, cv = FALSE) {
     })
     
     if (is.list(scdata.out) && "error" %in% names(scdata.out)) {
+      params$w.constr.str <- NA
+      
       return(list(status = scdata.out$error,
-                  n_pool = length(id_cont),
+                  n_pool = NA,
                   n_active = NA, 
-                  sd_treated = sd(data$df_avg[data$df_avg$group_uid == uid_treated & data$df_avg$time_period %in% params$period.pre[[1]], params$outcome.var], na.rm = T), 
+                  sd_treated = NA, 
                   m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
                   rmspe_pre = NA, mspe_pre = NA, mae_pre = NA, 
                   rmspe_post = NA, mspe_post = NA, mae_post = NA,
@@ -1550,9 +1552,9 @@ grid_search_scpi_mat <- function(param_grid, cv = FALSE) {
       params$w.constr.str <- w.constr
       
       return(list(status = scest.out$error,
-                  n_pool = length(id_cont),
+                  n_pool = NA,
                   n_active = NA, 
-                  sd_treated = sd(data$df_avg[data$df_avg$group_uid == uid_treated & data$df_avg$time_period %in% params$period.pre[[1]], params$outcome.var], na.rm = T), 
+                  sd_treated = NA, 
                   m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
                   rmspe_pre = NA, mspe_pre = NA, mae_pre = NA, 
                   rmspe_post = NA, mspe_post = NA, mae_post = NA,
@@ -1639,6 +1641,7 @@ grid_search_scpi_mat <- function(param_grid, cv = FALSE) {
   }
   
   # Perform grid search without parallel processing
+  
   results <- do.call(rbind, lapply(1:nrow(param_grid), function(i) {
     message(i)
     params <- param_grid[i, ]
@@ -1647,16 +1650,22 @@ grid_search_scpi_mat <- function(param_grid, cv = FALSE) {
     result <- tryCatch({
       run_scm(df, params)
     }, error = function(e) {
-      return(list(status=paste("Error in run_scm:", e$message),
-                  n_pool = length(id_cont),
+      return(list(error = paste("Error in run_scm:", e$message)))
+    })
+    
+    if (is.list(result) && !is.null(result$error)) {
+      
+      return(list(status = result$error,
+                  n_pool = NA,
                   n_active = NA, 
-                  sd_treated = sd(data$df_avg[data$df_avg$group_uid == uid_treated & data$df_avg$time_period %in% params$period.pre[[1]], params$outcome.var], na.rm = T), 
+                  sd_treated = NA, 
                   m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
                   rmspe_pre = NA, mspe_pre = NA, mae_pre = NA,
                   rmspe_post = NA, mspe_post = NA, mae_post = NA,
                   rmspe = NA, mspe = NA, mae = NA,
                   params = params))
-    })
+
+    }
     
     # Create a list to store the results
     result_list <- list(
@@ -1673,7 +1682,7 @@ grid_search_scpi_mat <- function(param_grid, cv = FALSE) {
       min.years.obs = ifelse(!is.null(result$params$min.years.obs), result$params$min.years.obs, NA),
       min.schools.per.mat = ifelse(!is.null(result$params$min.schools.per.mat), result$params$min.schools.per.mat, NA),
       min.schools.per.timeperiod = ifelse(!is.null(result$params$min.schools.per.timeperiod), result$params$min.schools.per.timeperiod, NA),
-      
+
       period.pre = ifelse(!is.null(result$params$period.pre[[1]]),
                           paste(result$params$period.pre[[1]], collapse = ", "),
                           NA),
