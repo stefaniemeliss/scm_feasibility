@@ -1500,9 +1500,8 @@ grid_search_scpi_mat <- function(param_grid, cv = FALSE, sim = F) {
       # Combine all data frames in the list
       ave <- bind_rows(ave_list)
       
-      # Print the result
+      # Combine the result
       data$df_avg <- bind_rows(data$df_avg, ave)
-      print(ave)      
     }
     
     
