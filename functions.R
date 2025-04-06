@@ -1427,7 +1427,7 @@ process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("
 }
 
 # Create function to run grid search
-grid_search_scpi_mat <- function(param_grid, cv = FALSE) {
+grid_search_scpi_mat <- function(param_grid, cv = FALSE, sim = F) {
   
   # Define default values for parameters
   default_values <- data.frame(
@@ -1485,6 +1485,25 @@ grid_search_scpi_mat <- function(param_grid, cv = FALSE) {
     tmp <- tmp[! tmp$group_uid %in% uid_treated, ]
     if (params$exclude.single.phase) tmp <- tmp[tmp$multiple_phases, ]
     if (params$exclude.northwest) tmp <- tmp[! (tmp$multiple_gor == F & tmp$gor_north_west == T), ]
+    
+    if(sim){
+      # Simulate data using the timeseries mean #
+
+      # Repeat the process for each period and combine the results
+      ave_list <- lapply(params$period.post[[1]], function(period) {
+        data$df_avg %>%
+          group_by(group_uid) %>%
+          summarise(across(all_of(params$features[[1]]), mean, .names = "{.col}")) %>%
+          mutate(time_period = period)
+      })
+      
+      # Combine all data frames in the list
+      ave <- bind_rows(ave_list)
+      
+      # Print the result
+      data$df_avg <- bind_rows(data$df_avg, ave)
+      print(ave)      
+    }
     
     
     # determine ids of control schools
