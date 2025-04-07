@@ -1759,3 +1759,97 @@ calculate_period_pre <- function(period_avail, period_post, period_excl) {
   setdiff(period_avail, union(period_post, period_excl))
 }
 
+analyse_missing_values <- function(data, group_col = "laestab", time_col = "time", value_col = "value") {
+  results <- list()
+  
+  # Process each group
+  for (id in unique(data[[group_col]])) {
+    group <- data[data[[group_col]] == id, ]
+    
+    # Sort by time column to ensure correct sequence
+    group <- group[order(group[[time_col]]), ]
+    
+    total_observations <- nrow(group)
+    missing_count <- sum(is.na(group[[value_col]]))
+    has_missing <- missing_count > 0
+    
+    # Find indices
+    non_na_indices <- which(!is.na(group[[value_col]]))
+    na_indices <- which(is.na(group[[value_col]]))
+    
+    first_non_na_idx <- if(length(non_na_indices) > 0) min(non_na_indices) else NA
+    last_non_na_idx <- if(length(non_na_indices) > 0) max(non_na_indices) else NA
+    
+    first_na_idx <- if(length(na_indices) > 0) min(na_indices) else NA
+    last_na_idx <- if(length(na_indices) > 0) max(na_indices) else NA
+    
+    first_non_na_after_first_na <- if(has_missing && !is.na(first_na_idx)) {
+      candidates <- non_na_indices[non_na_indices > first_na_idx]
+      if(length(candidates) > 0) min(candidates) else NA
+    } else NA
+    
+    # Determine missing regions
+    missing_at_beginning <- !is.na(first_na_idx) && first_na_idx == 1
+    missing_at_end <- !is.na(last_na_idx) && last_na_idx == total_observations
+    
+    # Check for missing in middle
+    missing_in_middle <- FALSE
+    if (has_missing) {
+      # If there are NAs not at the beginning and not at the end, they must be in the middle
+      middle_nas <- na_indices[na_indices > 1 & na_indices < total_observations]
+      if (length(middle_nas) > 0) {
+        # Check if these middle NAs are after the first non-NA and before the last non-NA
+        if (!is.na(first_non_na_idx) && !is.na(last_non_na_idx)) {
+          middle_nas_between_non_nas <- middle_nas[middle_nas > first_non_na_idx & middle_nas < last_non_na_idx]
+          missing_in_middle <- length(middle_nas_between_non_nas) > 0
+        } else {
+          missing_in_middle <- TRUE
+        }
+      }
+    }
+    
+    # Categorize pattern - exactly matching the 8 scenarios
+    if (missing_count == 0) {
+      pattern <- "No missing values"
+    } else if (missing_at_beginning && missing_in_middle && missing_at_end) {
+      pattern <- "Missing values at beginning, middle, and end"
+    } else if (missing_in_middle && missing_at_end && !missing_at_beginning) {
+      pattern <- "Missing values in middle and end"
+    } else if (missing_at_beginning && missing_at_end && !missing_in_middle) {
+      pattern <- "Missing values at beginning and end"
+    } else if (missing_at_end && !missing_at_beginning && !missing_in_middle) {
+      pattern <- "Missing values at end"
+    } else if (missing_at_beginning && missing_in_middle && !missing_at_end) {
+      pattern <- "Missing values at beginning and middle"
+    } else if (missing_in_middle && !missing_at_beginning && !missing_at_end) {
+      pattern <- "Missing values in middle"
+    } else if (missing_at_beginning && !missing_in_middle && !missing_at_end) {
+      pattern <- "Missing values at beginning"
+    } else {
+      pattern <- "Complex pattern not matching predefined scenarios"
+    }
+    
+    # Store results
+    results[[length(results) + 1]] <- list(
+      group_id = id,
+      total_observations = total_observations,
+      missing_count = missing_count,
+      has_missing = has_missing,
+      first_non_na_idx = first_non_na_idx,
+      last_non_na_idx = last_non_na_idx,
+      first_na_idx = first_na_idx,
+      last_na_idx = last_na_idx,
+      first_non_na_after_first_na = first_non_na_after_first_na,
+      missing_pattern = pattern
+    )
+  }
+  
+  # Convert list to data frame
+  result_df <- do.call(rbind, lapply(results, as.data.frame))
+  
+  # Rename the group_id column to match the input group_col name
+  names(result_df)[names(result_df) == "group_id"] <- group_col
+  
+  return(result_df)
+}
+
