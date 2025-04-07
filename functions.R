@@ -1421,13 +1421,12 @@ process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("
   assign("df_treat", df_treat, envir = .GlobalEnv)
   assign("df_donor", df_donor, envir = .GlobalEnv)
   assign("MATs", MATs, envir = .GlobalEnv)  
-  assign("test", test, envir = .GlobalEnv)  
-  
+
   # export other values
   assign("id_group", id_group, envir = .GlobalEnv)  
   
   # Return invisible to suppress output but still allow assignment if desired
-  invisible(list(df = df, df_avg = df_avg, df_treat = df_treat, df_donor = df_donor, MATs = MATs, test = test))
+  invisible(list(df = df, df_avg = df_avg, df_treat = df_treat, df_donor = df_donor, MATs = MATs))
 }
 
 # Create function to run grid search
