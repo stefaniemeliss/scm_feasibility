@@ -205,6 +205,7 @@ Including both regions also ensures a sufficient number of schools and MATs for 
 
 - Creates a summary of MATs in the donor pool, including names, number of schools, educational phases, and regions.  
 
+# 
 ```{r check_treated, echo=FALSE, results='asis', eval=F}
 # add info about schools
 groups %>% 
@@ -391,15 +392,22 @@ file_name <- file.path(getwd(), "interim", paste0(file_stem, "_", tolower(phase)
 if (run_gridsearch) {
   
   # Define timeseries
-  years.avail <- c(2010:2023)
-  period.post <- c(2022:2023)
+  period.avail <- c(2010:2023)
+  period.post <- c(2024:2026)
   
-  years.avail <- setdiff(years.avail, period.post)
-  
-
   
   ####################################
   ### define grid
+  
+  # define options for donor pool
+  min.years.obs.options = c(4, 6, 8)
+  min.schools.per.mat.options = c(2, 3, 4)
+  min.schools.per.timeperiod.options = c(2, 3, 4)
+  
+  regions.options = list(c("Yorkshire and the Humber", "North West"), c("Yorkshire and the Humber"))
+  
+  exclude.northwest.options = c(TRUE, FALSE)
+  
   
   if (phase == "mixed") {
     # define options for filtering
@@ -410,18 +418,8 @@ if (run_gridsearch) {
       "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)"
     )
     
-    # define options for donor pool
-    min.years.obs.options = c(4, 6, 8)
-    min.schools.per.mat.options = c(2, 3, 4)
-    min.schools.per.timeperiod.options = c(2, 3, 4)
-    
-    regions.options = list(c("Yorkshire and the Humber", "North West"), c("Yorkshire and the Humber"))
-    
     exclude.single.phase.options = c(TRUE, FALSE)
-    exclude.northwest.options = c(TRUE, FALSE)
-    
-    filter_phase = c("Not applicable", "16 plus")
-    
+
   } else if (phase == "Secondary") {
     
     # define options for filtering
@@ -430,18 +428,8 @@ if (run_gridsearch) {
       "! time_period %in% c(201011, 201112, 201213, 201314)"
     )
     
-    # define options for donor pool
-    min.years.obs.options = c(4, 6, 8)
-    min.schools.per.mat.options = c(2, 3, 4)
-    min.schools.per.timeperiod.options = c(2, 3, 4)
-    
-    regions.options = list(c("Yorkshire and the Humber", "North West"), c("Yorkshire and the Humber"))
-    
     exclude.single.phase.options = c(FALSE)
-    exclude.northwest.options = c(TRUE, FALSE)
-    
-    filter_phase = unique(groups$phaseofeducation_name)[!grepl("econdary", unique(groups$phaseofeducation_name))]
-    
+
   } else if (phase == "Primary") {
     
     # define options for filtering
@@ -452,18 +440,8 @@ if (run_gridsearch) {
       "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112, 201213, 201314, 201415)"
     )
     
-    # define options for donor pool
-    min.years.obs.options = c(4, 6, 8)
-    min.schools.per.mat.options = c(2, 3, 4)
-    min.schools.per.timeperiod.options = c(2, 3, 4)
-    
-    regions.options = list(c("Yorkshire and the Humber", "North West"), c("Yorkshire and the Humber"))
-    
     exclude.single.phase.options = c(FALSE)
-    exclude.northwest.options = c(TRUE, FALSE)
-    
-    filter_phase = unique(groups$phaseofeducation_name)[!grepl("imary", unique(groups$phaseofeducation_name))]
-    
+
   }
   
   
@@ -476,16 +454,11 @@ if (run_gridsearch) {
     regions = I(regions.options),
     exclude.single.phase = exclude.single.phase.options,
     exclude.northwest = exclude.northwest.options,
-    filter_phase = I(list(filter_phase)),
     stringsAsFactors = FALSE
   )
   
-  # remove the options that don't include North West to begin with and then exclude north west later (redundant)
-  param_grid <- param_grid[! (!grepl("North West", param_grid$regions)& param_grid$exclude.northwest == T), ]
-  
-  # remove options where all years are used but min_schools_per_timeperiod is larger than 2
-  param_grid <- param_grid[ !(param_grid$swf.filter.idx == 1 & param_grid$min.schools.per.timeperiod > 2), ]
-  
+  # translate SWF filter #
+
   # Add the actual filter expressions
   param_grid$swf.filter <- filter.options[param_grid$swf.filter.idx]
   
@@ -495,14 +468,17 @@ if (run_gridsearch) {
   # Add if any schools should be exclude
   param_grid$excl.outlier <- grepl("laestab", param_grid$swf.filter)
   
-  # manually define period.pre based on filters
-  if (phase == "mixed") {
-    param_grid$period.pre <- ifelse(param_grid$swf.filter == "NULL", I(list(c(sort(years.avail)))), I(list(c(sort(setdiff(years.avail, c(2010:2011)))))))
-  } else if (phase == "Secondary") {
-    param_grid$period.pre <- ifelse(grepl("201314", param_grid$swf.filter), I(list(c(sort(setdiff(years.avail, c(2010:2013)))))), I(list(c(sort(setdiff(years.avail, c(2010:2011)))))))
-  } else if (phase == "Primary") {
-    param_grid$period.pre <- ifelse(grepl("201415", param_grid$swf.filter), I(list(c(sort(setdiff(years.avail, c(2010:2014)))))), I(list(c(sort(setdiff(years.avail, c(2010:2013)))))))
-  }
+  # extract any years to be excluded
+  param_grid$period.excl <- I(apply(param_grid, 1, function(row) {
+    extract_years_from_filter(row["swf.filter"])
+  }))
+  
+  # define period.post and period.avail based on CV filter
+  param_grid$period.post <- I(list(period.post))
+  param_grid$period.avail <- I(list(period.avail))
+  
+  # Calculate period.pre based on period.avail, period.post and period.excl.
+  param_grid$period.pre <- mapply(calculate_period_pre, param_grid$period.avail, param_grid$period.post, param_grid$period.excl, SIMPLIFY = FALSE)
   
   
   # Add coluns with NAs that will be filled when iterating through the grid
@@ -518,8 +494,6 @@ if (run_gridsearch) {
     # Convert "NULL" string to actual NULL
     swf.filter.param <- if(params$swf.filter == "NULL") NULL else unlist(params$swf.filter)
     params$swf.filter <- unlist(params$swf.filter)
-    params$period.pre <- paste(params$period.pre, collapse = ", ")
-
     
     # run processing with the parameters
     result <- tryCatch({
@@ -528,7 +502,7 @@ if (run_gridsearch) {
                            min_years_obs = params$min.years.obs,
                            min_schools_per_mat = params$min.schools.per.mat,
                            min_schools_per_timeperiod = params$min.schools.per.timeperiod,
-                           filter_phase = unlist(params$filter_phase),
+                           filter_phase = filter_phase,
                            swf_filter = swf.filter.param)
     }, error = function(e) { 
       return(params)
@@ -548,7 +522,10 @@ if (run_gridsearch) {
     params$n_donors <- nrow(tmp)
     
     params$regions <- paste(params$regions, collapse = ", ")
-    params$filter_phase <- paste(params$filter_phase, collapse = ", ")
+    params$filter.phase <- paste(filter_phase, collapse = ", ")
+    params$period.excl <- paste(params$period.excl, collapse = ", ")
+    params$period.post <- paste(params$period.post, collapse = ", ")
+    params$period.avail <- paste(params$period.avail, collapse = ", ")
     params$period.pre <- paste(params$period.pre, collapse = ", ")
     
     return(params)
@@ -568,26 +545,13 @@ if (run_gridsearch) {
 # copy data for editing
 tmp_results <- results
 
-# which region was used for filtering
-tmp_results$region <- ifelse(grepl("North West", tmp_results$regions), "YS&H + NW", "YS&H")
-tmp_results$region <- factor(tmp_results$region)
-# were any MATs excluded?
-if (phase == "mixed") {
-  tmp_results$phase <- ifelse(tmp_results$exclude.single.phase, "excl. phase", "incl. phase")
-  tmp_results$phase <- factor(tmp_results$phase)
-} else {
-  tmp_results$phase <- ifelse(!tmp_results$exclude.single.phase, "same phase", "excl. same phase")
-  tmp_results$phase <- factor(tmp_results$phase)
-}
-tmp_results$mats_in_nw<- ifelse(tmp_results$exclude.northwest, "excl. NW MATs", "incl. NW MATs")
-tmp_results$mats_in_nw<- factor(tmp_results$mats_in_nw)
 # How was the average timeseries obtained?
-tmp_results$min_pretreat <- paste0(tmp_results$min.years.obs, "Y")
-tmp_results$min_pretreat <- factor(tmp_results$min_pretreat)
-tmp_results$min_obs_per_year <- paste0(tmp_results$min.schools.per.timeperiod, "S/Y")
-tmp_results$min_obs_per_year <- factor(tmp_results$min_obs_per_year)
-tmp_results$min_size_mat <- paste0(tmp_results$min.schools.per.mat, "S")
-tmp_results$min_size_mat <- factor(tmp_results$min_size_mat)
+tmp_results$min.years.obs <- paste0(tmp_results$min.years.obs, "Y")
+tmp_results$min.years.obs <- factor(tmp_results$min.years.obs)
+tmp_results$min.schools.per.timeperiod <- paste0(tmp_results$min.schools.per.timeperiod, "S/Y")
+tmp_results$min.schools.per.timeperiod <- factor(tmp_results$min.schools.per.timeperiod)
+tmp_results$min.schools.per.mat <- paste0(tmp_results$min.schools.per.mat, "S")
+tmp_results$min.schools.per.mat <- factor(tmp_results$min.schools.per.mat)
 # which years were used in training
 # # Function to extract min and max year
 # extract_min_max_years <- function(period_string) {
@@ -598,16 +562,33 @@ tmp_results$min_size_mat <- factor(tmp_results$min_size_mat)
 # }
 # tmp_results$min_year <- sapply(tmp_results$period.pre, function(x) extract_min_max_years(x)[1])
 # tmp_results$max_year <- sapply(tmp_results$period.pre, function(x) extract_min_max_years(x)[2])
-# tmp_results$pretreat <- paste0(tmp_results$min_year, ":", tmp_results$max_year)
-tmp_results$pretreat <- tmp_results$period.pre
-tmp_results$pretreat <- factor(tmp_results$pretreat)
+# tmp_results$period.pre <- paste0(tmp_results$min_year, ":", tmp_results$max_year)
+tmp_results$period.pre <- factor(tmp_results$period.pre)
+
+
+# which region was used for filtering
+tmp_results$region <- ifelse(grepl("North West", tmp_results$regions), "YS&H + NW", "YS&H")
+tmp_results$region <- factor(tmp_results$region)
+# were any MATs excluded?
+if (phase == "mixed") {
+  tmp_results$phase <- ifelse(tmp_results$exclude.single.phase, "excl. phase", "incl. phase")
+  tmp_results$phase <- factor(tmp_results$phase)
+} else {
+  tmp_results$phase <- "same phase"
+  tmp_results$phase <- factor(tmp_results$phase)
+}
+tmp_results$exclude.northwest<- ifelse(tmp_results$exclude.northwest, "excl. NW MATs", "incl. NW MATs")
+tmp_results$exclude.northwest<- factor(tmp_results$exclude.northwest)
+
+# did we remove outliers
+tmp_results$excl.outlier <- ifelse(tmp_results$excl.outlier, "excl. out", "incl. out")
 
 #### plot size of donor pool ####
 
-plt <- ggplot(data = tmp_results, aes(x = min_size_mat, y = n_donors)) + 
+plt <- ggplot(data = tmp_results, aes(x = min.schools.per.mat, y = n_donors)) + 
   geom_hline(yintercept = 50, linetype = "dotted") +
   geom_point(aes(col = treated_incl)) +
-  ggh4x::facet_grid2(cols = vars(min_pretreat, min_obs_per_year), rows = vars(pretreat, region, phase, mats_in_nw), strip = ggh4x::strip_nested()) +
+  ggh4x::facet_grid2(cols = vars(excl.outlier, min.years.obs, min.schools.per.timeperiod), rows = vars(period.pre, region, phase, exclude.northwest), strip = ggh4x::strip_nested()) +
   ambition_theme +
   theme(strip.text = element_text(size = 10),
         legend.title = element_text(size = 10),

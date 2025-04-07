@@ -585,7 +585,8 @@ file_name <- file.path(getwd(), "interim", paste0(file_stem, "_", tolower(phase)
 if (run_gridsearch) {
   
   # Define timeseries
-  years.avail <- c(2010:2023)
+  period.avail <- c(2010:2023)
+  period.post <- c(2024:2026)
   
   ####################################
   ### define grid
@@ -593,6 +594,7 @@ if (run_gridsearch) {
   # define different filter option for each phase #
   
   if (phase == "mixed") {
+    
     # define options for filtering
     filter.options <- list(
       "NULL",  # This will be interpreted as NULL later
@@ -661,9 +663,8 @@ if (run_gridsearch) {
     stringsAsFactors = FALSE
   )
   
-  # remove options where all years are used but min_schools_per_timeperiod is larger than 2
-  param_grid <- param_grid[ !(param_grid$swf.filter.idx == 1 & param_grid$min.schools.per.timeperiod > 2), ]
-  
+  # translate SWF filter #
+
   # Add the actual filter expressions
   param_grid$swf.filter <- filter.options[param_grid$swf.filter.idx]
   
@@ -673,15 +674,17 @@ if (run_gridsearch) {
   # Add if any schools should be exclude
   param_grid$excl.outlier <- grepl("laestab", param_grid$swf.filter)
   
+  # extract any years to be excluded
+  param_grid$period.excl <- I(apply(param_grid, 1, function(row) {
+    extract_years_from_filter(row["swf.filter"])
+  }))
   
-  # manually define period.pre based on filters
-  if (phase == "mixed") {
-    param_grid$period.pre <- ifelse(param_grid$swf.filter == "NULL", I(list(c(sort(years.avail)))), I(list(c(sort(setdiff(years.avail, c(2010:2011)))))))
-  } else if (phase == "Secondary") {
-    param_grid$period.pre <- ifelse(grepl("201314", param_grid$swf.filter), I(list(c(sort(setdiff(years.avail, c(2010:2013)))))), I(list(c(sort(setdiff(years.avail, c(2010:2011)))))))
-  } else if (phase == "Primary") {
-    param_grid$period.pre <- ifelse(grepl("201415", param_grid$swf.filter), I(list(c(sort(setdiff(years.avail, c(2010:2014)))))), I(list(c(sort(setdiff(years.avail, c(2010:2013)))))))
-  }
+  # define period.post and period.avail based on CV filter
+  param_grid$period.post <- I(list(period.post))
+  param_grid$period.avail <- I(list(period.avail))
+  
+  # Calculate period.pre based on period.avail, period.post and period.excl.
+  param_grid$period.pre <- mapply(calculate_period_pre, param_grid$period.avail, param_grid$period.post, param_grid$period.excl, SIMPLIFY = FALSE)
   
   # create empty df
   df_empty = data.frame(id = integer(1),
@@ -705,6 +708,9 @@ if (run_gridsearch) {
     # Convert "NULL" string to actual NULL
     swf.filter.param <- if(params$swf.filter == "NULL") NULL else unlist(params$swf.filter)
     params$swf.filter <- unlist(params$swf.filter)
+    params$period.excl <- paste(params$period.excl, collapse = ", ")
+    params$period.post <- paste(params$period.post, collapse = ", ")
+    params$period.avail <- paste(params$period.avail, collapse = ", ")
     params$period.pre <- paste(params$period.pre, collapse = ", ")
     
     # create df_it
@@ -769,20 +775,29 @@ if (run_gridsearch) {
 
 # copy data for editing
 tmp_results <- results
-apply(results[1:5], 2, unique)
 
-# create new vars for facets #
 # How was the average timeseries obtained?
-tmp_results$min_pretreat <- paste0(tmp_results$min.years.obs, "Y")
-tmp_results$min_pretreat <- factor(tmp_results$min_pretreat)
-tmp_results$min_obs_per_year <- paste0(tmp_results$min.schools.per.timeperiod, "S/Y")
-tmp_results$min_obs_per_year <- factor(tmp_results$min_obs_per_year)
-tmp_results$min_size_mat <- paste0(tmp_results$min.schools.per.mat, "S")
-tmp_results$min_size_mat <- factor(tmp_results$min_size_mat)
+tmp_results$min.years.obs <- paste0(tmp_results$min.years.obs, "Y")
+tmp_results$min.years.obs <- factor(tmp_results$min.years.obs)
+tmp_results$min.schools.per.timeperiod <- paste0(tmp_results$min.schools.per.timeperiod, "S/Y")
+tmp_results$min.schools.per.timeperiod <- factor(tmp_results$min.schools.per.timeperiod)
+tmp_results$min.schools.per.mat <- paste0(tmp_results$min.schools.per.mat, "S")
+tmp_results$min.schools.per.mat <- factor(tmp_results$min.schools.per.mat)
 # which years were used in training
-tmp_results$pretreat <- factor(tmp_results$period.pre)
+# # Function to extract min and max year
+# extract_min_max_years <- function(period_string) {
+#   years <- as.numeric(unlist(strsplit(period_string, ", ")))
+#   min_year <- min(years)
+#   max_year <- max(years)
+#   return(c(min_year, max_year))
+# }
+# tmp_results$min_year <- sapply(tmp_results$period.pre, function(x) extract_min_max_years(x)[1])
+# tmp_results$max_year <- sapply(tmp_results$period.pre, function(x) extract_min_max_years(x)[2])
+# tmp_results$period.pre <- paste0(tmp_results$min_year, ":", tmp_results$max_year)
+tmp_results$period.pre <- factor(tmp_results$period.pre)
+
 # did we remove outliers
-tmp_results$excl_out <- ifelse(tmp_results$excl.outlier, "excl. out", "incl. out")
+tmp_results$excl.outlier <- ifelse(tmp_results$excl.outlier, "excl. out", "incl. out")
 
 tmp_results$error <- is.na(tmp_results$pupil_to_qual_teacher_ratio)
 
@@ -790,10 +805,10 @@ tmp_results$error <- is.na(tmp_results$pupil_to_qual_teacher_ratio)
 #### plot treated timeseries ####
 cat("#### All schools \n\n")
 
-plt <- ggplot(data = tmp_results[tmp_results$level == "MAT" & tmp_results$excl_out == "incl. out", ], aes(x = time_period, y = pupil_to_qual_teacher_ratio, group = id)) + 
-  geom_point(data = tmp_results[tmp_results$level == "School" & tmp_results$excl_out == "incl. out", ], aes(x = time_period, y = pupil_to_qual_teacher_ratio, col = name), size = .5) + 
+plt <- ggplot(data = tmp_results[tmp_results$level == "MAT" & tmp_results$excl.outlier == "incl. out", ], aes(x = time_period, y = pupil_to_qual_teacher_ratio, group = id)) + 
+  geom_point(data = tmp_results[tmp_results$level == "School" & tmp_results$excl.outlier == "incl. out", ], aes(x = time_period, y = pupil_to_qual_teacher_ratio, col = name), size = .5) + 
   geom_line(linewidth = .8) +
-  ggh4x::facet_grid2(cols = vars(min_pretreat, min_obs_per_year), rows = vars(pretreat, min_size_mat), strip = ggh4x::strip_nested()) +
+  ggh4x::facet_grid2(cols = vars(min.years.obs, min.schools.per.timeperiod), rows = vars(period.pre, min.schools.per.mat), strip = ggh4x::strip_nested()) +
   ambition_theme +
   theme(strip.text = element_text(size = 10),
         legend.title = element_blank(),
@@ -813,27 +828,27 @@ print(plt)
 cat("\n\n")
 
 
-if(sum(tmp_results$excl.outlier > 0)) {
+if(sum(tmp_results$excl.outlier == "excl. out") > 0) {
   cat("#### Outlier removed \n\n")
   
-  plt <- ggplot(data = tmp_results[tmp_results$level == "MAT" & tmp_results$excl_out == "excl. out", ], aes(x = time_period, y = pupil_to_qual_teacher_ratio, group = id)) + 
-    geom_point(data = tmp_results[tmp_results$level == "School" & tmp_results$excl_out == "excl. out", ], aes(x = time_period, y = pupil_to_qual_teacher_ratio, col = name), size = .5) + 
-    geom_line(linewidth = .8) +
-    ggh4x::facet_grid2(cols = vars(min_pretreat, min_obs_per_year), rows = vars(pretreat, min_size_mat), strip = ggh4x::strip_nested()) +
-    ambition_theme +
-    theme(strip.text = element_text(size = 10),
-          legend.title = element_blank(),
-          legend.text = element_text(size = 8),
-          legend.position = "bottom", legend.box="vertical",
-          legend.spacing = unit(0.2, "cm"), 
-          legend.margin = margin(t = 0.1, r = 0.1, b = 0.1, l = 0.1, unit = "cm"),
-          axis.title = element_text(size = 10),
-          axis.text = element_text(size = 10),
-          # axis.title.x = element_blank(),
-          axis.text.x = element_blank()) +
-    ylab("Reported value") + xlab("Academic year") +
-    scale_colour_manual(values = as.vector(pals::polychrome(length(list_laestab)))) +
-    guides(col = guide_legend(nrow = nrow_legend, byrow = F))
+plt <- ggplot(data = tmp_results[tmp_results$level == "MAT" & tmp_results$excl.outlier == "excl. out", ], aes(x = time_period, y = pupil_to_qual_teacher_ratio, group = id)) + 
+  geom_point(data = tmp_results[tmp_results$level == "School" & tmp_results$excl.outlier == "excl. out", ], aes(x = time_period, y = pupil_to_qual_teacher_ratio, col = name), size = .5) + 
+  geom_line(linewidth = .8) +
+  ggh4x::facet_grid2(cols = vars(min.years.obs, min.schools.per.timeperiod), rows = vars(period.pre, min.schools.per.mat), strip = ggh4x::strip_nested()) +
+  ambition_theme +
+  theme(strip.text = element_text(size = 10),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 8),
+        legend.position = "bottom", legend.box="vertical",
+        legend.spacing = unit(0.2, "cm"), 
+        legend.margin = margin(t = 0.1, r = 0.1, b = 0.1, l = 0.1, unit = "cm"),
+        axis.title = element_text(size = 10),
+        axis.text = element_text(size = 10),
+        # axis.title.x = element_blank(),
+        axis.text.x = element_blank()) +
+  ylab("Reported value") + xlab("Academic year") +
+  scale_colour_manual(values = as.vector(pals::polychrome(length(list_laestab)))) +
+  guides(col = guide_legend(nrow = nrow_legend, byrow = F))
   
   print(plt)
   cat("\n\n")
