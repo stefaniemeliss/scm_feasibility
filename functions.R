@@ -20,7 +20,7 @@ process_data_scm <- function(id_treated = "id_treated",
                              copy_files = F,
                              read_files = F,
                              export_data.tables = F
-                             ){
+){
   
   # This is a data pre-processing function for later synthetic control method (SCM) analysis using [id_treated] as the treated school.
   # The script copies and loads data files, processes data for treated and control schools
@@ -213,7 +213,7 @@ process_data_scm <- function(id_treated = "id_treated",
   
   df_treat <- df %>%
     filter(laestab == id_treated)
-    
+  
   # Remove outliers from donor pool
   df_donor <- df %>%
     filter(laestab != id_treated) %>%
@@ -654,7 +654,7 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
       
       # add to params
       params$roll.vars <- paste(roll.vars, collapse = ", ")
-
+      
       # apply rolling window average to pre treatment period
       pre <- df %>%
         filter(time_period %in% params$period.pre[[1]]) %>%
@@ -739,7 +739,7 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
       if (!"name" %in% names(w.constr)) {
         w.constr[["name"]] <- "user provided"
       }
-
+      
       # format weight constraints as string
       w.constr <- w.constr[c("name", "p", "lb", "Q", "dir")]
       w.constr <- paste(names(w.constr), w.constr, sep = " = ", collapse = "; " )
@@ -777,7 +777,7 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
     rmspe_pre <- sqrt(mean((gap_pre)^2, na.rm = TRUE))
     mspe_pre <- mean((gap_pre)^2, na.rm = TRUE)
     mae_pre <- mean(abs(gap_pre), na.rm = TRUE)
-
+    
     if (cv) {
       
       # Extract the actual and synthetic control outcomes for all years - POST
@@ -1484,24 +1484,29 @@ grid_search_scpi_mat <- function(param_grid, cv = FALSE, sim = F) {
     tmp <- create_element_columns(tmp, "gor")
     tmp <- tmp[! tmp$group_uid %in% uid_treated, ]
     if (params$exclude.single.phase) tmp <- tmp[tmp$multiple_phases, ]
-    if (params$exclude.northwest) tmp <- tmp[! (tmp$multiple_gor == F & tmp$gor_north_west == T), ]
+    #if (params$exclude.northwest) tmp <- tmp[! (tmp$multiple_gor == F & tmp$gor_north_west == T), ]
     
     if(sim){
+      
       # Simulate data using the timeseries mean #
-
-      # Repeat the process for each period and combine the results
-      ave_list <- lapply(params$period.post[[1]], function(period) {
-        data$df_avg %>%
-          group_by(group_uid) %>%
-          summarise(across(all_of(params$features[[1]]), mean, .names = "{.col}")) %>%
-          mutate(time_period = period)
-      })
+      if(max(params$period.post[[1]]) > max(data$df_avg$time_period)){
+        
+        
+        # Repeat the process for each period and combine the results
+        ave_list <- lapply(params$period.post[[1]], function(period) {
+          data$df_avg %>%
+            group_by(group_uid) %>%
+            summarise(across(all_of(params$features[[1]]), mean, .names = "{.col}")) %>%
+            mutate(time_period = period)
+        })
+        
+        # Combine all data frames in the list
+        ave <- bind_rows(ave_list)
+        
+        # Combine the result
+        data$df_avg <- bind_rows(data$df_avg, ave)
+      }
       
-      # Combine all data frames in the list
-      ave <- bind_rows(ave_list)
-      
-      # Combine the result
-      data$df_avg <- bind_rows(data$df_avg, ave)
     }
     
     
@@ -1674,7 +1679,7 @@ grid_search_scpi_mat <- function(param_grid, cv = FALSE, sim = F) {
                   rmspe_pre = NA, mspe_pre = NA, mae_pre = NA,
                   rmspe_post = NA, mspe_post = NA, mae_post = NA,
                   params = params))
-
+      
     }
     
     # Create a list to store the results
@@ -1692,13 +1697,15 @@ grid_search_scpi_mat <- function(param_grid, cv = FALSE, sim = F) {
       min.years.obs = ifelse(!is.null(result$params$min.years.obs), result$params$min.years.obs, NA),
       min.schools.per.mat = ifelse(!is.null(result$params$min.schools.per.mat), result$params$min.schools.per.mat, NA),
       min.schools.per.timeperiod = ifelse(!is.null(result$params$min.schools.per.timeperiod), result$params$min.schools.per.timeperiod, NA),
-
+      
       period.pre = ifelse(!is.null(result$params$period.pre[[1]]),
                           paste(result$params$period.pre[[1]], collapse = ", "),
                           NA),
       period.post = ifelse(!is.null(result$params$period.post[[1]]),
                            paste(result$params$period.post[[1]], collapse = ", "),
                            NA),
+      cross.val = ifelse(!is.null(result$params$cross.val), result$params$cross.val, NA),
+      
       w.constr = ifelse(!is.null(result$params$w.constr[[1]]), result$params$w.constr.str, NA),
       cointegrated.data = ifelse(!is.null(result$params$cointegrated.data), result$params$cointegrated.data, NA),
       anticipation = ifelse(!is.null(result$params$anticipation), result$params$anticipation, NA),
