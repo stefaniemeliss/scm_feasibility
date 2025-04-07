@@ -1736,3 +1736,22 @@ grid_search_scpi_mat <- function(param_grid, cv = FALSE, sim = F) {
   return(results)
 }
 
+extract_years_from_filter <- function(swf_filter) {
+  # Split the unique values by "&" and unlist the result
+  filters <- unlist(strsplit(as.character(swf_filter), " & ", fixed = TRUE))
+  
+  # Filter unique values that contain "time_period"
+  filters <- unique(filters[grepl("time_period", filters)])
+  
+  # Extract years using stringr
+  years_excl <- unlist(stringr::str_extract_all(filters, "\\d+"))
+  years_excl <- as.numeric(substr(years_excl, 0, 4))
+  
+  return(years_excl)
+}
+
+# Function to calculate period.pre
+calculate_period_pre <- function(period_avail, period_post, period_excl) {
+  setdiff(period_avail, union(period_post, period_excl))
+}
+
