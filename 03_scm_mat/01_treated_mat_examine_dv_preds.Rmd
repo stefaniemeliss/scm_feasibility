@@ -109,6 +109,11 @@ pup <- fread(file.path(dir_data, "data_pupils.csv"))
 est <- fread(file.path(dir_data, "data_establishments_search.csv"), na.strings = "")
 groups <- fread(file.path(dir_data, "data_establishments_groups.csv"), na.strings = "")
 
+# create lookup 
+lookup <- data.frame(time_period = sort(unique(swf$time_period)))
+lookup$time_period_str <- insert_slash(lookup$time_period)
+lookup$time_period <- as.numeric(substr(lookup$time_period, 0, 4))
+
 
 # process data establishments #
 
@@ -128,7 +133,7 @@ est_treated <- est %>%
 run_gridsearch <- T
 ```
 
-```{r process_school, eval=FALSE}
+```{r process_school, echo = F, eval=FALSE}
 #id_treated = list_laestab[1] # debug
 
 #### DETERMINE AVAILABLE TIMESERIES DATA ####
@@ -408,7 +413,7 @@ cat("\n\n\n")
 
 ##### Longitudinal data filtering
 
-- Keeps only schools with *4 or more years of observations*.
+- Keeps only schools with **4 or more years of observations**.
 
 
 ##### MAT-level filtering
@@ -448,7 +453,10 @@ df_long <- df_treat %>%
   mutate(category = case_match(variable, 
                                "pupil_to_qual_teacher_ratio" ~ "Outcome",
                                "fte_avg_age" ~ "Teacher age",
-                               "pnpupfsm_e" ~ "% pupils FSM")  ) %>%
+                               "pnpupfsm_e" ~ "% pupils FSM"),
+         min_schools_per_year = ifelse(n >= 4, "4S/Y", 
+                                   ifelse(n == 3, "3S/Y", 
+                                          ifelse(n == 2, "2S/Y", NA)))) %>%
   as.data.frame()
 
 df_long$category <- factor(df_long$category, levels = c("Outcome", "Teacher age", "% pupils FSM"))
@@ -456,12 +464,13 @@ df_long$category <- factor(df_long$category, levels = c("Outcome", "Teacher age"
 ##### CREATE SPAGHETTI PLOT ####
 
 # plot school-level timeseries for each variable
-plt <- ggplot(data = df_s, aes(x = time_period_str, y = value, group = establishmentname, col = establishmentname, fill = establishmentname, shape = phaseofeducation_name)) +
+plt <- ggplot(data = df_s, aes(x = time_period, y = value, group = establishmentname, col = establishmentname, fill = establishmentname, shape = phaseofeducation_name)) +
   geom_line(linewidth = 1) + 
   geom_point(col = black) +
   facet_wrap(~ category, ncol = 1, strip.position = "top", scales = "free_y") +
   ambition_theme +
   ylab("Reported value") + xlab("Academic year") +
+  scale_x_continuous(breaks = lookup$time_period, labels = lookup$time_period_str) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         legend.title = element_blank(),
         legend.text = element_text(size = 8),
@@ -479,29 +488,33 @@ cat("\n\n")  # Add some space between plots
 # plot MAT AVERAGE timeseries for each variable
 # note: school-level data is added to the plot but in transparent (col = NA)
 # this keeps the scales constant
-plt <- ggplot(data = df_long, aes(x = time_period_str, y = value, group = group_uid)) +
-  geom_point(data = df_s, aes(x = time_period_str, y = value), col = NA) + 
-  
-  geom_line(linewidth = 1, col = coral) + 
-  geom_point(col = coral) +
+plt <- ggplot(data = df_long, aes(x = time_period, y = value, group = group_uid)) +
+  geom_point(data = df_s, aes(x = time_period, y = value), col = NA) + 
+  #geom_vline(xintercept = period.pre[length(period.pre)]+0.5, linetype = "dotted") +
+  geom_line(col = black, linewidth = .8) + 
+  geom_point(aes(colour = min_schools_per_year), size = 3) +
   facet_wrap(~ category, ncol = 1, strip.position = "top", scales = "free_y") +
   ambition_theme +
   ylab("Reported value") + xlab("Academic year") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
-        legend.title = element_blank(),
-        legend.position = "none")
+        #legend.title = element_blank(),
+        legend.position = "bottom") +
+  scale_x_continuous(breaks = lookup$time_period, labels = lookup$time_period_str) +
+  scale_color_manual(values = ambition_palette_bright)
+
 suppressWarnings(print(plt))
 cat("\n\n")  # Add some space between plots
 
 # plot MAT AVERAGE timeseries for each variable
 # add school-level data visibly as POINTS
 plt <- ggplot() + 
-  geom_point(data = df_s, aes(x = time_period_str, y = value, fill = establishmentname, shape = phaseofeducation_name, colour = establishmentname)) + 
-  geom_line(data = df_long, aes(x = time_period_str, y = value, group = group_uid), linewidth = 1) + 
+  geom_point(data = df_s, aes(x = time_period, y = value, fill = establishmentname, shape = phaseofeducation_name, colour = establishmentname)) + 
+  geom_line(data = df_long, aes(x = time_period, y = value, group = group_uid), linewidth = 1) + 
   facet_wrap(~ category, ncol = 1, strip.position = "top", scales = "free_y") + 
   ambition_theme + 
   ylab("Reported value") + 
   xlab("Academic year") + 
+  scale_x_continuous(breaks = lookup$time_period, labels = lookup$time_period_str) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1), 
         legend.title = element_blank(), 
         legend.text = element_text(size = 8), 
@@ -519,12 +532,13 @@ cat("\n\n")  # Add some space between plots
 # plot MAT AVERAGE timeseries for each variable
 # add school-level data visibly as LINES
 plt <- ggplot() + 
-  geom_line(data = df_s, aes(x = time_period_str, y = value, colour = establishmentname, group = establishmentname), linewidth = .5) + 
-  geom_line(data = df_long, aes(x = time_period_str, y = value, group = group_uid), linewidth = 1) + 
+  geom_line(data = df_s, aes(x = time_period, y = value, colour = establishmentname, group = establishmentname), linewidth = .5) + 
+  geom_line(data = df_long, aes(x = time_period, y = value, group = group_uid), linewidth = 1) + 
   facet_wrap(~ category, ncol = 1, strip.position = "top", scales = "free_y") + 
   ambition_theme + 
   ylab("Reported value") + 
   xlab("Academic year") + 
+  scale_x_continuous(breaks = lookup$time_period, labels = lookup$time_period_str) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1), 
         legend.title = element_blank(), 
         legend.text = element_text(size = 8), 
@@ -541,8 +555,10 @@ cat("\n\n")  # Add some space between plots
 
 # print averaged TS to markdown
 df_treat %>%
-  select(-c(group_uid, status)) %>%
-  relocate(., n, .after = time_period) %>%
+  select(-c(group_uid, status, time_period)) %>%
+  relocate(time_period_str) %>%
+  relocate(., n, .after = time_period_str) %>%
+  rename(., n_schools = n) %>%
   kbl(caption = paste0("MAT timeseries data"), row.names = F, digits = 3) %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
   print()
