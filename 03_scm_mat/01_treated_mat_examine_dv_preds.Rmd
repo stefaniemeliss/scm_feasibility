@@ -130,107 +130,119 @@ est_treated <- est %>%
   mutate(school = "treated") %>% 
   as.data.frame()
 
-run_gridsearch <- T
+run_gridsearch <- F
+
+# define variables
+dv = "pupil_to_qual_teacher_ratio"
+var_teach = "fte_avg_age"
+var_pup = "pnpupfsm_e"
+
+vars = c(dv, var_teach, var_pup)
+
+id_cols <- c("laestab", "time_period", "time_period_str")
 ```
 
 ```{r process_school, echo = F, eval=FALSE}
 #id_treated = list_laestab[1] # debug
 
-#### DETERMINE AVAILABLE TIMESERIES DATA ####
-
-# Identify years for which there are observations for treated school
-dv <- "pupil_to_qual_teacher_ratio"
-data_avail_dv <- swf %>%
-  filter(!is.na(get(dv))) %>%
-  filter(laestab == id_treated) %>%
-  select(time_period, laestab, paste(dv)) %>%
-  distinct(time_period) %>%
-  pull(time_period)
-
-# Identify years for which there are observations for treated school
-var <- "fte_avg_age"
-data_avail_age <- swf %>%
-  filter(!is.na(get(var))) %>%
-  filter(laestab == id_treated) %>%
-  select(time_period, laestab, paste(var)) %>%
-  distinct(time_period) %>%
-  pull(time_period)
-
-# Identify years for which there are observations for treated school
-var <- "pnpupfsm_e"
-data_avail_fsm <- pup %>%
-  filter(!is.na(get(var))) %>%
-  filter(laestab == id_treated) %>%
-  select(time_period, laestab, paste(var)) %>%
-  distinct(time_period) %>%
-  pull(time_period)
-
-# combine, excluding duplicates
-data_avail <- intersect(data_avail_dv, intersect(data_avail_age, data_avail_fsm))
-
-#### CREATE OUTCOME DATASET ####
-
-# Filter SWF data to create outcome dataset
-z <- swf[laestab %in% id_treated & time_period %in% data_avail]
+# ---- Dataset creation ----
+# Filter School Workforce (SWF) data to create outcome dataset with selected variables
+z <- swf %>%
+  filter(laestab %in% id_treated) %>%
+  select(time_period, laestab, school, !!sym(dv), !!sym(var_teach))
 
 
-# Remove rows for years for which the treated school has no data, 
-# rows with NA for the dependent variable and age predictor 
-# and add observation count
-z <- z %>%
-  filter(!is.na(get(dv))) %>%
-  select(time_period, laestab, school, pupil_to_qual_teacher_ratio, fte_avg_age) %>%
-  arrange(laestab, desc(time_period)) %>%
-  mutate(school = first(school),
-         fte_avg_age_roll = zoo::rollapply(fte_avg_age, width = 2, mean, align = "left", partial = T),
-         pupil_to_qual_teacher_ratio_roll = zoo::rollapply(pupil_to_qual_teacher_ratio, width = 2, mean, align = "left", partial = T)
-  ) %>%
-  as.data.frame()
-
-#### CREATE PREDICTOR DATASET ####
-
-# Filter to create predictor dataset
+# Filter pupil data to create predictor dataset with selected variables
 x <- pup %>% 
-  filter(laestab %in% id_treated & time_period %in% data_avail) %>%
-  select(time_period, laestab, urn, pnpupfsm_e) %>%
-  arrange(laestab, desc(time_period)) %>%
-  mutate(
-    pnpupfsm_e_roll = zoo::rollapply(pnpupfsm_e, width = 2, mean, align = "left", partial = T)
-  ) %>%
-  as.data.frame()
+  filter(laestab %in% id_treated) %>%
+  select(time_period, laestab, !!sym(var_pup))
 
+# Combine outcome and predictor datasets
+df <- merge(z, x, all = T, by = c("laestab", "time_period"))
 
-# combine outcome and predictor
-df <- merge(z, x, by = c("laestab", "time_period"), all.x = T)
+# Remove any rows with missing values
+df <- na.omit(df)
 
 # arrange data
 df <- df %>%
-  relocate(urn, .after = laestab) %>%
-  arrange(laestab, time_period) %>%
+  arrange(laestab, desc(time_period)) %>%
   mutate(
+    # use consistent school name
+    school = first(school),
+    # apply rolling window average
+    across(all_of(vars), ~ zoo::rollapply(.x, width = 2, mean, align = "left", partial = T), .names = "{col}_roll"),
     # add slash and use as string
     time_period_str = insert_slash(time_period),
     # remove the last two digits
     time_period = as.numeric(substr(time_period, 0, 4))
-  )
+  ) %>% 
+  as.data.frame()
+
 
 # ONLY PROCEED IF THERE IS DATA FROM AT LEAST 4 YEARS AVAILABLE
 
 cat("## ", unique(df$school), "\n\n")
 
+# ---- Spaghetti plot ----
+
+# create data in long format
+df_long <- df %>%
+  tidyr::pivot_longer(
+    cols = matches("pup|fte"),
+    names_to = "variable") %>%
+  mutate(category = case_match(variable, 
+                               "pupil_to_qual_teacher_ratio" ~ "Outcome",
+                               "pupil_to_qual_teacher_ratio_roll" ~ "Outcome",
+                               "fte_avg_age" ~ "Teacher age",
+                               "fte_avg_age_roll" ~ "Teacher age",
+                               "pnpupfsm_e" ~ "% pupils FSM",
+                               "pnpupfsm_e_roll" ~ "% pupils FSM"
+  ),
+  computation = case_match(variable, 
+                           "pupil_to_qual_teacher_ratio" ~ "Raw",
+                           "pupil_to_qual_teacher_ratio_roll" ~ "Rolling average",
+                           "fte_avg_age" ~ "Raw",
+                           "fte_avg_age_roll" ~ "Rolling average",
+                           "pnpupfsm_e" ~ "Raw",
+                           "pnpupfsm_e_roll" ~ "Rolling average"
+  )
+  ) %>%
+  group_by(variable) %>%
+  mutate(out_iqr = is_outlier_iqr(value)) %>%
+  as.data.frame()
+
+df_long$category <- factor(df_long$category, levels = c("Outcome", "% pupils FSM", "Teacher age"))
+
+
+# plot timeseries for each variable
+plt <- ggplot(data = df_long, aes(x = time_period_str, y = value, col = computation, group = interaction(laestab, computation))) +
+  geom_line() + 
+  geom_point(aes(shape = out_iqr), show.legend = F) +
+  facet_wrap(~ category, ncol = 1, strip.position = "top", scales = "free_y") +
+  ambition_theme +
+  ylab("Reported value") +
+  scale_color_manual(values = c("Raw" = blue, "Rolling average" = red)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.title.x = element_blank(), 
+        legend.title = element_blank())
+
+print(plt)
+cat("\n\n")  # Add some space between plots
+
+
 
 
 #### CREATE SUMMARY TABLE ####
 
-
 # compute timeseries descriptives
-ts_desc <- apply(df[, grepl("pup|fte", names(df))], MARGIN = 2, FUN = function(x){psych::describe(x, fast = T)})
+ts_desc <- apply(df[, grepl("pup|fte", names(df))], MARGIN = 2, FUN = function(x){psych::describe(x, IQR = T, trim = 1/nrow(df))})
 
 # combine to df
 ts_desc <- do.call("rbind",ts_desc)
 ts_desc$vars <- NULL
 
-ts_desc$out_count <- apply(df[, grepl("pup|fte", names(df))], MARGIN = 2, FUN = function(x){sum(is_outlier_3sd(x))})
+ts_desc$out_sd <- apply(df[, grepl("pup|fte", names(df))], MARGIN = 2, FUN = function(x){sum(is_outlier_3sd(x))})
+ts_desc$out_iqr <- apply(df[, grepl("pup|fte", names(df))], MARGIN = 2, FUN = function(x){sum(is_outlier_iqr(x))})
 
 # compute snr
 ts_desc$snr <- apply(df[, grepl("pup|fte", names(df))], MARGIN = 2, FUN = function(x){calculate_snr(x, window_size = 3)})
@@ -285,15 +297,11 @@ out$Variable <- factor(out$Variable,
 out <- out[order(out$Variable), ]
 
 
-row_idx <- c(which.min(c(out$sd[1:2])), 2 + which.min(c(out$sd[3:4])), 4 + which.min(c(out$sd[5:6])) )
-
 # print to markdown
-kbl(out, caption = paste0("Descriptives of timeseries data"), , digits = 2, row.names = F) %>%
+kbl(out, caption = paste0("Descriptives of timeseries data"), digits = 2, row.names = F) %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
-  add_footnote("Rows in italics describe the timeseries with the smaller SD.") %>%
-  column_spec(c(1, 14), border_right = T) %>%
-  column_spec(c(1, 4, 8, 13, 14), bold = T) %>%
-  row_spec(row_idx, italic = T) %>%
+  column_spec(c(2, 18), border_right = T) %>%
+  column_spec(c(1, 4, 17), bold = T) %>%
   print()
 cat("\n")
 
@@ -311,59 +319,6 @@ if (id_treated == list_laestab[1]) {
                                  relocate(laestab, school) %>%
                                  as.data.frame())
 }
-
-#### CREATE SPAGHETTI PLOT ####
-
-# create data in long format
-df_long <- df %>%
-  tidyr::pivot_longer(
-    cols = c(pupil_to_qual_teacher_ratio, fte_avg_age, pnpupfsm_e),
-    names_to = "variable") %>%
-  mutate(category = case_match(variable, 
-                               "pupil_to_qual_teacher_ratio" ~ "Outcome",
-                               "pupil_to_qual_teacher_ratio_roll" ~ "Outcome",
-                               "fte_avg_age" ~ "Teacher age",
-                               "fte_avg_age_roll" ~ "Teacher age",
-                               "pnpupfsm_e" ~ "% pupils FSM",
-                               "pnpupfsm_e_roll" ~ "% pupils FSM"
-  ),
-  computation = case_match(variable, 
-                           "pupil_to_qual_teacher_ratio" ~ "Raw",
-                           "pupil_to_qual_teacher_ratio_roll" ~ "Rolling average",
-                           "fte_avg_age" ~ "Raw",
-                           "fte_avg_age_roll" ~ "Rolling average",
-                           "pnpupfsm_e" ~ "Raw",
-                           "pnpupfsm_e_roll" ~ "Rolling average"
-  ),
-  comment = case_match(variable, 
-                       "pupil_to_qual_teacher_ratio" ~ "Old",
-                       "pupil_to_qual_unqual_teacher_ratio" ~ "Modified",
-                       "fte_avg_age" ~ "Old",
-                       "fte_avg_age_roll" ~ "Modified",
-                       "pnpupfsm_e" ~ "Old",
-                       "pnpupfsm_e_roll" ~ "Modified"
-  )
-  ) %>%
-  as.data.frame()
-
-df_long$category <- factor(df_long$category, levels = c("Outcome", "% pupils FSM", "Teacher age"))
-
-
-# plot timeseries for each variable
-plt <- ggplot(data = df_long, aes(x = time_period_str, y = value, col = computation, group = interaction(laestab, computation))) +
-  geom_line() + 
-  geom_point() +
-  facet_wrap(~ category, ncol = 1, strip.position = "top", scales = "free_y") +
-  ambition_theme +
-  ylab("Reported value") +
-  scale_color_manual(values = c("Raw" = blue, "Rolling average" = red)) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1),
-        axis.title.x = element_blank(), 
-        legend.title = element_blank())
-
-print(plt)
-cat("\n\n")  # Add some space between plots
-
 
 ```
 
@@ -399,8 +354,8 @@ summary %>%
   arrange(school, Variable) %>%
   kbl(caption = paste0("Descriptives of timeseries data"), row.names = F) %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
-  column_spec(c(2, 15), border_right = T) %>%
-  column_spec(c(1, 2, 5, 9, 14, 15), bold = T) %>%
+  column_spec(c(3, 19), border_right = T) %>%
+  column_spec(c(1, 2, 5, 18), bold = T) %>%
   print()
 cat("\n\n\n")
 
@@ -564,13 +519,14 @@ df_treat %>%
   print()
 
 # compute timeseries descriptives
-ts_desc <- apply(df_treat[, grepl("pup|fte", names(df_treat))], MARGIN = 2, FUN = function(x){psych::describe(x, fast = T)})
+ts_desc <- apply(df_treat[, grepl("pup|fte", names(df_treat))], MARGIN = 2, FUN = function(x){psych::describe(x, IQR = T, trim = 1/nrow(df_treat))})
 
 # combine to df
 ts_desc <- do.call("rbind",ts_desc)
 ts_desc$vars <- NULL
 
-ts_desc$out_count <- apply(df_treat[, grepl("pup|fte", names(df_treat))], MARGIN = 2, FUN = function(x){sum(is_outlier_3sd(x))})
+ts_desc$out_sd <- apply(df_treat[, grepl("pup|fte", names(df_treat))], MARGIN = 2, FUN = function(x){sum(is_outlier_3sd(x))})
+ts_desc$out_iqr <- apply(df_treat[, grepl("pup|fte", names(df_treat))], MARGIN = 2, FUN = function(x){sum(is_outlier_iqr(x))})
 
 # compute snr
 ts_desc$snr <- apply(df[, grepl("pup|fte", names(df))], MARGIN = 2, FUN = function(x){calculate_snr(x, window_size = 3)})
@@ -613,8 +569,8 @@ out %>%
   arrange(Variable, sd) %>%
   kbl(caption = paste0("Descriptives of MAT timeseries data"), row.names = F, digits = 3) %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
-  column_spec(c(2, 14), border_right = T) %>%
-  column_spec(c(1, 2, 4, 8, 13, 14), bold = T) %>%
+  column_spec(c(2, 18), border_right = T) %>%
+  column_spec(c(1, 4, 17), bold = T) %>%
   print()
 cat("\n")
 
