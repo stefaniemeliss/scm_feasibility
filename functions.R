@@ -1248,9 +1248,6 @@ process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("
   # Combine outcome and predictor datasets
   df <- merge(z, x, all = T, by = c("laestab", "time_period"))
   
-  # Remove any rows with missing values
-  df <- na.omit(df)
-  
   # Add MAT information to the dataset
   # Create lookup table with relevant group information (avoiding duplicates)
   lookup <- groups[, c("laestab", "establishmentname", "group_uid", "group_name", "gor_name", "phaseofeducation_name")]
@@ -1259,17 +1256,24 @@ process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("
   
   # ---- Longitudinal data filtering ----
   # Update list of schools to include only those with min_years_obs+ years of observations
-  list_laestab <- df %>% 
+  df <- df %>% 
     group_by(laestab) %>%
-    summarise(n = n()) %>%
+    mutate(n_obs = sum(!is.na(get(dv)))) %>%
     ungroup() %>%
-    filter(n >= min_years_obs) %>%
+    filter(n_obs >= min_years_obs)
+  
+  # Update list of schools to include only those that don't have any missing values in the middle or at the end
+  list_laestab <- analyse_missing_values(df, "laestab", "time_period", dv) %>%
+    filter(! grepl("middle|end", missing_pattern)) %>%
     pull(laestab) %>% 
     unique()
-  
-  # Update dataset to include only schools with min_years_obs+ years of observations
+    
+  # Update dataset to include only schools with min_years_obs+ years of observations with no missing values in the middle or at the end
   df <- df %>%
     filter(laestab %in% list_laestab)
+  
+  # Remove any rows with missing values
+  df <- na.omit(df)
   
   # ---- MAT-level filtering ----
   # Identify MATs that meet specific criteria:
@@ -1417,13 +1421,13 @@ process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("
   assign("df_treat", df_treat, envir = .GlobalEnv)
   assign("df_donor", df_donor, envir = .GlobalEnv)
   assign("MATs", MATs, envir = .GlobalEnv)  
-  assign("MATs", MATs, envir = .GlobalEnv)  
+  assign("test", test, envir = .GlobalEnv)  
   
   # export other values
   assign("id_group", id_group, envir = .GlobalEnv)  
   
   # Return invisible to suppress output but still allow assignment if desired
-  invisible(list(df = df, df_avg = df_avg, df_treat = df_treat, df_donor = df_donor, MATs = MATs))
+  invisible(list(df = df, df_avg = df_avg, df_treat = df_treat, df_donor = df_donor, MATs = MATs, test = test))
 }
 
 # Create function to run grid search
