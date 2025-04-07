@@ -107,7 +107,7 @@ groups <- fread(file.path(dir_data, "data_establishments_groups.csv"), na.string
 # process data establishments #
 
 # load in file with timeseries desc
-summary <- read.csv(file.path(dir, "03_scm_mat",  "01_treated_mat_examine_dv_preds_out.csv"))
+summary <- read.csv(file.path(getwd(), "interim",  "01_treated_mat_examine_dv_preds_out.csv"))
 
 # only select schools with sufficent obs
 summary <- subset(summary, n >= 4)
@@ -386,7 +386,7 @@ cat("\n\n")  # Add some space between plots
 
 ```{r grid_search, echo=FALSE, results='asis', eval = F}
 
-file_name <- file.path(dir, "03_scm_mat", paste0(file_stem, "_", tolower(phase), ".csv"))
+file_name <- file.path(getwd(), "interim", paste0(file_stem, "_", tolower(phase), ".csv"))
 
 if (run_gridsearch) {
   

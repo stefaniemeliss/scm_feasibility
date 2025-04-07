@@ -88,9 +88,12 @@ dir <- get_directory()
 dir_data <- file.path(dir, "data")
 dir_misc <- file.path(dir, "misc")
 
+# create interim folder
+dir.create(path = file.path(getwd(), "interim"))
+
 # get file stem name
 file_stem <- get_file_stem()
-out_file <- paste0(file_stem, "_out.csv")
+out_file <- file.path(getwd(), "interim", paste0(file_stem, "_out.csv"))
 
 # copy data #
 file.copy(
@@ -577,7 +580,7 @@ cat("\n")
 ```
 
 ```{r grid_search, echo = F, eval=FALSE}
-file_name <- file.path(dir, "03_scm_mat", paste0(file_stem, "_", tolower(phase), ".csv"))
+file_name <- file.path(getwd(), "interim", paste0(file_stem, "_", tolower(phase), ".csv"))
 
 if (run_gridsearch) {
   
