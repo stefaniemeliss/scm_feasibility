@@ -435,8 +435,8 @@ plt <- ggplot(data = df_s, aes(x = time_period, y = value, group = establishment
         legend.position = "bottom", legend.box="vertical",
         legend.spacing = unit(0.2, "cm"), 
         legend.margin = margin(t = 0.1, r = 0.1, b = 0.1, l = 0.1, unit = "cm")) + 
-  scale_colour_manual(values = as.vector(pals::polychrome(length(list_laestab)))) +
-  scale_fill_manual(values = as.vector(pals::polychrome(length(list_laestab)))) +
+  scale_colour_manual(values = as.vector(pals::glasbey(length(list_laestab)))) +
+  scale_fill_manual(values = as.vector(pals::glasbey(length(list_laestab)))) +
   scale_shape_manual(values = c(21:24)) +
   guides(col = guide_legend(nrow = nrow_legend, byrow = T))
 print(plt)
@@ -479,10 +479,10 @@ plt <- ggplot() +
         legend.position = "bottom", legend.box="vertical",
         legend.spacing = unit(0.2, "cm"), 
         legend.margin = margin(t = 0.1, r = 0.1, b = 0.1, l = 0.1, unit = "cm")) + 
-  scale_fill_manual(values = as.vector(pals::polychrome(length(list_laestab)))) + 
+  scale_fill_manual(values = as.vector(pals::glasbey(length(list_laestab)))) + 
   scale_shape_manual(values = c(21:24)) + 
-  scale_colour_manual(values = as.vector(pals::polychrome(length(list_laestab)))) +
-  guides(col = guide_legend(nrow = nrow_legend, byrow = F))
+  scale_colour_manual(values = as.vector(pals::glasbey(length(list_laestab)))) +
+  guides(col = guide_legend(nrow = nrow_legend, byrow = T))
 
 print(plt)
 cat("\n\n")  # Add some space between plots
@@ -503,10 +503,10 @@ plt <- ggplot() +
         legend.position = "bottom", legend.box="vertical",
         legend.spacing = unit(0.2, "cm"), 
         legend.margin = margin(t = 0.1, r = 0.1, b = 0.1, l = 0.1, unit = "cm")) + 
-  scale_fill_manual(values = as.vector(pals::polychrome(length(list_laestab)))) + 
+  scale_fill_manual(values = as.vector(pals::glasbey(length(list_laestab)))) + 
   scale_shape_manual(values = c(21:24)) + 
-  scale_colour_manual(values = as.vector(pals::polychrome(length(list_laestab)))) +
-  guides(col = guide_legend(nrow = nrow_legend, byrow = F))
+  scale_colour_manual(values = as.vector(pals::glasbey(length(list_laestab)))) +
+  guides(col = guide_legend(nrow = nrow_legend, byrow = T))
 
 print(plt)
 cat("\n\n")  # Add some space between plots
@@ -821,8 +821,8 @@ plt <- ggplot(data = tmp_results[tmp_results$level == "MAT" & tmp_results$excl.o
         # axis.title.x = element_blank(),
         axis.text.x = element_blank()) +
   ylab("Reported value") + xlab("Academic year") +
-  scale_colour_manual(values = as.vector(pals::polychrome(length(list_laestab)))) +
-  guides(col = guide_legend(nrow = nrow_legend, byrow = F))
+  scale_colour_manual(values = as.vector(pals::glasbey(length(list_laestab)))) +
+  guides(col = guide_legend(nrow = nrow_legend, byrow = T))
 
 print(plt)
 cat("\n\n")
@@ -847,8 +847,8 @@ plt <- ggplot(data = tmp_results[tmp_results$level == "MAT" & tmp_results$excl.o
         # axis.title.x = element_blank(),
         axis.text.x = element_blank()) +
   ylab("Reported value") + xlab("Academic year") +
-  scale_colour_manual(values = as.vector(pals::polychrome(length(list_laestab)))) +
-  guides(col = guide_legend(nrow = nrow_legend, byrow = F))
+  scale_colour_manual(values = as.vector(pals::glasbey(length(list_laestab)))) +
+  guides(col = guide_legend(nrow = nrow_legend, byrow = T))
   
   print(plt)
   cat("\n\n")
