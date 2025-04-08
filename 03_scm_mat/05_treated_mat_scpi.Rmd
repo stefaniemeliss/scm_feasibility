@@ -23,6 +23,8 @@ library(kableExtra)
 library(dplyr)
 library(data.table)
 library(ggplot2)
+library(scpi)
+library(lme4)
 
 # create function to source code
 source_code <- function(root_dir_name = "code", target_repo = "helper_functions", branch = "main", file_name = "file.R") {
@@ -116,9 +118,17 @@ lookup <- data.frame(time_period = sort(unique(swf$time_period)))
 lookup$time_period_str <- insert_slash(lookup$time_period)
 lookup$time_period <- as.numeric(substr(lookup$time_period, 0, 4))
 
+# define variables
+dv = "pupil_to_qual_teacher_ratio"
+var_teach = "fte_avg_age"
+var_pup = "pnpupfsm_e"
+
+
 ```
 
 ```{r plot_ts, echo=FALSE, eval=F}
+# ---- TREATED MAT ---- #
+
 # get school-level data of treated MAT
 df_s <- df %>% filter(laestab %in% list_laestab)
 
@@ -153,8 +163,7 @@ period.avail <- sort(unique(df_long$time_period))
 period.pre <- setdiff(period.avail, c(2022:2023)) # Pre-treatment period
 
 
-##### CREATE SPAGHETTI PLOT ####
-
+# CREATE SPAGHETTI PLOT #
 
 # plot MAT AVERAGE timeseries for each variable
 # add school-level data visibly as LINES
@@ -179,6 +188,43 @@ plt <- ggplot() +
 
 print(plt)
 cat("\n\n")  # Add some space between plots
+
+# ---- DONOR POOL ---- #
+
+# create data in long format
+df_long <- df_avg %>%
+  tidyr::pivot_longer(
+    cols = c(pupil_to_qual_teacher_ratio, fte_avg_age, pnpupfsm_e),
+    names_to = "variable") %>%
+  mutate(category = case_match(variable, 
+                               "pupil_to_qual_teacher_ratio" ~ "Outcome",
+                               "fte_avg_age" ~ "Teacher age",
+                               "pnpupfsm_e" ~ "% pupils FSM")) %>%
+  as.data.frame()
+
+df_long$category <- factor(df_long$category, levels = c("Outcome", "Teacher age", "% pupils FSM"))
+
+# plot timeseries average for each school
+cols <- c(navy40, coral)
+names(cols) <- c("Donor MATs", id_group)
+
+print(ggplot(data = df_long, aes(x = time_period, y = value, col = status, group = group_uid)) +
+        geom_line(data = df_long[df_long$status == "Donor MATs", ], aes(col = paste("Donor MATs"))) + 
+        geom_line(data = df_long[df_long$status == paste(id_group), ], aes(col = paste(id_group)), linewidth =.8) +
+        geom_point(data = df_long[df_long$status == paste(id_group), ], aes(col = paste(id_group), size = 2)) +
+        facet_wrap(~ category, ncol = 1, strip.position = "top", scales = "free_y") +
+        ambition_theme +
+        scale_color_manual(
+          breaks=c(id_group, "Donor MATs"),
+          values=cols) +
+        ylab("Reported value") + xlab("Academic year") +
+        scale_x_continuous(breaks = lookup$time_period, labels = lookup$time_period_str) +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1),
+              legend.title = element_blank()) +
+        guides(size = "none"))
+cat("\n\n")  # Add some space between plots
+
+
 
 ```
 
@@ -222,7 +268,7 @@ if(simulate_data){
                                                2026 ~ "2026/27")
   
   # Generate *simulations* conditioned on all random effects with noise
-  simulations <- simulate(m1, nsim = 1,
+  simulations <- simulate(m1, nsim = 1, seed = 202324,
                           newdata = simulated_data, 
                           re.form = NULL, allow.new.levels = FALSE)
   
@@ -231,17 +277,33 @@ if(simulate_data){
   simulated_data$pupil_to_qual_teacher_ratio <- simulations$sim_1
   
   # Combine data
-  df <- bind_rows(df, simulated_data) %>%
+  df_sim <- bind_rows(df, simulated_data) %>%
     # group by schools
     group_by(laestab) %>%
     arrange(time_period) %>%
     mutate(
       # fill missing values: observations to be carried forward
-      across(c(urn, school),
+      across(c(establishmentname, group_uid, group_name, gor_name, phaseofeducation_name, status),
              ~zoo::na.locf(., na.rm = FALSE, fromLast = FALSE)))  %>%
     ungroup() %>%
     arrange(laestab, time_period) %>%
     as.data.frame()
+  
+    # compute MAT level average
+  df_avg <- df_sim %>% 
+    group_by(group_uid, time_period)  %>%
+    summarise(
+      !!sym(dv) := mean(!!sym(dv)),
+      !!sym(var_teach) := mean(!!sym(var_teach)),
+      !!sym(var_pup) := mean(!!sym(var_pup)),
+      n = n(), .groups = "drop"
+    ) %>% 
+    ungroup() %>%
+    left_join(unique(df_sim[, c("time_period", "time_period_str")]), .) %>%
+    mutate(status = ifelse(group_uid == uid_treated, id_group, "Donor MATs")) %>%
+    arrange(group_uid, time_period)
+
+  
   
 }
 
@@ -284,9 +346,7 @@ scest.out <- scest(data = scdata.out,
 
 ```{r res, eval=FALSE, include=F}
 #### SC - evaluate results ####
-id_treated = uid_treated
-id_name = id_group
-summarise_scest(scest.out, cv = F)
+summarise_scest(scest.out, id_treated = uid_treated, id_name = id_group, cv = F)
 
 print(scplot(result = scest.out, plot.range = period.pre,
              label.xy = list(x.lab = "Start of academic year", y.lab = "Ratio of pupils to qualified teachers")))
@@ -310,7 +370,7 @@ synthetic_features_raw <- control_features %*% weights # this is a hypothetical 
 
 # Compare the treated and synthetic control feature values
 comparison_raw <- cbind(treated_features, synthetic_features_raw)
-colnames(comparison_raw) <- c("Treated", "Synthetic")
+colnames(comparison_raw) <- c(id_group, "Synthetic MAT")
 comparison_raw <- as.data.frame(comparison_raw)
 comparison_raw$Variable <- row.names(comparison_raw)
 comparison_raw$Year <- as.numeric(stringi::stri_extract_last_regex(comparison_raw$Variable, "\\d{4}"))
@@ -324,17 +384,25 @@ comparison_raw$Variable <- factor(comparison_raw$Variable,
                                   labels = c("Outcome", "Teacher age", "% pupils FSM"))
 
 # Plot the feature values
-print(ggplot(data = comparison_raw, aes(x = Year, y = Value, color = Unit, group = Unit)) +
-        geom_line() +
-        geom_point() +
+cols <- c(navy, coral)
+names(cols) <- c("Synthetic MAT", id_group)
+
+print(ggplot(data = comparison_raw, aes(x = Year, y = Value, group = Unit)) +
+        geom_line(data = comparison_raw[comparison_raw$Unit == id_group, ], aes(col = paste(id_group))) +
+        geom_point(data = comparison_raw[comparison_raw$Unit == id_group, ], aes(col = paste(id_group))) +
+        geom_line(data = comparison_raw[comparison_raw$Unit == "Synthetic MAT", ], aes(col = "Synthetic MAT")) +
+        geom_point(data = comparison_raw[comparison_raw$Unit == "Synthetic MAT", ], aes(col = "Synthetic MAT")) +
         facet_wrap(vars(Variable), ncol = 1, scales = "free_y") +
         labs(title = "Feature timeseries without covariate adjustment",
              x = "Academic year",
              y = "Reported value") +
         ambition_theme +
-        theme(strip.text = element_text(size = 10),
-              axis.text.x = element_text(angle = 45, hjust = 1)) +
-        scale_color_manual(values = c("Treated" = coral, "Synthetic" = navy)) +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1),
+              legend.title = element_blank(),
+              strip.text = element_text(size = 10)) +
+        scale_color_manual(
+          breaks=c(id_group, "Synthetic MAT"),
+          values=cols) +
         scale_x_continuous(breaks = lookup$time_period, labels = lookup$time_period_str)
 )
 
@@ -352,7 +420,7 @@ if (!is.null(scest.out$data$C)) {
   
   # Compare the treated and synthetic control feature values
   comparison_adjusted <- cbind(treated_features, synthetic_features_adjusted)
-  colnames(comparison_adjusted) <- c("Treated", "Synthetic")
+  colnames(comparison_adjusted) <- c(id_group, "Synthetic MAT")
   comparison_adjusted <- as.data.frame(comparison_adjusted)
   comparison_adjusted$Variable <- row.names(comparison_adjusted)
   comparison_adjusted$Year <- as.numeric(stringi::stri_extract_last_regex(comparison_adjusted$Variable, "\\d{4}"))
@@ -366,17 +434,22 @@ if (!is.null(scest.out$data$C)) {
                                          labels = c("Outcome", "Teacher age", "% pupils FSM"))
   
   # Plot the feature values
-  print(ggplot(data = comparison_adjusted, aes(x = Year, y = Value, color = Unit, group = Unit)) +
-          geom_line() +
-          geom_point() +
+  print(ggplot(data = comparison_adjusted, aes(x = Year, y = Value, group = Unit)) +
+          geom_line(data = comparison_adjusted[comparison_adjusted$Unit == id_group, ], aes(col = paste(id_group))) +
+          geom_point(data = comparison_adjusted[comparison_adjusted$Unit == id_group, ], aes(col = paste(id_group))) +
+          geom_line(data = comparison_adjusted[comparison_adjusted$Unit == "Synthetic MAT", ], aes(col = "Synthetic MAT")) +
+          geom_point(data = comparison_adjusted[comparison_adjusted$Unit == "Synthetic MAT", ], aes(col = "Synthetic MAT")) +
           facet_wrap(vars(Variable), ncol = 1, scales = "free_y") +
           labs(title = "Feature timeseries with covariate adjustment",
                x = "Academic year",
                y = "Reported value") +
           ambition_theme +
-          theme(strip.text = element_text(size = 10),
-                axis.text.x = element_text(angle = 45, hjust = 1)) +
-          scale_color_manual(values = c("Treated" = coral, "Synthetic" = navy)) +
+          theme(axis.text.x = element_text(angle = 45, hjust = 1),
+                legend.title = element_blank(),
+                strip.text = element_text(size = 10)) +
+          scale_color_manual(
+            breaks=c(id_group, "Synthetic MAT"),
+            values=cols) +
           scale_x_continuous(breaks = lookup$time_period, labels = lookup$time_period_str)
   )
   
@@ -389,70 +462,37 @@ cat("\n\n")
 
 ```{r res_cv, eval=FALSE, include=F}
 #### SC - evaluate results ####
-summarise_scest(scest.out, cv = T)
+summarise_scest(scest.out, id_treated = uid_treated, id_name = id_group, cv = T)
 
 print(scplot(result = scest.out, plot.range = period.avail,
              label.xy = list(x.lab = "Start of academic year", y.lab = "Ratio of pupils to qualified teachers")))
 cat("\n\n")
 #### EXTRACT DATA #####
 
-lookup <- unique(df[, c("time_period", "time_period_str")])
+lookup <- unique(df_avg[, c("time_period", "time_period_str")])
 
-# df.bal <- as.data.frame(tidyr::complete(df, .data[[id.var]], .data[[time.var]]))
-
-# identify row indices for treated and control units for respective time periods #
-
-# rows.tr.pre <- which(df[, id.var] %in% c(unit.tr) & 
-#                        df[, time.var] %in% period.pre)
-# rows.co.pre <- which(df[, id.var] %in% c(unit.co) & 
-#                        df[, time.var] %in% period.pre)
-# rows.tr.post <- which(df[, id.var] %in% c(unit.tr) & 
-#                         df[, time.var] %in% period.post)
-# rows.co.post <- which(df[, id.var] %in% c(unit.co) & 
-#                         df[, time.var] %in% period.post)
-
-rows.tr.avail <- which(df[, id.var] %in% c(unit.tr) & 
-                         df[, time.var] %in% period.avail)
-rows.co.avail <- which(df[, id.var] %in% c(unit.co) & 
-                         df[, time.var] %in% period.avail)
+rows.tr.avail <- which(df_avg[, id.var] %in% c(unit.tr) & 
+                         df_avg[, time.var] %in% period.avail)
+rows.co.avail <- which(df_avg[, id.var] %in% c(unit.co) & 
+                         df_avg[, time.var] %in% period.avail)
 
 # extract raw data for treated and control units from df using row indices #
 
 ## treated ##
-# # pre feat
-# feat.tr.pre <- as.matrix(c(as.matrix(df[rows.tr.pre, features])))
-# colnames(feat.tr.pre) <- unit.tr
-# rownames(feat.tr.pre) <- paste0(id_treated, ".", rep(features, each = length(period.pre)), ".", period.pre)
-# # post feat
-# feat.tr.post <- as.matrix(c(as.matrix(df[rows.tr.post, features])))
-# colnames(feat.tr.post) <- unit.tr
-# rownames(feat.tr.post) <- paste0(id_treated, ".", rep(features, each = length(period.post)), ".", period.post)
 # avail feat 
-feat.tr.avail <- as.matrix(c(as.matrix(df[rows.tr.avail, features])))
+feat.tr.avail <- as.matrix(c(as.matrix(df_avg[rows.tr.avail, features])))
 colnames(feat.tr.avail) <- unit.tr
-rownames(feat.tr.avail) <- paste0(id_treated, ".", rep(features, each = length(period.avail)), ".", period.avail)
+rownames(feat.tr.avail) <- paste0(uid_treated, ".", rep(features, each = length(period.avail)), ".", period.avail)
 
 ## control ##
-# # pre feat
-# feat.co.pre <- as.matrix(c(as.matrix(df[rows.co.pre, features])))
-# colnames(feat.co.pre) <- unit.tr
-# rownames(feat.co.pre) <- paste0(id_treated, ".", rep(features, each = length(period.pre)), ".", period.pre)
-# # post feat
-# sel <- df[rows.co.pre, c(features, id.var, time.var)]
-# aux <- stats::reshape(sel, direction = "long", varying = list(names(sel)[1:length(features)]), 
-#                       idvar = c(id.var, time.var), timevar = "feature", times = features, v.names = "value")
-# aux <- stats::reshape(aux, direction = "wide", idvar = c(time.var, "feature"), timevar = id.var)
-# feat.co.post <- as.matrix(aux[, !(colnames(aux) %in% c(time.var, "feature"))])
-# colnames(feat.co.post) <- gsub("value", id_treated, colnames(feat.co.post))
-# rownames(feat.co.post) <- paste0(id_treated, ".", rep(features, each = length(period.post)), ".", period.post)
 # avail feat
-sel <- df[rows.co.avail, c(features, id.var, time.var)]
+sel <- df_avg[rows.co.avail, c(features, id.var, time.var)]
 aux <- stats::reshape(sel, direction = "long", varying = list(names(sel)[1:length(features)]), 
                       idvar = c(id.var, time.var), timevar = "feature", times = features, v.names = "value")
 aux <- stats::reshape(aux, direction = "wide", idvar = c(time.var, "feature"), timevar = id.var)
 feat.co.avail <- as.matrix(aux[, !(colnames(aux) %in% c(time.var, "feature"))])
-colnames(feat.co.avail) <- gsub("value", id_treated, colnames(feat.co.avail))
-rownames(feat.co.avail) <- paste0(id_treated, ".", rep(features, each = length(period.avail)), ".", period.avail)
+colnames(feat.co.avail) <- gsub("value", uid_treated, colnames(feat.co.avail))
+rownames(feat.co.avail) <- paste0(uid_treated, ".", rep(features, each = length(period.avail)), ".", period.avail)
 
 
 # Access and examine the raw features for the treated unit
@@ -472,7 +512,7 @@ synthetic_features_raw <- control_features %*% weights # this is a hypothetical 
 
 # Compare the treated and synthetic control feature values
 comparison_raw <- cbind(treated_features, synthetic_features_raw)
-colnames(comparison_raw) <- c("Treated", "Synthetic")
+colnames(comparison_raw) <- c(id_group, "Synthetic MAT")
 comparison_raw <- as.data.frame(comparison_raw)
 comparison_raw$Variable <- row.names(comparison_raw)
 comparison_raw$Year <- as.numeric(stringi::stri_extract_last_regex(comparison_raw$Variable, "\\d{4}"))
@@ -486,25 +526,31 @@ comparison_raw$Variable <- factor(comparison_raw$Variable,
                                   labels = c("Outcome", "Teacher age", "% pupils FSM"))
 
 # Plot the feature values
-print(ggplot(data = comparison_raw, aes(x = Year, y = Value, color = Unit, group = Unit)) +
+cols <- c(navy, coral)
+names(cols) <- c("Synthetic MAT", id_group)
+
+print(ggplot(data = comparison_raw, aes(x = Year, y = Value, group = Unit)) +
         geom_vline(xintercept = period.pre[length(period.pre)]+0.5, linetype = "dotted") +
-        geom_line() +
-        geom_point() +
+        geom_line(data = comparison_raw[comparison_raw$Unit == id_group, ], aes(col = paste(id_group))) +
+        geom_point(data = comparison_raw[comparison_raw$Unit == id_group, ], aes(col = paste(id_group))) +
+        geom_line(data = comparison_raw[comparison_raw$Unit == "Synthetic MAT", ], aes(col = "Synthetic MAT")) +
+        geom_point(data = comparison_raw[comparison_raw$Unit == "Synthetic MAT", ], aes(col = "Synthetic MAT")) +
         facet_wrap(vars(Variable), ncol = 1, scales = "free_y") +
         labs(title = "Feature timeseries without covariate adjustment",
              x = "Academic year",
              y = "Reported value") +
         ambition_theme +
-        theme(strip.text = element_text(size = 10),
-              axis.text.x = element_text(angle = 45, hjust = 1)) +
-        scale_color_manual(values = c("Treated" = coral, "Synthetic" = navy)) +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1),
+              legend.title = element_blank(),
+              strip.text = element_text(size = 10)) +
+        scale_color_manual(
+          breaks=c(id_group, "Synthetic MAT"),
+          values=cols) +
         scale_x_continuous(breaks = lookup$time_period, labels = lookup$time_period_str)
-)
+      )
+
 cat("\n\n")
 
-
-test = list(c("constant","trend"))
-length(test)
 
 if (!is.null(scest.out$data$C)) {
   
@@ -520,7 +566,7 @@ if (!is.null(scest.out$data$C)) {
         covs.adj <- covs.adj[covs.adj != "constant"]
         covariates <- cbind(covariates, rep(1, length(rows.tr.avail)))
         
-        colnames_cov <- paste0(id_treated, ".", features, ".constant")
+        colnames_cov <- paste0(uid_treated, ".", features, ".constant")
         
       }
       if ("trend" %in% all.covs) {
@@ -528,12 +574,12 @@ if (!is.null(scest.out$data$C)) {
         time.trend <- period.avail - period.avail[1] + 1
         covariates <- cbind(covariates, time.trend)
         
-        colnames_cov <- paste0(id_treated, ".", features, ".trend")
+        colnames_cov <- paste0(uid_treated, ".", features, ".trend")
         
       }
-      rows.covariates <- which(df[, id.var] == unit.co[1] & 
-                                 df[, time.var] %in% period.avail)
-      covariates <- cbind(covariates, as.matrix(df[rows.covariates, covs.adj]))
+      rows.covariates <- which(df_avg[, id.var] == unit.co[1] & 
+                                 df_avg[, time.var] %in% period.avail)
+      covariates <- cbind(covariates, as.matrix(df_avg[rows.covariates, covs.adj]))
       covariates <- kronecker(diag(length(features)), covariates)
       
     }
@@ -541,13 +587,13 @@ if (!is.null(scest.out$data$C)) {
       
       colnames_cov <- c()
       for (feature in features) {
-        colnames_cov <- c(colnames_cov, paste0(id_treated, ".", feature, ".constant"), paste0(id_treated, ".", feature, ".trend"))
+        colnames_cov <- c(colnames_cov, paste0(uid_treated, ".", feature, ".constant"), paste0(uid_treated, ".", feature, ".trend"))
       }
     }
   } 
   
   covariates <- as.matrix(covariates)
-  rownames(covariates) <- paste0(id_treated, ".", rep(features, each = length(period.avail)), ".", period.avail)
+  rownames(covariates) <- paste0(uid_treated, ".", rep(features, each = length(period.avail)), ".", period.avail)
   colnames(covariates) <- colnames_cov
   
   # Access and examine the raw features for the control units **and the covariates**
@@ -562,7 +608,7 @@ if (!is.null(scest.out$data$C)) {
   
   # Compare the treated and synthetic control feature values
   comparison_adjusted <- cbind(treated_features, synthetic_features_adjusted)
-  colnames(comparison_adjusted) <- c("Treated", "Synthetic")
+  colnames(comparison_adjusted) <- c(id_group, "Synthetic MAT")
   comparison_adjusted <- as.data.frame(comparison_adjusted)
   comparison_adjusted$Variable <- row.names(comparison_adjusted)
   comparison_adjusted$Year <- as.numeric(stringi::stri_extract_last_regex(comparison_adjusted$Variable, "\\d{4}"))
@@ -576,18 +622,23 @@ if (!is.null(scest.out$data$C)) {
                                          labels = c("Outcome", "Teacher age", "% pupils FSM"))
   
   # Plot the feature values
-  print(ggplot(data = comparison_adjusted, aes(x = Year, y = Value, color = Unit, group = Unit)) +
+  print(ggplot(data = comparison_adjusted, aes(x = Year, y = Value, group = Unit)) +
           geom_vline(xintercept = period.pre[length(period.pre)]+0.5, linetype = "dotted") +
-          geom_line() +
-          geom_point() +
+          geom_line(data = comparison_adjusted[comparison_adjusted$Unit == id_group, ], aes(col = paste(id_group))) +
+          geom_point(data = comparison_adjusted[comparison_adjusted$Unit == id_group, ], aes(col = paste(id_group))) +
+          geom_line(data = comparison_adjusted[comparison_adjusted$Unit == "Synthetic MAT", ], aes(col = "Synthetic MAT")) +
+          geom_point(data = comparison_adjusted[comparison_adjusted$Unit == "Synthetic MAT", ], aes(col = "Synthetic MAT")) +
           facet_wrap(vars(Variable), ncol = 1, scales = "free_y") +
-          labs(title = "Feature timeseries following covariate adjustment",
+          labs(title = "Feature timeseries with covariate adjustment",
                x = "Academic year",
                y = "Reported value") +
           ambition_theme +
-          theme(strip.text = element_text(size = 10),
-                axis.text.x = element_text(angle = 45, hjust = 1)) +
-          scale_color_manual(values = c("Treated" = coral, "Synthetic" = navy)) +
+          theme(axis.text.x = element_text(angle = 45, hjust = 1),
+                legend.title = element_blank(),
+                strip.text = element_text(size = 10)) +
+          scale_color_manual(
+            breaks=c(id_group, "Synthetic MAT"),
+            values=cols) +
           scale_x_continuous(breaks = lookup$time_period, labels = lookup$time_period_str)
   )
   cat("\n\n")
@@ -596,14 +647,128 @@ if (!is.null(scest.out$data$C)) {
 
 ```
 
+```{r res_sim, eval=FALSE, include=F}
+#### SC - evaluate results ####
+summarise_scest(scest.out, id_treated = uid_treated, id_name = id_group, cv = T)
+
+print(scplot(result = scest.out, plot.range = period.avail,
+             label.xy = list(x.lab = "Start of academic year", y.lab = "Ratio of pupils to qualified teachers")))
+cat("\n\n")
+#### EXTRACT DATA #####
+
+# Access and examine the raw features for the treated unit (A)
+# Each row represents a different feature-year combination for the treated unit.
+treated_features <- scest.out$data$A
+
+# Access and examine the raw features for the control units (B)
+# Each row represents a different feature-year combination for the control units, and each column represents a different control unit.
+control_features <- scest.out$data$B
+
+# Access and examine the synthetic control weights (w)
+# Each element represents the weight assigned to a corresponding control unit in constructing the synthetic control.
+weights <- scest.out$est.results$w
+
+# Compute the synthetic control's pre-treatment feature values
+synthetic_features_raw <- control_features %*% weights # this is a hypothetical scenario where we only take the weights into consideration
+
+# Compare the treated and synthetic control feature values
+comparison_raw <- cbind(treated_features, synthetic_features_raw)
+colnames(comparison_raw) <- c(id_group, "Synthetic MAT")
+comparison_raw <- as.data.frame(comparison_raw)
+comparison_raw$Variable <- row.names(comparison_raw)
+comparison_raw$Year <- as.numeric(stringi::stri_extract_last_regex(comparison_raw$Variable, "\\d{4}"))
+comparison_raw$Variable <- gsub("[[:digit:]]+", "", comparison_raw$Variable)
+comparison_raw$Variable <- gsub(".", "", comparison_raw$Variable, fixed = T)
+
+# Make data long for plotting
+comparison_raw <- reshape2::melt(comparison_raw, id.var = c("Variable", "Year"), value.name = "Value", variable.name = "Unit")
+comparison_raw$Variable <- factor(comparison_raw$Variable,
+                                  levels = c("pupil_to_qual_teacher_ratio", "fte_avg_age", "pnpupfsm_e"),
+                                  labels = c("Outcome", "Teacher age", "% pupils FSM"))
+
+# Plot the feature values
+cols <- c(navy, coral)
+names(cols) <- c("Synthetic MAT", id_group)
+
+print(ggplot(data = comparison_raw, aes(x = Year, y = Value, group = Unit)) +
+        geom_line(data = comparison_raw[comparison_raw$Unit == id_group, ], aes(col = paste(id_group))) +
+        geom_point(data = comparison_raw[comparison_raw$Unit == id_group, ], aes(col = paste(id_group))) +
+        geom_line(data = comparison_raw[comparison_raw$Unit == "Synthetic MAT", ], aes(col = "Synthetic MAT")) +
+        geom_point(data = comparison_raw[comparison_raw$Unit == "Synthetic MAT", ], aes(col = "Synthetic MAT")) +
+        facet_wrap(vars(Variable), ncol = 1, scales = "free_y") +
+        labs(title = "Feature timeseries without covariate adjustment",
+             x = "Academic year",
+             y = "Reported value") +
+        ambition_theme +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1),
+              legend.title = element_blank(),
+              strip.text = element_text(size = 10)) +
+        scale_color_manual(
+          breaks=c(id_group, "Synthetic MAT"),
+          values=cols) +
+        scale_x_continuous(breaks = lookup$time_period, labels = lookup$time_period_str)
+)
+
+if (!is.null(scest.out$data$C)) {
+  
+  # Access and examine the raw features for the control units (B) **and the covariates (C)**
+  # Each row represents a different feature-year combination for the control units, and each column represents a different control unit.
+  control_features <- cbind(scest.out$data$B, scdata.out$C)
+  
+  # Access and examine matrix *b*, containing the synthetic control weights (w) and values of the covariate adjustment (r)
+  b <- scest.out$est.results$b # a matrix containing w (a matrix containing the estimated weights of the donors) and r (a matrix containing the values of the covariates used for adjustment)
+  
+  # Compute the synthetic control's pre-treatment feature values
+  synthetic_features_adjusted <- control_features %*% b # this is how scest.out$est.results$A.hat is internally computed
+  
+  # Compare the treated and synthetic control feature values
+  comparison_adjusted <- cbind(treated_features, synthetic_features_adjusted)
+  colnames(comparison_adjusted) <- c(id_group, "Synthetic MAT")
+  comparison_adjusted <- as.data.frame(comparison_adjusted)
+  comparison_adjusted$Variable <- row.names(comparison_adjusted)
+  comparison_adjusted$Year <- as.numeric(stringi::stri_extract_last_regex(comparison_adjusted$Variable, "\\d{4}"))
+  comparison_adjusted$Variable <- gsub("[[:digit:]]+", "", comparison_adjusted$Variable)
+  comparison_adjusted$Variable <- gsub(".", "", comparison_adjusted$Variable, fixed = T)
+  
+  # Make data long for plotting
+  comparison_adjusted <- reshape2::melt(comparison_adjusted, id.var = c("Variable", "Year"), value.name = "Value", variable.name = "Unit")
+  comparison_adjusted$Variable <- factor(comparison_adjusted$Variable,
+                                         levels = c("pupil_to_qual_teacher_ratio", "fte_avg_age", "pnpupfsm_e"),
+                                         labels = c("Outcome", "Teacher age", "% pupils FSM"))
+  
+  # Plot the feature values
+  print(ggplot(data = comparison_adjusted, aes(x = Year, y = Value, group = Unit)) +
+          geom_line(data = comparison_adjusted[comparison_adjusted$Unit == id_group, ], aes(col = paste(id_group))) +
+          geom_point(data = comparison_adjusted[comparison_adjusted$Unit == id_group, ], aes(col = paste(id_group))) +
+          geom_line(data = comparison_adjusted[comparison_adjusted$Unit == "Synthetic MAT", ], aes(col = "Synthetic MAT")) +
+          geom_point(data = comparison_adjusted[comparison_adjusted$Unit == "Synthetic MAT", ], aes(col = "Synthetic MAT")) +
+          facet_wrap(vars(Variable), ncol = 1, scales = "free_y") +
+          labs(title = "Feature timeseries with covariate adjustment",
+               x = "Academic year",
+               y = "Reported value") +
+          ambition_theme +
+          theme(axis.text.x = element_text(angle = 45, hjust = 1),
+                legend.title = element_blank(),
+                strip.text = element_text(size = 10)) +
+          scale_color_manual(
+            breaks=c(id_group, "Synthetic MAT"),
+            values=cols) +
+          scale_x_continuous(breaks = lookup$time_period, labels = lookup$time_period_str)
+  )
+  
+}
+cat("\n\n")
+
+
+
+```
+
 ```{r placebo, eval=FALSE, include=F}
 
-# determine output filename
-file_name <- file.path(dir, "02_scm", paste0(file_stem, "_gaps_cv_", gsub(" ", "_", id_name), ".csv"))
 
 if (run_placebo) {
   # store all schools in a vector
-  units <- unique(df$laestab)
+  units <- unique(df_avg$group_uid)
   
   # create struture to hold results
   storegaps <- 
@@ -620,10 +785,10 @@ if (run_placebo) {
     unit <- units[i]
     
     unit.tr <- unit # looping through all units in donor pool
-    unit.co <- unique(df$laestab[df$laestab != unit])
+    unit.co <- unique(df_avg$group_uid[df_avg$group_uid != unit])
     
     ### Data preparation
-    scdata.out <- scdata(df = df, 
+    scdata.out <- scdata(df = df_avg, 
                          id.var = id.var, 
                          time.var = time.var,
                          outcome.var = outcome.var,
@@ -674,7 +839,7 @@ if (run_placebo) {
   names(storegaps) <- gsub("X", "", names(storegaps))
   
 }
-lookup <- unique(df[, c("time_period", "time_period_str")])
+lookup <- unique(df_avg[, c("time_period", "time_period_str")])
 
 
 # compute ratio of post-reunification RMSPE 
@@ -684,16 +849,16 @@ rmspe <- function(x){sqrt(mean(x^2))}
 preloss <- apply(storegaps[1:length(period.pre), -1], 2, rmspe)
 postloss <- apply(storegaps[(1+length(period.pre)):(length(period.pre)+length(period.post)), -1], 2, rmspe)
 ratio <- sort(postloss/preloss)
-observed_statistic <- ratio[names(ratio) == id_treated]
+observed_statistic <- ratio[names(ratio) == uid_treated]
 
 # combine permutation data into df
-perm_results <- data.frame(laestab = names(preloss),
+perm_results <- data.frame(group_uid = names(preloss),
                            rmspe_pre = preloss,
                            rmspe_post = postloss,
                            ratio = postloss / preloss)
 
 # identify ill-fitting placebo runs
-perm_results$thresh5 <- perm_results$rmspe_pre < perm_results$rmspe_pre[perm_results$laestab == id_treated] * 5
+perm_results$thresh5 <- perm_results$rmspe_pre < perm_results$rmspe_pre[perm_results$group_uid == uid_treated] * 5
 n_ill <- sum(perm_results$thresh5 == F)
 cutoff_value <- quantile(perm_results$ratio, 0.95)
 cutoff_thresh5 <- quantile(perm_results$ratio[perm_results$thresh5 == T], 0.95)
@@ -732,18 +897,21 @@ if (n_ill > 0) {
 df_gaps <- as.data.frame(storegaps) %>%
   #mutate(time_period = as.numeric(row.names(.))) %>%
   select(time_period, everything()) %>%
-  tidyr::pivot_longer(., cols = names(.)[-1], names_to = "laestab", values_to = "pupil_to_qual_teacher_ratio") %>%
-  mutate(idx_treat = ifelse(laestab == id_treated, TRUE, FALSE),
-         thresh5 = laestab %in% perm_results$laestab[perm_results$thresh5],
+  tidyr::pivot_longer(., cols = names(.)[-1], names_to = "group_uid", values_to = "pupil_to_qual_teacher_ratio") %>%
+  mutate(idx_treat = ifelse(group_uid == uid_treated, TRUE, FALSE),
+         thresh5 = group_uid %in% perm_results$group_uid[perm_results$thresh5],
          time_period = as.numeric(time_period))
 
 ### Magnitute of estimated placebo effects as gaps in the outcome between donor units and their synthetic control
-print(ggplot(data = df_gaps, aes(x = time_period, y = pupil_to_qual_teacher_ratio, group = laestab)) +
-        geom_line(data = df_gaps[!df_gaps$idx_treat & df_gaps$thresh5, ], aes(col = "Donor schools")) +
-        geom_line(data = df_gaps[!df_gaps$idx_treat & !df_gaps$thresh5, ], aes(col = "Donor schools (ill fitted)")) +
+cols <- c(navy40, navy, coral)
+names(cols) <- c("Donor MATs", "Donor MATs (ill fitted)", id_group)
+
+print(ggplot(data = df_gaps, aes(x = time_period, y = pupil_to_qual_teacher_ratio, group = group_uid)) +
+        geom_line(data = df_gaps[!df_gaps$idx_treat & df_gaps$thresh5, ], aes(col = "Donor MATs")) +
+        geom_line(data = df_gaps[!df_gaps$idx_treat & !df_gaps$thresh5, ], aes(col = "Donor MATs (ill fitted)")) +
         geom_vline(xintercept = period.pre[length(period.pre)]+0.5, linetype = "dotted") +
         geom_hline(yintercept = 0, linetype = "dotted") +
-        geom_line(data = df_gaps[df_gaps$idx_treat,], aes(col = "Treated school"), linewidth = .8) +
+        geom_line(data = df_gaps[df_gaps$idx_treat,], aes(col = paste(id_group)), linewidth = .8) +
         ambition_theme +
         theme(strip.text = element_text(size = 10),
               axis.text.x = element_text(angle = 45, hjust = 1),
@@ -752,8 +920,8 @@ print(ggplot(data = df_gaps, aes(x = time_period, y = pupil_to_qual_teacher_rati
         coord_cartesian(ylim = c(-5, 5)) +
         ylab("Gap in ratio of pupils to qualified teachers") + xlab ("Academic year") +
         scale_color_manual(
-          breaks=c("Treated school", "Donor schools", "Donor schools (ill fitted)"),
-          values=c("Donor schools" = navy40, "Donor schools (ill fitted)" = navy, "Treated school" = coral)) +
+          breaks=c(id_group, "Donor MATs", "Donor MATs (ill fitted)"),
+          values=cols) +
         scale_x_continuous(breaks = lookup$time_period, labels = lookup$time_period_str))
 cat("\n\n")
 
@@ -828,6 +996,8 @@ for (i in 1:length(info)) {
     MATs <- MATs[MATs$multiple_phases, ]
     # remove average MAT ts
     df_avg <- df_avg[df_avg$group_uid %in% MATs$group_uid, ]
+    # remove school TS
+    df <- df[df$group_uid %in% MATs$group_uid, ]
   }
   
   
@@ -851,45 +1021,42 @@ for (i in 1:length(info)) {
   <<est>>
     # inspect results
     <<res_cv>>
-  #   run_placebo <- F
-  # <<placebo>>
-  
-  # # ### SC - prediction with simplex
-  # scpi.out <- scpi(data = scdata.out,
-  #                  w.constr = w.constr,
-  #                  # In-sample uncertainty - model the pseudo-residuals u #
-  #                  u.missp = TRUE, # whether the model is misspecified or not
-  #                  u.order = 1, u.lags = 0, u.design = NULL, # how to model u
-  #                  u.sigma = "HC1", # type of variance-covariance estimator to be used when estimating the conditional variance of u
-  #                  u.alpha = 0.05, # confidence level for in-sample uncertainty
-  #                  # Out-of-sample uncertainty - model the out-of-sample residuals e and estimate relevant moments #
-  #                  e.method = "gaussian", # method to be used in quantifying out-of-sample uncertainty
-  #                  e.order = 1, e.lags = 0, e.design = NULL, # how to model e
-  #                  e.alpha = 0.05, # confidence level for out-of-sample uncertainty
-  #                  
-  #                  cores = 4, verbose = FALSE)
-  # cat("\n\n")
-  # print(scplot(result = scpi.out, plot.range = period.avail,
-  #              label.xy = list(x.lab = "Start of academic year", y.lab = "Ratio of pupils to qualified teachers")))
-  # cat("\n\n")
+    # determine output filename
+    file_name <- file.path(getwd(), "interim", paste0(file_stem, "_gaps_cv_", phase, "_", sprintf("%.2f", i), ".csv"))
+    run_placebo <- T
+  <<placebo>>
   
   cat("## Apply gridsearch parameters \n\n")
   
-  # # show params in markdown
-  # kbl(sapply(params, paste, collapse = " + "), col.names = NULL) %>%
-  #   kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
-  #   print()
-  # cat("\n")
-  # 
-  # # Define timeseries
-  # period.post <- c(2024:2026) # Simulated post-treatment period
-  # 
-  # # prepare data and estimate scm
-  # simulate_data <- TRUE
-  # <<est>>
-  #   # inspect results
-  #   <<res>>
+  # show params in markdown
+  kbl(sapply(params, paste, collapse = " + "), col.names = NULL) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>%
+    print()
+  cat("\n")
+
+  cat("### Whole pre-treatment timeseries \n\n")
+
+  # Define timeseries
+  period.post <- c(2024:2026) # Simulated post-treatment period
+
+  # prepare data and estimate scm
+  simulate_data <- TRUE
+  <<est>>
+    # inspect results - pre-treatment only
+    <<res>>
+    
+  cat("### Simulated post-treatment timeseries \n\n")
+    # inspect results - incl. simulated time period
+    summarise_scest(scest.out, id_treated = uid_treated, id_name = id_group, cv = T)
   
+  print(scplot(result = scest.out, plot.range = period.avail,
+               label.xy = list(x.lab = "Start of academic year", y.lab = "Ratio of pupils to qualified teachers")))
+  cat("\n\n")
+  # determine output filename
+  file_name <- file.path(getwd(), "interim", paste0(file_stem, "_gaps_sim_", phase, "_", sprintf("%.2f", i), ".csv"))
+  run_placebo <- T
+  <<placebo>>
+
 }
 
 
