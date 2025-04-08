@@ -1446,7 +1446,7 @@ grid_search_scpi_mat <- function(param_grid, cv = FALSE, sim = F) {
     cointegrated.data = FALSE, # don't belief that the data are cointegrated
     anticipation = 0, # No anticipation
     constant = FALSE, # No constant term
-    filter_phase = "Not applicable",
+    filter.phase = "Not applicable",
     stringsAsFactors = FALSE
   )
   
@@ -1470,7 +1470,7 @@ grid_search_scpi_mat <- function(param_grid, cv = FALSE, sim = F) {
     data <- tryCatch({
       process_data_scm_mat(uid_treated = uid_treated, 
                            target_regions = unlist(params$regions), 
-                           filter_phase = unlist(params$filter_phase),
+                           filter_phase = unlist(params$filter.phase),
                            min_years_obs = params$min.years.obs,
                            min_schools_per_mat = params$min.schools.per.mat,
                            min_schools_per_timeperiod = params$min.schools.per.timeperiod,
@@ -1694,9 +1694,11 @@ grid_search_scpi_mat <- function(param_grid, cv = FALSE, sim = F) {
                        NA),
       
       regions = ifelse(!is.null(result$params$regions[[1]]), paste(result$params$regions[[1]], collapse = ", "), NA),
-      filter_phase = ifelse(!is.null(result$params$filter_phase[[1]]), paste(result$params$filter_phase[[1]], collapse = ", "), NA),
+      filter.phase = ifelse(!is.null(result$params$filter.phase[[1]]), paste(result$params$filter.phase[[1]], collapse = ", "), NA),
       exclude.single.phase = ifelse(!is.null(result$params$exclude.single.phase), result$params$exclude.single.phase, NA),
       exclude.northwest = ifelse(!is.null(result$params$exclude.northwest), result$params$exclude.northwest, NA),
+      excl.outlier = ifelse(!is.null(result$params$excl.outlier), result$params$excl.outlier, NA),
+      
       min.years.obs = ifelse(!is.null(result$params$min.years.obs), result$params$min.years.obs, NA),
       min.schools.per.mat = ifelse(!is.null(result$params$min.schools.per.mat), result$params$min.schools.per.mat, NA),
       min.schools.per.timeperiod = ifelse(!is.null(result$params$min.schools.per.timeperiod), result$params$min.schools.per.timeperiod, NA),
