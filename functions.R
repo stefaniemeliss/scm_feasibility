@@ -963,7 +963,7 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
 }
 
 # get scpi summary of estimation 
-summarise_scest <- function(object, cv = F) {
+summarise_scest <- function(object, id_treated, id_name, cv = F) {
   
   J       <- object$data$specs$J
   M       <- object$data$specs$M
