@@ -169,7 +169,8 @@ for (p in 1:length(phases)) {
     # define options for filtering
     filter.options <- list(
       "! laestab %in% c(3802008)",  # This will be interpreted as NULL later
-      "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)"
+      "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
+      "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112, 201213, 201314)"
     )
     
     exclude.single.phase.options = c(TRUE, FALSE)

@@ -599,8 +599,10 @@ if (run_gridsearch) {
     filter.options <- list(
       "NULL",  # This will be interpreted as NULL later
       "! time_period %in% c(201011, 201112)",
+      "! time_period %in% c(201011, 201112, 201213, 201314)",
       "! laestab %in% c(3802008)",  # This will be interpreted as NULL later
-      "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)"
+      "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
+      "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112, 201213, 201314)"
     )
     
     # define options for donor pool
