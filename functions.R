@@ -1546,6 +1546,20 @@ grid_search_scpi_mat <- function(param_grid, cv = FALSE, sim = F) {
     if (is.list(scdata.out) && "error" %in% names(scdata.out)) {
       params$w.constr.str <- NA
       
+      # save info on weight constraints
+      w.constr <- params$w.constr[[1]]
+      
+      if (!"name" %in% names(w.constr)) {
+        w.constr[["name"]] <- "user provided"
+      }
+      
+      # format weight constraints as string
+      w.constr <- w.constr[c("name", "p", "lb", "Q", "dir")]
+      w.constr <- paste(names(w.constr), w.constr, sep = " = ", collapse = "; " )
+      # add to params
+      params$w.constr.str <- w.constr
+      
+      
       return(list(status = scdata.out$error,
                   n_pool = NA,
                   n_active = NA, 
