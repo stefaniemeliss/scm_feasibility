@@ -1896,3 +1896,10 @@ analyse_missing_values <- function(data, group_col = "laestab", time_col = "time
   return(result_df)
 }
 
+# Function to extract min and max year from a string
+extract_min_max_years <- function(period_string) {
+  years <- as.numeric(unlist(strsplit(period_string, ", ")))
+  min_year <- min(years)
+  max_year <- max(years)
+  return(c(min_year, max_year))
+}
