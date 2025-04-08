@@ -139,8 +139,11 @@ lookup$time_period <- as.numeric(substr(lookup$time_period, 0, 4))
 
 
 ```{r plot_ts, echo=FALSE, eval=F}
+cat("## MAT timeseries\n\n")
+
+
 # add info about schools
-cat("### Schools used for MAT timeseries\n\n")
+cat("#### Schools used for MAT timeseries\n\n")
 groups %>% 
   filter(laestab %in% df$laestab[df$group_uid == uid_treated]) %>%
   select(-c(urn, establishmentnumber, la_code, group_uid, group_id, establishmenttypegroup_name, group_name, group_closed_date, date_left_group, laestab, establishment_closedate, reasonestablishmentclosed_name)) %>%
@@ -149,7 +152,7 @@ groups %>%
   print()
 
 # show MAT level timeseries data
-cat("### MAT timeseries data\n\n")
+cat("#### MAT timeseries data\n\n")
 df_treat %>%
   select(-c(group_uid, status, time_period)) %>%
   relocate(time_period_str) %>%
@@ -302,11 +305,11 @@ cat("\n\n")  # Add some space between plots
 ```
 
 
-```{r grid, eval=FALSE, include=F}
-cat("\n\n")
-cat("## Grid search results \n\n")
 
-cat("### Effects of processing choices on the timeseries \n\n")
+```{r grid_ts, eval=FALSE, echo=F}
+cat("## Grid search results\n\n")
+
+cat("### Effects on the MAT timeseries\n\n")
 
 #### check timeseries effects ####
 
@@ -338,6 +341,7 @@ tmp_results$min.schools.per.timeperiod <- paste0(tmp_results$min.schools.per.tim
 tmp_results$min.schools.per.timeperiod <- factor(tmp_results$min.schools.per.timeperiod)
 tmp_results$min.schools.per.mat <- paste0(tmp_results$min.schools.per.mat, "S")
 tmp_results$min.schools.per.mat <- factor(tmp_results$min.schools.per.mat)
+
 # which years were used in training
 tmp_results$period.pre <- factor(tmp_results$period.pre)
 
@@ -369,6 +373,11 @@ plt <- ggplot(data = tmp_results[tmp_results$level == "MAT", ], aes(x = time_per
 print(plt)
 cat("\n\n")
 
+```
+
+
+```{r grid_param, eval=FALSE, echo=F}
+
 #### process data grid search ####
 
 # declare file name
@@ -379,22 +388,30 @@ results <- read.csv(file_name)
 
 # copy data for editing
 tmp_results <- results
-apply(results[1:17], 2, unique)
 
-# create new vars for facets #
-# # DV used
-# tmp_results$dv <- ifelse(grepl("pupil_to_qual_teacher_ratio", tmp_results$outcome.var), "Qualified", "All")
-# is DV in features?
-tmp_results$feat_dv <- ifelse(grepl("ratio", tmp_results$features), "incl. DV", "excl. DV")
-tmp_results$feat_dv <- factor(tmp_results$feat_dv)
-# covariate adjustment
-tmp_results$adj <- ifelse(is.na(tmp_results$cov.adj), "none", tmp_results$cov.adj)
-tmp_results$adj <- factor(tmp_results$adj, levels = c("none", "constant", "trend", "constant, trend"),
-                          labels = c("none", "Constant", "Trend", "C + T"))
+# --- create new vars for facets --- #
+
+# timeseries processing options #
+
+# min years per school
+tmp_results$min.years.obs <- paste0(tmp_results$min.years.obs, "Y")
+tmp_results$min.years.obs <- factor(tmp_results$min.years.obs)
+# min schools per year
+tmp_results$min.schools.per.timeperiod <- paste0(tmp_results$min.schools.per.timeperiod, "S/Y")
+tmp_results$min.schools.per.timeperiod <- factor(tmp_results$min.schools.per.timeperiod)
+# min schools per mat
+tmp_results$min.schools.per.mat <- paste0(tmp_results$min.schools.per.mat, "S")
+tmp_results$min.schools.per.mat <- factor(tmp_results$min.schools.per.mat)
+
+# did we remove outliers
+tmp_results$excl.out <- ifelse(tmp_results$excl.outlier, "excl. out", "incl. out")
+
+# donor pool filtering options # 
+
 # which region was used for filtering
 tmp_results$region <- ifelse(grepl("North West", tmp_results$regions), "YS&H + NW", "YS&H")
 tmp_results$region <- factor(tmp_results$region)
-# were any MATs excluded? CHECK!!
+# were any MATs excluded?
 if (phase == "mixed") {
   tmp_results$phase <- ifelse(tmp_results$exclude.single.phase, "excl. single phase", "incl. single phase")
   tmp_results$phase <- factor(tmp_results$phase)
@@ -404,51 +421,58 @@ if (phase == "mixed") {
 }
 # tmp_results$mats_in_nw<- ifelse(tmp_results$exclude.northwest, "excl. NW based MATs", "incl. NW based MATs")
 # tmp_results$mats_in_nw<- factor(tmp_results$mats_in_nw)
-# How was the average timeseries obtained?
-tmp_results$min.years.obs <- paste0(tmp_results$min.years.obs, "Y")
-tmp_results$min.years.obs <- factor(tmp_results$min.years.obs)
-tmp_results$min.schools.per.timeperiod <- paste0(tmp_results$min.schools.per.timeperiod, "S/Y")
-tmp_results$min.schools.per.timeperiod <- factor(tmp_results$min.schools.per.timeperiod)
-tmp_results$min.schools.per.mat <- paste0(tmp_results$min.schools.per.mat, "S")
-tmp_results$min.schools.per.mat <- factor(tmp_results$min.schools.per.mat)
+
+# SCM setup options in scpi #
+
+# # DV used
+# tmp_results$dv <- ifelse(grepl("pupil_to_qual_teacher_ratio", tmp_results$outcome.var), "Qualified", "All")
+
+# is DV in features?
+tmp_results$feat_dv <- ifelse(grepl("ratio", tmp_results$features), "incl. DV", "excl. DV")
+tmp_results$feat_dv <- factor(tmp_results$feat_dv)
+
+# covariate adjustment
+tmp_results$adj <- ifelse(is.na(tmp_results$cov.adj), "none", tmp_results$cov.adj)
+tmp_results$adj <- factor(tmp_results$adj, levels = c("none", "constant", "trend", "constant, trend"),
+                          labels = c("none", "Constant", "Trend", "C + T"))
+
 # which years were used in training
-# Function to extract min and max year
-extract_min_max_years <- function(period_string) {
-  years <- as.numeric(unlist(strsplit(period_string, ", ")))
-  min_year <- min(years)
-  max_year <- max(years)
-  return(c(min_year, max_year))
-}
 tmp_results$min_year <- sapply(tmp_results$period.pre, function(x) extract_min_max_years(x)[1])
 tmp_results$max_year <- sapply(tmp_results$period.pre, function(x) extract_min_max_years(x)[2])
 tmp_results$period.pre <- paste0(tmp_results$min_year, ":", tmp_results$max_year)
 tmp_results$period.pre <- factor(tmp_results$period.pre)
+
 # which constraints were applied to the weights
 tmp_results$method <- tstrsplit(tmp_results$w.constr, "; ")[[1]]
 tmp_results$method <- gsub("name = ", "", tmp_results$method)
 tmp_results$method <- factor(tmp_results$method, levels = c("simplex", "L1-L2", "lasso", "user provided"))
 
-# did we remove outliers
-#tmp_results$excl.out <- ifelse(tmp_results$excl.outlier, "excl. out", "incl. out")
-
+# create a bool capturing if there was an error
 tmp_results$error <- grepl("Error", tmp_results$status)
+
+# --- process data for plotting --- #
+
+# create a grid with all combinations of variables evaluated
+comb <- tmp_results %>%
+  # select parameter settings
+  # only those not impacted by CV (hence not using period.pre)
+  group_by(feat_dv, adj, region, phase, min_year, method, min.schools.per.timeperiod, min.schools.per.mat, min.years.obs) %>%
+  # check that there are two each (CV == T and CV == F)
+  summarise(n = n()) %>%
+  ungroup() %>%
+  # create column indexing the iteration
+  mutate(it = as.character(1:nrow(.)))
 
 # finalise dataset
 tmp_results <- tmp_results %>%
-  # exclude all params that did not estimate
-  filter(!error) %>%
-  # select paramter settings
-  # only those not impacted by CV (hence not using min.years.obs and period.pre)
-  select(feat_dv, adj, region, phase, min_year, method, min.schools.per.timeperiod, min.schools.per.mat) %>%
-  # remove all duplicates
-  filter(!duplicated(.)) %>%
-  # create id col
-  mutate(it = as.character(1:nrow(.))) %>%
-  # combine with other columns 
-  left_join(., tmp_results) %>%
+  full_join(comb, .) %>%
   # select columns
-  select(c(it, cross.val, feat_dv, adj, region, phase, min.years.obs, min.schools.per.timeperiod, min.schools.per.mat, period.pre, min_year, method, n_pool, sd_treated, rmspe_pre, rmspe_post))
-
+  select(c(it, cross.val, 
+           min.schools.per.timeperiod, min.schools.per.mat, min.years.obs, 
+           region, phase, excl.out, 
+           swf.filter, period.pre, period.post, min_year, max_year, 
+           feat_dv, adj, method, 
+           n_pool, sd_treated, rmspe_pre, rmspe_post, status))
 
 # convert to long format
 tmp_long <- tmp_results %>%
@@ -491,30 +515,30 @@ tmp_long <- tmp_long %>%
     x_position = data_numeric + method_position # final numeric position for plotting
   )
 
-#### plot size of donor pool ####
-cat("### Effects of processing choices and filters on the donor pool\n\n")
-
-plt <- ggplot(data = tmp_long[tmp_long$data == "all", ], aes(x = min.schools.per.mat, y = n_pool)) + 
-  geom_point(col = blue) +
-  geom_hline(yintercept = 50, linetype = "dotted") +
-  ggh4x::facet_grid2(cols = vars(min.schools.per.timeperiod), rows = vars(period.pre, phase), strip = ggh4x::strip_nested()) +
-  ambition_theme +
-  theme(strip.text = element_text(size = 10),
-        legend.title = element_text(size = 10),
-        legend.text = element_text(size = 10),
-        axis.title = element_text(size = 10),
-        axis.text = element_text(size = 10),
-        # axis.title.x = element_blank(),
-        # axis.text.x = element_blank(),
-        plot.caption = element_text(size = 10),
-        legend.margin=margin(t = -8)) +
-  ylab("Size of donor pool") + xlab("Mininum number of schools averaged in MAT timeseries")
-print(plt)
-cat("\n\n")
+# #### plot size of donor pool ####
+# cat("### Effects of processing choices and filters on the donor pool\n\n")
+# 
+# plt <- ggplot(data = tmp_long[tmp_long$data == "all", ], aes(x = min.schools.per.mat, y = n_pool)) + 
+#   geom_point(col = blue) +
+#   geom_hline(yintercept = 50, linetype = "dotted") +
+#   ggh4x::facet_grid2(cols = vars(min.schools.per.timeperiod), rows = vars(period.pre, phase), strip = ggh4x::strip_nested()) +
+#   ambition_theme +
+#   theme(strip.text = element_text(size = 10),
+#         legend.title = element_text(size = 10),
+#         legend.text = element_text(size = 10),
+#         axis.title = element_text(size = 10),
+#         axis.text = element_text(size = 10),
+#         # axis.title.x = element_blank(),
+#         # axis.text.x = element_blank(),
+#         plot.caption = element_text(size = 10),
+#         legend.margin=margin(t = -8)) +
+#   ylab("Size of donor pool") + xlab("Mininum number of schools averaged in MAT timeseries")
+# print(plt)
+# cat("\n\n")
 
 #### plot data grid search ####
 
-cat("### Effects of processing choices and filters on the model fit\n\n")
+cat("### Effects on the model fit\n\n")
 
 plt <- ggplot(data = tmp_long[tmp_long$feat_dv == "excl. DV", ], 
               aes(x = x_position, y = rmspe, group = it)) +
@@ -544,7 +568,7 @@ plt <- ggplot(data = tmp_long[tmp_long$feat_dv == "excl. DV", ],
   xlab("Cross-validation fold") +
   guides(colour = guide_legend(title = "Weight constraint")) +
   scale_colour_manual(values = ambition_palette_bright)
-print(plt)
+suppressWarnings(print(plt))
 cat("\n\n")
 
 for (i in 1:length(levels(tmp_results$adj))) {
@@ -577,7 +601,7 @@ for (i in 1:length(levels(tmp_results$adj))) {
     xlab("Cross-validation fold") +
     guides(colour = guide_legend(title = "Weight constraint")) +
     scale_colour_manual(values = ambition_palette_bright)
-  print(plt)
+  suppressWarnings(print(plt))
   cat("\n\n")
   
 }
@@ -622,7 +646,8 @@ for (p in 1:length(phases)) {
   # Plot timeseries
   <<plot_ts>>
     # Analyse grid search
-    <<grid>>
+    <<grid_ts>>
+    <<grid_param>>
     
 }
 
