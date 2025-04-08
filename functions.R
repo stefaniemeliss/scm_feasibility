@@ -1248,33 +1248,60 @@ process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("
   # Combine outcome and predictor datasets
   df <- merge(z, x, all = T, by = c("laestab", "time_period"))
   
+  # Remove any rows with missing values
+  # This creates complete obs for all vars
+  df <- na.omit(df)
+  
+  # merge with a scaffold so that timeseries is complete again
+  df <- merge(expand.grid(laestab = unique(df$laestab),
+                         time_period = unique(df$time_period)), 
+              df, all = T)
+  
   # Add MAT information to the dataset
   # Create lookup table with relevant group information (avoiding duplicates)
-  lookup <- groups[, c("laestab", "establishmentname", "group_uid", "group_name", "gor_name", "phaseofeducation_name")]
+  lookup <- groups[laestab %in% list_laestab, c("laestab", "establishmentname", "group_uid", "group_name", "gor_name", "phaseofeducation_name")]
   lookup <- lookup[!duplicated(lookup), ]
   df <- merge(df, lookup, by = "laestab", all.x = T)
   
   # ---- Longitudinal data filtering ----
-  # Update list of schools to include only those with min_years_obs+ years of observations
+  
+  # Remove any NA years at the beginning and at the end of the timeseries
+  # Create a cumulative sum of non-NA values starting from the first non-NA value encountered.
+  # cum_non_na remain zero as long as the values are NAs (i.e., at the beginning/end of the timeseries due to arrange)
+  df <- df %>%
+    group_by(laestab) %>%
+    # sort ascending by timeseries - BEGINNING
+    arrange(time_period) %>%
+    mutate(cum_non_na = cumsum(!is.na(!!sym(dv)))) %>%
+    filter(cum_non_na > 0) %>%
+    select(-cum_non_na) %>%
+    # sort ascending by timeseries - END
+    arrange(desc(time_period)) %>%
+    mutate(cum_non_na = cumsum(!is.na(!!sym(dv)))) %>%
+    filter(cum_non_na > 0) %>%
+    select(-cum_non_na) %>%
+    ungroup() %>%
+    arrange(laestab, time_period)
+  
+  # Remove any schools with gaps in their timeseries (i.e., NA in the middle of their data)
+  df <- df %>%
+    group_by(laestab) %>%
+    mutate(na = sum(is.na(!!sym(dv)))) %>%
+    ungroup() %>%
+    filter(na == 0) %>%
+    select(-na)
+  
+  # Only keep schools with min_years_obs+ years of observations
   df <- df %>% 
     group_by(laestab) %>%
     mutate(n_obs = sum(!is.na(get(dv)))) %>%
     ungroup() %>%
-    filter(n_obs >= min_years_obs)
+    filter(n_obs >= min_years_obs) %>%
+    select(-n_obs)
   
   # Update list of schools to include only those that don't have any missing values in the middle or at the end
-  list_laestab <- analyse_missing_values(df, "laestab", "time_period", dv) %>%
-    filter(! grepl("middle|end", missing_pattern)) %>%
-    pull(laestab) %>% 
-    unique()
+  list_laestab <- unique(df$laestab)
     
-  # Update dataset to include only schools with min_years_obs+ years of observations with no missing values in the middle or at the end
-  df <- df %>%
-    filter(laestab %in% list_laestab)
-  
-  # Remove any rows with missing values
-  df <- na.omit(df)
-  
   # ---- MAT-level filtering ----
   # Identify MATs that meet specific criteria:
   # - Have multiple schools with min_years_obs+ years of data
