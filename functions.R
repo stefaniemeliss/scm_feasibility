@@ -1736,6 +1736,7 @@ grid_search_scpi_mat <- function(param_grid, cv = FALSE, sim = F) {
       
       regions = ifelse(!is.null(result$params$regions[[1]]), paste(result$params$regions[[1]], collapse = ", "), NA),
       filter.phase = ifelse(!is.null(result$params$filter.phase[[1]]), paste(result$params$filter.phase[[1]], collapse = ", "), NA),
+      swf.filter = ifelse(!is.null(result$params$swf.filter), result$params$swf.filter, NA),
       exclude.single.phase = ifelse(!is.null(result$params$exclude.single.phase), result$params$exclude.single.phase, NA),
       exclude.northwest = ifelse(!is.null(result$params$exclude.northwest), result$params$exclude.northwest, NA),
       excl.outlier = ifelse(!is.null(result$params$excl.outlier), result$params$excl.outlier, NA),
