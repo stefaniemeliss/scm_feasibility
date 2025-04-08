@@ -622,7 +622,7 @@ for (p in 1:length(phases)) {
   
   if (phase == "mixed") {
     swf_filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)"
-    filter_phase = "Not applicable"
+    filter_phase = c("Not applicable", "16 plus")
     nrow_legend = 3
   } else if (phase == "Secondary") {
     swf_filter = "! time_period %in% c(201011, 201112, 201213, 201314)"
