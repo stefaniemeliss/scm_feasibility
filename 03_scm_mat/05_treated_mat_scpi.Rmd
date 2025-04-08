@@ -118,130 +118,74 @@ lookup$time_period <- as.numeric(substr(lookup$time_period, 0, 4))
 
 ```
 
-```{r plot_ts, eval=FALSE, include=F}
-#id_treated = list_laestab[1] # debug
-rolling.window = 2
-roll.vars <- c("pupil_to_qual_teacher_ratio", "fte_avg_age", "pnpupfsm_e")
+```{r plot_ts, echo=FALSE, eval=F}
+# get school-level data of treated MAT
+df_s <- df %>% filter(laestab %in% list_laestab)
 
-# Define timeseries
-years.avail <- sort(unique(df$time_period))
-period.post <- c(2022:2023)
-period.pre <- setdiff(years.avail, period.post)
-
-# apply rolling window average to pre treatment period
-pre <- df %>%
-  filter(time_period %in% period.pre & laestab == id_treated) %>%
-  arrange(desc(time_period)) %>%
-  mutate(
-    across(all_of(roll.vars), ~ zoo::rollapply(.x, width = rolling.window, mean, align = "left", partial = T), .names = "{col}_roll_cv"),
-    fold = "Train"
-  )
-
-# apply rolling window average to pre treatment period
-post <- df %>%
-  filter(time_period %in% period.post & laestab == id_treated) %>%
-  arrange(desc(time_period)) %>%
-  mutate(
-    across(all_of(roll.vars), ~ zoo::rollapply(.x, width = rolling.window, mean, align = "left", partial = T), .names = "{col}_roll_cv"),
-    fold = "Validation"
-  )
-
-# combine rolled data from time time periods
-df_treated <- bind_rows(pre, post) %>%
-  arrange(desc(time_period)) %>%
-  select(- pupil_to_qual_unqual_teacher_ratio) %>%
-  mutate(
-    across(all_of(roll.vars), ~ zoo::rollapply(.x, width = rolling.window, mean, align = "left", partial = T), .names = "{col}_roll")  
-  ) %>%
-  mutate(
-    across(all_of(paste0(roll.vars, "_roll")), ~ ifelse(time_period > 2020, ., NA))  
-  ) %>%
-  as.data.frame()
-
-lookup <- unique(df_treated[, c("time_period", "time_period_str")])
-
-
-#### CREATE SPAGHETTI PLOT ####
-
-# create data in long format
-df_long <- df_treated %>%
+# create data in long format - school level
+df_s <- df_s %>%
   tidyr::pivot_longer(
-    cols = -c(laestab, school, time_period, time_period_str, fold, school, urn),
+    cols = c(pupil_to_qual_teacher_ratio, fte_avg_age, pnpupfsm_e),
     names_to = "variable") %>%
   mutate(category = case_match(variable, 
                                "pupil_to_qual_teacher_ratio" ~ "Outcome",
-                               "pupil_to_qual_teacher_ratio_roll" ~ "Outcome",
-                               "pupil_to_qual_teacher_ratio_roll_cv" ~ "Outcome",
                                "fte_avg_age" ~ "Teacher age",
-                               "fte_avg_age_roll" ~ "Teacher age",
-                               "fte_avg_age_roll_cv" ~ "Teacher age",
-                               "pnpupfsm_e" ~ "% pupils FSM",
-                               "pnpupfsm_e_roll" ~ "% pupils FSM",
-                               "pnpupfsm_e_roll_cv" ~ "% pupils FSM"
-  ),
-  roll = case_match(variable, 
-                    "pupil_to_qual_teacher_ratio" ~ "Raw",
-                    "pupil_to_qual_teacher_ratio_roll" ~ "Rolling average",
-                    "pupil_to_qual_teacher_ratio_roll_cv" ~ "Rolling average CV",
-                    "fte_avg_age" ~ "Raw",
-                    "fte_avg_age_roll" ~ "Rolling average",
-                    "fte_avg_age_roll_cv" ~ "Rolling average CV",
-                    "pnpupfsm_e" ~ "Raw",
-                    "pnpupfsm_e_roll" ~ "Rolling average",
-                    "pnpupfsm_e_roll_cv" ~ "Rolling average CV"
-  )
-  ) %>%
+                               "pnpupfsm_e" ~ "% pupils FSM")) %>%
   as.data.frame()
 
-df_long$category <- factor(df_long$category, levels = c("Outcome", "% pupils FSM", "Teacher age"))
+df_s$category <- factor(df_s$category, levels = c("Outcome", "Teacher age", "% pupils FSM"))
+
+# create data in long format - MAT
+df_long <- df_treat %>%
+  tidyr::pivot_longer(
+    cols = c(pupil_to_qual_teacher_ratio, fte_avg_age, pnpupfsm_e),
+    names_to = "variable") %>%
+  mutate(category = case_match(variable, 
+                               "pupil_to_qual_teacher_ratio" ~ "Outcome",
+                               "fte_avg_age" ~ "Teacher age",
+                               "pnpupfsm_e" ~ "% pupils FSM")) %>%
+  as.data.frame()
+
+df_long$category <- factor(df_long$category, levels = c("Outcome", "Teacher age", "% pupils FSM"))
+
+# determine time period
+period.avail <- sort(unique(df_long$time_period))
+period.pre <- setdiff(period.avail, c(2022:2023)) # Pre-treatment period
 
 
-# plot timeseries for each variable
-plt <- ggplot(data = df_long, aes(x = time_period, y = value, col = roll, group = interaction(laestab, roll))) +
-  geom_vline(xintercept = 2021.5, linetype = "dotted") +
-  geom_line() + 
-  geom_point() +
-  facet_wrap(~ category, ncol = 1, strip.position = "top", scales = "free_y") +
-  ambition_theme +
-  ylab("Reported value") +
-  xlab("Academic year") +
-  scale_color_manual(
-    breaks = c("Raw", "Rolling average CV", "Rolling average"),
-    values = c("Raw" = red, "Rolling average CV" = blue, "Rolling average" = teal)) +
+##### CREATE SPAGHETTI PLOT ####
+
+
+# plot MAT AVERAGE timeseries for each variable
+# add school-level data visibly as LINES
+plt <- ggplot() + 
+  geom_vline(xintercept = period.pre[length(period.pre)]+0.5, linetype = "dotted") +
+  geom_line(data = df_s, aes(x = time_period, y = value, colour = establishmentname, group = establishmentname), linewidth = .5) + 
+  geom_line(data = df_long, aes(x = time_period, y = value, group = group_uid), linewidth = 1) + 
+  geom_point(data = df_long, aes(x = time_period, y = value, shape = factor(n)), size = 3) +
+  facet_wrap(~ category, ncol = 1, strip.position = "top", scales = "free_y") + 
+  ambition_theme + 
+  ylab("Reported value") + 
+  xlab("Academic year") + 
   scale_x_continuous(breaks = lookup$time_period, labels = lookup$time_period_str) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1),
-        axis.title.x = element_blank(), 
-        legend.title = element_blank())
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), 
+        legend.title = element_blank(), 
+        legend.text = element_text(size = 8), 
+        legend.position = "bottom", legend.box="vertical",
+        legend.spacing = unit(0.2, "cm"), 
+        legend.margin = margin(t = 0.1, r = 0.1, b = 0.1, l = 0.1, unit = "cm")) + 
+  scale_colour_manual(values = as.vector(pals::glasbey(length(list_laestab)))) +
+  guides(col = guide_legend(nrow = nrow_legend, byrow = T))
 
-suppressWarnings(print(plt))
+print(plt)
 cat("\n\n")  # Add some space between plots
-
 
 ```
 
+
 ```{r est, eval=FALSE, include=F}
-### prepare data ###
+### ---- prepare data ---- ###
 
-# load in df
-if ("region.filter" %in% names(params)) {
-  
-  # define correct regions to use
-  if ("same" %in% params$region.filter) (regions <- unlist(c(df_region[df_region$laestab == id_treated, c("same")])))
-  if ("neighbouring" %in% params$region.filter) (regions <- unlist(c(df_region[df_region$laestab == id_treated, c("same", "neighbouring")])))
-  
-  # process data
-  df <- process_data_scm(id_treated = id_treated, regions = regions)
-  
-}
-
-if ("sd.range" %in% names(params) & !is.null(params$sd.range)) {
-  
-  # filter by SD crit
-  df <- sd_filtering(data = df, perc = params$sd.range, var = outcome.var)
-  df[df$laestab == id_treated, paste0("crit_sd_", outcome.var)] <- T
-  df <- subset(df, df[, paste0("crit_sd_", outcome.var)] == T)
-  
-}
 
 if(simulate_data){
   
@@ -304,13 +248,13 @@ if(simulate_data){
 
 
 # Define timeseries
-period.avail <- sort(unique(df$time_period))
+period.avail <- sort(unique(df_avg$time_period))
 period.pre <- setdiff(period.avail, period.post) # Pre-treatment period
 
 # determine ids of control schools
-id_cont <- unique(df$laestab[df$laestab != id_treated])
+id_cont <- unique(MATs$group_uid[MATs$group_uid != uid_treated])
 
-unit.tr <- id_treated # Treated unit (in terms of id.var)
+unit.tr <- uid_treated # Treated unit (in terms of id.var)
 unit.co <- id_cont # Donors pool
 
 # determine features and covariate adjustment settings
@@ -319,7 +263,7 @@ cov.adj<- params$cov.adj
 
 ####################################
 ### Data preparation
-scdata.out <- scdata(df = df, 
+scdata.out <- scdata(df = df_avg, 
                      id.var = id.var, 
                      time.var = time.var,
                      outcome.var = outcome.var,
@@ -340,6 +284,8 @@ scest.out <- scest(data = scdata.out,
 
 ```{r res, eval=FALSE, include=F}
 #### SC - evaluate results ####
+id_treated = uid_treated
+id_name = id_group
 summarise_scest(scest.out, cv = F)
 
 print(scplot(result = scest.out, plot.range = period.pre,
@@ -814,99 +760,77 @@ cat("\n\n")
 ```
 
 
-```{r run_code, echo=F, message=FALSE, results='asis'}
-
-### Best parameter settings from grid search - per school
+```{r, echo=F, message=FALSE, results='asis', fig.align='center', fig.height=8, fig.width=10, out.width='100%', out.height='100%'}
 info <- list(
-  # St Peters
-  list(school = "St Peter's Catholic School",
+  list(phase = "mixed",
+       # timeseries processing
+       min.schools.per.timeperiod = 3,
+       min.schools.per.mat = 3,
+       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
+       # donor pool filtering
+       exclude.single.phase = T,
+       # SCM specs
        features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = list(c("constant")),
-       region.filter = "same",
-       sd.range = NULL),
-  # Dixon Music primary - EXCLUDED
-  # Marchbank Primary
-  list(school = "Dixons Marchbank Primary",
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
-       cov.adj = list(c("constant")),
-       region.filter = "same",
-       sd.range = 50),
-  # Manningham Academy
-  list(school = "Dixons Manningham Academy",
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
-       cov.adj = NULL,
-       region.filter = "same",
-       sd.range = 100),
-  # Kings Academy
-  list(school = "Dixons Kings Academy",
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
-       cov.adj = list(c("constant", "trend")),
-       region.filter = "same",
-       sd.range = NULL),
-  # Dixons Trinity Academy - EXCLUDED
-  # McMillan Academy
-  list(school = "Dixons McMillan Academy",
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
-       cov.adj = list(c("constant")),
-       region.filter = "same",
-       sd.range = NULL),
-  # Cottingley Academy
-  list(school = "Dixons Cottingley Academy",
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
-       cov.adj = list(c("constant")),
-       region.filter = "same",
-       sd.range = NULL),
-  # City Academy
-  list(school = "Dixons City Academy",
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
-       cov.adj = NULL,
-       region.filter = c("same","neighbouring"),
-       sd.range = NULL),
-  # Dixons Unity Academy - EXCLUDE
-  # Highcrest Academy
-  list(school = "The Highcrest Academy",
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = list(c("constant")),
-       region.filter = "same",
-       sd.range = NULL)
-)
+       cov.adj = list(c("constant", "trend"))
+  ))
+
 
 # info <- info[1] # debug
 
 ### Process data ###
 
 # Set options for data preparation
-id.var <- "laestab" # ID variable
+id.var <- "group_uid" # ID variable
 time.var <- "time_period" # Time variable
 outcome.var <- "pupil_to_qual_teacher_ratio" # Dependent variable
 
 w.constr <- list(name = "simplex") # use canonical SC
 
+# default options
+target_regions <- c("Yorkshire and the Humber", "North West")
+min.years.obs <- 8
 
+i = 1
 for (i in 1:length(info)) {
   
   # get best parameter for given school
   # i = 3 # debug
   params <- info[[i]]
   
-  # define id_treated
-  id_name <- params$school
-  id_treated <- df_region$laestab[df_region$school == id_name]
+  phase = params$phase
   
-  # process data
-  df <- process_data_scm(id_treated = id_treated, read_files = T, export_data.tables = T)
+  cat("# ", phase, "\n\n")
+  
+  # define different filter option for each phase #
+  
+  if (phase == "mixed") {
+    filter_phase = c("Not applicable", "16 plus")
+    nrow_legend = 2
+  } else if (phase == "Secondary") {
+    filter_phase = unique(groups$phaseofeducation_name)[!grepl("econdary", unique(groups$phaseofeducation_name))]
+    nrow_legend = 1
+  } else if (phase == "Primary") {
+    filter_phase = unique(groups$phaseofeducation_name)[!grepl("imary", unique(groups$phaseofeducation_name))]
+    nrow_legend = 1
+  }
   
   
-  cat("# ", id_name, "\n\n")
+  # process data at MAT level
+  process_data_scm_mat(uid_treated = uid_treated, target_regions = target_regions, filter_phase = filter_phase,
+                       swf_filter = params$swf.filter, 
+                       min_years_obs = min.years.obs, 
+                       min_schools_per_timeperiod = params$min.schools.per.timeperiod, min_schools_per_mat = params$min.schools.per.mat)
   
-  # print some information about the school
-  cat("Type of establishment:", est_treated$typeofestablishment_name, "\n\n")
-  cat("Phase:", est_treated$phaseofeducation_name, "\n\n")
-  cat("Gender of pupils:", est_treated$gender_name, "\n\n")
-  cat("Religious character:", est_treated$religiouscharacter_name, "\n\n")
-  cat("Trust flag:", est_treated$trustschoolflag_name, "\n\n")
-  cat("Local authority:", est_treated$la_name, "\n\n")
-  cat("Region:", est_treated$gor_name, "\n\n")
+  # Apply more filtering
+  if (params$exclude.single.phase) {
+    # remove MATs from MATs
+    MATs$multiple_phases <- grepl(" | ", MATs$phase, fixed = T)
+    MATs <- MATs[MATs$multiple_phases, ]
+    # remove average MAT ts
+    df_avg <- df_avg[df_avg$group_uid %in% MATs$group_uid, ]
+  }
+  
+  
   
   cat("## Timeseries plots \n\n")
   # Plot data
@@ -917,55 +841,55 @@ for (i in 1:length(info)) {
   
   # show params in markdown
   kbl(sapply(params, paste, collapse = " + "), col.names = NULL) %>%
-    kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>%
     print()
   cat("\n")
-  
+
   # prepare data and estimate scm
   period.post <- c(2022:2023) # Validation period
   simulate_data <- FALSE
   <<est>>
     # inspect results
     <<res_cv>>
-    run_placebo <- F
-  <<placebo>>
-    
-    # # ### SC - prediction with simplex
-    # scpi.out <- scpi(data = scdata.out,
-    #                  w.constr = w.constr,
-    #                  # In-sample uncertainty - model the pseudo-residuals u #
-    #                  u.missp = TRUE, # whether the model is misspecified or not
-    #                  u.order = 1, u.lags = 0, u.design = NULL, # how to model u
-    #                  u.sigma = "HC1", # type of variance-covariance estimator to be used when estimating the conditional variance of u
-    #                  u.alpha = 0.05, # confidence level for in-sample uncertainty
-    #                  # Out-of-sample uncertainty - model the out-of-sample residuals e and estimate relevant moments #
-    #                  e.method = "gaussian", # method to be used in quantifying out-of-sample uncertainty
-    #                  e.order = 1, e.lags = 0, e.design = NULL, # how to model e
-    #                  e.alpha = 0.05, # confidence level for out-of-sample uncertainty
-    #                  
-    #                  cores = 4, verbose = FALSE)
-    # cat("\n\n")
-    # print(scplot(result = scpi.out, plot.range = period.avail,
-    #              label.xy = list(x.lab = "Start of academic year", y.lab = "Ratio of pupils to qualified teachers")))
-    # cat("\n\n")
-    
-    cat("## Apply gridsearch parameters \n\n")
+  #   run_placebo <- F
+  # <<placebo>>
   
-  # show params in markdown
-  kbl(sapply(params, paste, collapse = " + "), col.names = NULL) %>%
-    kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
-    print()
-  cat("\n")
+  # # ### SC - prediction with simplex
+  # scpi.out <- scpi(data = scdata.out,
+  #                  w.constr = w.constr,
+  #                  # In-sample uncertainty - model the pseudo-residuals u #
+  #                  u.missp = TRUE, # whether the model is misspecified or not
+  #                  u.order = 1, u.lags = 0, u.design = NULL, # how to model u
+  #                  u.sigma = "HC1", # type of variance-covariance estimator to be used when estimating the conditional variance of u
+  #                  u.alpha = 0.05, # confidence level for in-sample uncertainty
+  #                  # Out-of-sample uncertainty - model the out-of-sample residuals e and estimate relevant moments #
+  #                  e.method = "gaussian", # method to be used in quantifying out-of-sample uncertainty
+  #                  e.order = 1, e.lags = 0, e.design = NULL, # how to model e
+  #                  e.alpha = 0.05, # confidence level for out-of-sample uncertainty
+  #                  
+  #                  cores = 4, verbose = FALSE)
+  # cat("\n\n")
+  # print(scplot(result = scpi.out, plot.range = period.avail,
+  #              label.xy = list(x.lab = "Start of academic year", y.lab = "Ratio of pupils to qualified teachers")))
+  # cat("\n\n")
   
-  # Define timeseries
-  period.post <- c(2024:2026) # Simulated post-treatment period
+  cat("## Apply gridsearch parameters \n\n")
   
-  # prepare data and estimate scm
-  simulate_data <- TRUE
-  <<est>>
-    # inspect results
-    <<res>>
-    
+  # # show params in markdown
+  # kbl(sapply(params, paste, collapse = " + "), col.names = NULL) %>%
+  #   kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
+  #   print()
+  # cat("\n")
+  # 
+  # # Define timeseries
+  # period.post <- c(2024:2026) # Simulated post-treatment period
+  # 
+  # # prepare data and estimate scm
+  # simulate_data <- TRUE
+  # <<est>>
+  #   # inspect results
+  #   <<res>>
+  
 }
 
 
