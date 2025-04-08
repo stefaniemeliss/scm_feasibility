@@ -930,6 +930,9 @@ cat("\n\n")
 
 ```{r, echo=F, message=FALSE, results='asis', fig.align='center', fig.height=8, fig.width=10, out.width='100%', out.height='100%'}
 info <- list(
+  
+  # --- mixed --- #
+  
   # excl. DV 
   # - NONE
   
@@ -1287,7 +1290,37 @@ info <- list(
        # SCM specs
        features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
        cov.adj = list(c("constant", "trend"))
+  ),
+  
+  # --- secondary --- #
+  list(phase = "Secondary",
+       # timeseries processing
+       min.schools.per.timeperiod = 2,
+       min.schools.per.mat = 2,
+       swf.filter = "! time_period %in% c(201011, 201112, 201213, 201314)",
+       # donor pool filtering
+       exclude.single.phase = F,
+       # SCM specs
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       cov.adj = NULL
+  ),
+  
+  
+  # --- secondary --- #
+  list(phase = "Primary",
+       # timeseries processing
+       min.schools.per.timeperiod = 2,
+       min.schools.per.mat = 2,
+       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112, 201213, 201314, 201415)",
+       # donor pool filtering
+       exclude.single.phase = F,
+       # SCM specs
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       cov.adj = list(c("constant"))
   )
+  
+  
+  
   
 )
 
@@ -1372,7 +1405,7 @@ for (ii in 1:length(info)) {
     <<res_cv>>
     # determine output filename
     file_name <- file.path(getwd(), "interim", paste0(file_stem, "_gaps_cv_", phase, "_", sprintf("%03d", ii), ".csv"))
-    run_placebo <- T
+    run_placebo <- F
   <<placebo>>
   
   cat("## Apply gridsearch parameters \n\n")
@@ -1403,7 +1436,7 @@ for (ii in 1:length(info)) {
   cat("\n\n")
   # determine output filename
   file_name <- file.path(getwd(), "interim", paste0(file_stem, "_gaps_sim_", phase, "_", sprintf("%03d", ii), ".csv"))
-  run_placebo <- T
+  run_placebo <- F
   <<placebo>>
 
 }
