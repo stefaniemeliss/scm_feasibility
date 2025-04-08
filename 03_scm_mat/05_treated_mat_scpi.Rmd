@@ -930,6 +930,305 @@ cat("\n\n")
 
 ```{r, echo=F, message=FALSE, results='asis', fig.align='center', fig.height=8, fig.width=10, out.width='100%', out.height='100%'}
 info <- list(
+  # excl. DV 
+  # - NONE
+  
+  # incl. DV - no adj.
+  list(phase = "mixed",
+       # timeseries processing
+       min.schools.per.timeperiod = 2,
+       min.schools.per.mat = 2,
+       swf.filter = "! laestab %in% c(3802008)",
+       # donor pool filtering
+       exclude.single.phase = T,
+       # SCM specs
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       cov.adj = NULL
+  ),
+  
+  list(phase = "mixed",
+       # timeseries processing
+       min.schools.per.timeperiod = 2,
+       min.schools.per.mat = 3,
+       swf.filter = "! laestab %in% c(3802008)",
+       # donor pool filtering
+       exclude.single.phase = T,
+       # SCM specs
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       cov.adj = NULL
+  ),
+  
+  list(phase = "mixed",
+       # timeseries processing
+       min.schools.per.timeperiod = 2,
+       min.schools.per.mat = 2,
+       swf.filter = "! laestab %in% c(3802008)",
+       # donor pool filtering
+       exclude.single.phase = F,
+       # SCM specs
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       cov.adj = NULL
+  ),
+  
+  list(phase = "mixed",
+       # timeseries processing
+       min.schools.per.timeperiod = 2,
+       min.schools.per.mat = 2,
+       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
+       # donor pool filtering
+       exclude.single.phase = T,
+       # SCM specs
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       cov.adj = NULL
+  ),
+  
+  list(phase = "mixed",
+       # timeseries processing
+       min.schools.per.timeperiod = 2,
+       min.schools.per.mat = 3,
+       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
+       # donor pool filtering
+       exclude.single.phase = T,
+       # SCM specs
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       cov.adj = NULL
+  ),
+  
+  list(phase = "mixed",
+       # timeseries processing
+       min.schools.per.timeperiod = 3,
+       min.schools.per.mat = 2,
+       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
+       # donor pool filtering
+       exclude.single.phase = T,
+       # SCM specs
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       cov.adj = NULL
+  ),
+  
+  list(phase = "mixed",
+       # timeseries processing
+       min.schools.per.timeperiod = 3,
+       min.schools.per.mat = 3,
+       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
+       # donor pool filtering
+       exclude.single.phase = T,
+       # SCM specs
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       cov.adj = NULL
+  ),
+  
+    list(phase = "mixed",
+       # timeseries processing
+       min.schools.per.timeperiod = 2,
+       min.schools.per.mat = 2,
+       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
+       # donor pool filtering
+       exclude.single.phase = F,
+       # SCM specs
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       cov.adj = NULL
+  ),
+  
+  list(phase = "mixed",
+       # timeseries processing
+       min.schools.per.timeperiod = 2,
+       min.schools.per.mat = 3,
+       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
+       # donor pool filtering
+       exclude.single.phase = F,
+       # SCM specs
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       cov.adj = NULL
+  ),
+
+  
+    list(phase = "mixed",
+       # timeseries processing
+       min.schools.per.timeperiod = 3,
+       min.schools.per.mat = 2,
+       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
+       # donor pool filtering
+       exclude.single.phase = F,
+       # SCM specs
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       cov.adj = NULL
+  ),
+  
+  list(phase = "mixed",
+       # timeseries processing
+       min.schools.per.timeperiod = 3,
+       min.schools.per.mat = 3,
+       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
+       # donor pool filtering
+       exclude.single.phase = F,
+       # SCM specs
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       cov.adj = NULL
+  ),
+
+  # incl. DV - Constant
+  # - NONE
+  
+  # incl. DV - Trend
+  list(phase = "mixed",
+       # timeseries processing
+       min.schools.per.timeperiod = 2,
+       min.schools.per.mat = 2,
+       swf.filter = "! laestab %in% c(3802008)",
+       # donor pool filtering
+       exclude.single.phase = T,
+       # SCM specs
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       cov.adj = list(c("trend"))
+  ),
+  
+  list(phase = "mixed",
+       # timeseries processing
+       min.schools.per.timeperiod = 2,
+       min.schools.per.mat = 3,
+       swf.filter = "! laestab %in% c(3802008)",
+       # donor pool filtering
+       exclude.single.phase = T,
+       # SCM specs
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       cov.adj = list(c("trend"))
+  ),
+  
+  list(phase = "mixed",
+       # timeseries processing
+       min.schools.per.timeperiod = 2,
+       min.schools.per.mat = 4,
+       swf.filter = "! laestab %in% c(3802008)",
+       # donor pool filtering
+       exclude.single.phase = T,
+       # SCM specs
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       cov.adj = list(c("trend"))
+  ),
+  
+  list(phase = "mixed",
+       # timeseries processing
+       min.schools.per.timeperiod = 2,
+       min.schools.per.mat = 2,
+       swf.filter = "! laestab %in% c(3802008)",
+       # donor pool filtering
+       exclude.single.phase = F,
+       # SCM specs
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       cov.adj = list(c("trend"))
+  ),
+  
+  list(phase = "mixed",
+       # timeseries processing
+       min.schools.per.timeperiod = 2,
+       min.schools.per.mat = 3,
+       swf.filter = "! laestab %in% c(3802008)",
+       # donor pool filtering
+       exclude.single.phase = F,
+       # SCM specs
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       cov.adj = list(c("trend"))
+  ),
+  
+  list(phase = "mixed",
+       # timeseries processing
+       min.schools.per.timeperiod = 2,
+       min.schools.per.mat = 4,
+       swf.filter = "! laestab %in% c(3802008)",
+       # donor pool filtering
+       exclude.single.phase = F,
+       # SCM specs
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       cov.adj = list(c("trend"))
+  ),
+  
+
+  # incl. DV - C&T
+  list(phase = "mixed",
+       # timeseries processing
+       min.schools.per.timeperiod = 2,
+       min.schools.per.mat = 2,
+       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
+       # donor pool filtering
+       exclude.single.phase = T,
+       # SCM specs
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       cov.adj = list(c("constant", "trend"))
+  ),
+  
+  list(phase = "mixed",
+       # timeseries processing
+       min.schools.per.timeperiod = 2,
+       min.schools.per.mat = 3,
+       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
+       # donor pool filtering
+       exclude.single.phase = T,
+       # SCM specs
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       cov.adj = list(c("constant", "trend"))
+  ),
+  
+  list(phase = "mixed",
+       # timeseries processing
+       min.schools.per.timeperiod = 2,
+       min.schools.per.mat = 4,
+       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
+       # donor pool filtering
+       exclude.single.phase = T,
+       # SCM specs
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       cov.adj = list(c("constant", "trend"))
+  ),
+  
+  list(phase = "mixed",
+       # timeseries processing
+       min.schools.per.timeperiod = 2,
+       min.schools.per.mat = 2,
+       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
+       # donor pool filtering
+       exclude.single.phase = F,
+       # SCM specs
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       cov.adj = list(c("constant", "trend"))
+  ),
+  
+  list(phase = "mixed",
+       # timeseries processing
+       min.schools.per.timeperiod = 2,
+       min.schools.per.mat = 3,
+       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
+       # donor pool filtering
+       exclude.single.phase = F,
+       # SCM specs
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       cov.adj = list(c("constant", "trend"))
+  ),
+  
+  list(phase = "mixed",
+       # timeseries processing
+       min.schools.per.timeperiod = 2,
+       min.schools.per.mat = 4,
+       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
+       # donor pool filtering
+       exclude.single.phase = F,
+       # SCM specs
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       cov.adj = list(c("constant", "trend"))
+  ),
+  
+  list(phase = "mixed",
+       # timeseries processing
+       min.schools.per.timeperiod = 3,
+       min.schools.per.mat = 2,
+       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
+       # donor pool filtering
+       exclude.single.phase = T,
+       # SCM specs
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       cov.adj = list(c("constant", "trend"))
+  ),
+  
   list(phase = "mixed",
        # timeseries processing
        min.schools.per.timeperiod = 3,
@@ -940,7 +1239,57 @@ info <- list(
        # SCM specs
        features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
        cov.adj = list(c("constant", "trend"))
-  ))
+  ),
+  
+  list(phase = "mixed",
+       # timeseries processing
+       min.schools.per.timeperiod = 3,
+       min.schools.per.mat = 4,
+       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
+       # donor pool filtering
+       exclude.single.phase = T,
+       # SCM specs
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       cov.adj = list(c("constant", "trend"))
+  ),
+  
+  list(phase = "mixed",
+       # timeseries processing
+       min.schools.per.timeperiod = 3,
+       min.schools.per.mat = 2,
+       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
+       # donor pool filtering
+       exclude.single.phase = F,
+       # SCM specs
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       cov.adj = list(c("constant", "trend"))
+  ),
+  
+  list(phase = "mixed",
+       # timeseries processing
+       min.schools.per.timeperiod = 3,
+       min.schools.per.mat = 3,
+       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
+       # donor pool filtering
+       exclude.single.phase = F,
+       # SCM specs
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       cov.adj = list(c("constant", "trend"))
+  ),
+  
+  list(phase = "mixed",
+       # timeseries processing
+       min.schools.per.timeperiod = 3,
+       min.schools.per.mat = 4,
+       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
+       # donor pool filtering
+       exclude.single.phase = F,
+       # SCM specs
+       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
+       cov.adj = list(c("constant", "trend"))
+  )
+  
+)
 
 
 # info <- info[1] # debug
@@ -958,16 +1307,16 @@ w.constr <- list(name = "simplex") # use canonical SC
 target_regions <- c("Yorkshire and the Humber", "North West")
 min.years.obs <- 8
 
-i = 1
-for (i in 1:length(info)) {
+ii = 1
+for (ii in 1:length(info)) {
   
   # get best parameter for given school
   # i = 3 # debug
-  params <- info[[i]]
+  params <- info[[ii]]
   
   phase = params$phase
   
-  cat("# ", phase, "\n\n")
+  cat("# ", phase, "- Settings", ii, "\n\n")
   
   # define different filter option for each phase #
   
@@ -1022,7 +1371,7 @@ for (i in 1:length(info)) {
     # inspect results
     <<res_cv>>
     # determine output filename
-    file_name <- file.path(getwd(), "interim", paste0(file_stem, "_gaps_cv_", phase, "_", sprintf("%.2f", i), ".csv"))
+    file_name <- file.path(getwd(), "interim", paste0(file_stem, "_gaps_cv_", phase, "_", sprintf("%03d", ii), ".csv"))
     run_placebo <- T
   <<placebo>>
   
@@ -1053,7 +1402,7 @@ for (i in 1:length(info)) {
                label.xy = list(x.lab = "Start of academic year", y.lab = "Ratio of pupils to qualified teachers")))
   cat("\n\n")
   # determine output filename
-  file_name <- file.path(getwd(), "interim", paste0(file_stem, "_gaps_sim_", phase, "_", sprintf("%.2f", i), ".csv"))
+  file_name <- file.path(getwd(), "interim", paste0(file_stem, "_gaps_sim_", phase, "_", sprintf("%03d", ii), ".csv"))
   run_placebo <- T
   <<placebo>>
 
