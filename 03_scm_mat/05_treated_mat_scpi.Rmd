@@ -11,22 +11,18 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-options(scipen = 999)
 knitr::opts_chunk$set(echo = TRUE)
 
-# Clear the workspace and run garbage collection
+options(scipen = 999)
+# empty work space
 rm(list = ls())
 gc()
-
-# Set seed
-set.seed(202324)
 
 # load libraries
 library(kableExtra)
 library(dplyr)
 library(data.table)
-library(scpi)
-library(lme4)
+library(ggplot2)
 
 # create function to source code
 source_code <- function(root_dir_name = "code", target_repo = "helper_functions", branch = "main", file_name = "file.R") {
@@ -83,21 +79,43 @@ source_code <- function(root_dir_name = "code", target_repo = "helper_functions"
 source_code(target_repo = "scm_feasibility", file_name = "functions.R")
 
 # Define the base directory
-get_directory()
+dir <- get_directory()
+dir_data <- file.path(dir, "data")
+dir_misc <- file.path(dir, "misc")
 
 # get file stem name
 file_stem <- get_file_stem()
 
-# process data establishments #
+# copy data #
+file.copy(
+  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_swf.csv"), dir_data, overwrite = T)
+file.copy(
+  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_pupils.csv"), dir_data, overwrite = T)
+file.copy(
+  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_establishments_search.csv"), dir_data, overwrite = T)
+file.copy(
+  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_establishments_groups.csv"), dir_data, overwrite = T)
 
-# load in file with timeseries desc
-summary <- read.csv(file.path(dir, "02_scm",  "02_treated_schools_filter_donor_pool_out.csv"))
+# load data #
 
-# only select schools with sufficient donor pool
-summary <- subset(summary, n_pool >= 50)
+swf <- fread(file.path(dir_data, "data_swf.csv"))
+pup <- fread(file.path(dir_data, "data_pupils.csv"))
+est <- fread(file.path(dir_data, "data_establishments_search.csv"), na.strings = "")
+groups <- fread(file.path(dir_data, "data_establishments_groups.csv"), na.strings = "")
 
-# create df_region as reference
-df_region <- unique(summary[, c("laestab", "school", "same", "neighbouring")])
+uid_treated <- 2939
+
+# Dixon schools
+dix <- groups %>% filter(group_uid == uid_treated)
+
+# get establishment data from treated schools
+list_laestab <- c(dix$laestab)
+
+# create lookup 
+lookup <- data.frame(time_period = sort(unique(swf$time_period)))
+lookup$time_period_str <- insert_slash(lookup$time_period)
+lookup$time_period <- as.numeric(substr(lookup$time_period, 0, 4))
+
 ```
 
 ```{r plot_ts, eval=FALSE, include=F}
