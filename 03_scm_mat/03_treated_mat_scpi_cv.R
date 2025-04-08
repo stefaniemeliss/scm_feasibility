@@ -228,9 +228,6 @@ for (p in 1:length(phases)) {
     stringsAsFactors = FALSE
   )
   
-  # change min.years.obs requirement based on CV filter
-  param_grid$min.years.obs <- ifelse(param_grid$cross.val, param_grid$min.years.obs-length(period.post.cv), param_grid$min.years.obs)
-
   # translate SWF filter #
   
   # Add the actual filter expressions
@@ -275,7 +272,7 @@ for (p in 1:length(phases)) {
   if (run_gridsearch) {
     
     start <- Sys.time()
-    
+
     results <- grid_search_scpi_mat(param_grid = param_grid[, ],
                                     cv = T, sim = T)
     
