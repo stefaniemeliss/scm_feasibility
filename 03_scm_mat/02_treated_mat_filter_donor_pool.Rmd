@@ -369,7 +369,7 @@ names(cols) <- c("Donor MATs", id_group)
 print(ggplot(data = df_long, aes(x = time_period, y = value, col = status, group = group_uid)) +
         geom_line(data = df_long[df_long$status == "Donor MATs", ], aes(col = paste("Donor MATs"))) + 
         geom_line(data = df_long[df_long$status == paste(id_group), ], aes(col = paste(id_group)), linewidth =.8) +
-        geom_point(data = df_long[df_long$status == paste(id_group), ], aes(col = paste(id_group), size = n)) +
+        geom_point(data = df_long[df_long$status == paste(id_group), ], aes(col = paste(id_group), size = 2)) +
         facet_wrap(~ category, ncol = 1, strip.position = "top", scales = "free_y") +
         ambition_theme +
         scale_color_manual(
