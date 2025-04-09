@@ -1468,7 +1468,7 @@ process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("
 }
 
 # Create function to run grid search
-grid_search_scpi_mat <- function(param_grid, cv = FALSE, sim = F) {
+grid_search_scpi_mat <- function(param_grid, sim = F) {
   
   # Define default values for parameters
   default_values <- data.frame(
@@ -1485,6 +1485,8 @@ grid_search_scpi_mat <- function(param_grid, cv = FALSE, sim = F) {
     anticipation = 0, # No anticipation
     constant = FALSE, # No constant term
     filter.phase = "Not applicable",
+    swf.filter = "NULL",
+    cross.val = FALSE,
     stringsAsFactors = FALSE
   )
   
@@ -1666,7 +1668,7 @@ grid_search_scpi_mat <- function(param_grid, cv = FALSE, sim = F) {
     mspe_pre <- mean((gap_pre)^2, na.rm = TRUE)
     mae_pre <- mean(abs(gap_pre), na.rm = TRUE)
     
-    if (cv) {
+    if (params$cross.val) {
       
       # Extract the actual and synthetic control outcomes for all years - POST
       actual_post <- scest.out$data$Y.post
