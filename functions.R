@@ -1223,7 +1223,8 @@ process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("
     unique()
   
   # Make sure that the schools are not boarding schools or grammar schools
-  list_laestab <- est %>% 
+  list_laestab <- est %>%
+    tidyr::replace_na(list(admissionspolicy_name = "unknown", boarders_name = "unknown")) %>% 
     filter(laestab %in% list_laestab) %>%
     filter(admissionspolicy_name != "Selective") %>%
     filter(! grepl("Boarding school", boarders_name)) %>%
