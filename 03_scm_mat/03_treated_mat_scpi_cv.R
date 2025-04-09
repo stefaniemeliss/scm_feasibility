@@ -157,7 +157,7 @@ w.constr.options = list(
 cross.val.options <- c(TRUE, FALSE)
 
 
-
+p = 1 # debug
 for (p in 1:length(phases)) {
   
   phase = phases[p]
@@ -275,7 +275,7 @@ for (p in 1:length(phases)) {
     start <- Sys.time()
 
     results <- grid_search_scpi_mat(param_grid = param_grid[, ],
-                                    cv = T, sim = T)
+                                    sim = T)
     
     print( Sys.time() - start )
     
