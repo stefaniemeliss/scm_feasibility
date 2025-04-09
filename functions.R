@@ -112,6 +112,7 @@ process_data_scm <- function(id_treated = "id_treated",
   # Get donor pool data excluding the treated school
   if(exists("list_laestab_exclude")) {
     est_cont <- est %>%
+      tidyr::replace_na(list(admissionspolicy_name = "unknown", boarders_name = "unknown")) %>% 
       filter(
         !laestab %in% list_laestab_exclude,
         phaseofeducation_name %in% unique(c(est_treated$phaseofeducation_name)),
@@ -124,6 +125,7 @@ process_data_scm <- function(id_treated = "id_treated",
       as.data.frame()
   } else {
     est_cont <- est %>%
+      tidyr::replace_na(list(admissionspolicy_name = "unknown", boarders_name = "unknown")) %>% 
       filter(
         laestab != id_treated,
         phaseofeducation_name %in% unique(c(est_treated$phaseofeducation_name)),
