@@ -1222,6 +1222,14 @@ process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("
     pull(laestab) %>% 
     unique()
   
+  # Make sure that the schools are not boarding schools or grammar schools
+  list_laestab <- est %>% 
+    filter(laestab %in% list_laestab) %>%
+    filter(admissionspolicy_name != "Selective") %>%
+    filter(! grepl("Boarding school", boarders_name)) %>%
+    pull(laestab) %>%
+    unique()
+  
   # ---- Dataset creation ----
   # Filter School Workforce (SWF) data to create outcome dataset with selected variables
   z <- swf %>%
