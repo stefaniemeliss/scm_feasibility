@@ -1758,6 +1758,7 @@ grid_search_scpi_mat <- function(param_grid, sim = F) {
     
     # Create a list to store the results
     result_list <- list(
+      it = ifelse(!is.null(result$params$it), result$params$it, NA),
       outcome.var = ifelse(!is.null(result$params$outcome.var[[1]]), paste(result$params$outcome.var[[1]], collapse = ", "), NA),
       features = ifelse(!is.null(result$params$features[[1]]), paste(result$params$features[[1]], collapse = ", "), NA),
       cov.adj = ifelse(!is.null(result$params$cov.adj[[1]]),

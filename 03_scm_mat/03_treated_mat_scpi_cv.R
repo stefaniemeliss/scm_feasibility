@@ -157,7 +157,6 @@ w.constr.options = list(
 cross.val.options <- c(TRUE, FALSE)
 
 
-p = 1 # debug
 for (p in 1:length(phases)) {
   
   phase = phases[p]
@@ -264,14 +263,81 @@ for (p in 1:length(phases)) {
   param_grid$keep <- NULL
   param_grid$included <- NULL
   
+  # ADD A COLUMN FOR EACH ITERATION #
+  # comb <- param_grid %>%
+  param_grid <- param_grid %>%
+    # only those not impacted by CV (hence not using period.pre)
+    group_by(min.years.obs, min.schools.per.mat, min.schools.per.timeperiod, 
+             swf.filter, exclude.single.phase,
+             features, cov.adj, w.constr
+             ) %>%
+    # check that there are two each (CV == T and CV == F)
+    summarise(n = n()) %>%
+    ungroup() %>%
+    # create column indexing the iteration
+    mutate(it = as.character(1:nrow(.))) %>%
+    # move it to first position
+    relocate(it) %>%
+    # drop n
+    select(-n) %>%
+    # combine with other columns
+    full_join(., param_grid) %>%
+    # make df
+    as.data.frame()
+  
+  # TRANSFORM DATA FOR SAVING #
+  out <- param_grid %>%
+    select(it,
+           min.years.obs, min.schools.per.mat, min.schools.per.timeperiod, 
+           swf.filter, exclude.single.phase,
+           features, cov.adj, w.constr,
+           period.pre, period.post, cross.val, excl.outlier
+    ) %>%
+    as.data.frame()
+  
+  # Create a vector to store the concatenated strings
+  # Ensure the result is unlisted properly
+  # Add the character column to the existing dataframe
+  
+  # period pre
+  list_data <- param_grid$period.pre
+  string <- sapply(list_data, function(x) paste(x[1], x[length(x)], sep = ":"))
+  out$period.pre <- string
+  # period post
+  list_data <- param_grid$period.post
+  string <- sapply(list_data, function(x) paste(x[1], x[length(x)], sep = ":"))
+  out$period.post <- string
+  # swf filter
+  out$swf.filter <- unlist(out$swf.filter)
+  # features
+  list_data <- param_grid$features
+  string <- sapply(list_data, function(x) paste(x, collapse = ", "))
+  string <- unlist(string)
+  out$features <- string
+  # cov.adj
+  list_data <- param_grid$cov.adj
+  string <- sapply(list_data, function(x) paste(x, collapse = ", "))
+  string <- unlist(string)
+  out$cov.adj <- string
+  # weight constraints
+  list_data <- param_grid$w.constr
+  string <- sapply(list_data, function(x) paste(x, collapse = ", "))
+  string <- unlist(string)
+  out$w.constr <- string
+  
   # determine output filename
-  file_name <- file.path(dir, "03_scm_mat", "interim", paste0(file_stem, "_", tolower(phase), "_results.csv"))
+  file_name_grid <- file.path(dir, "03_scm_mat", "interim", paste0(file_stem, "_", tolower(phase), "_grid.csv"))
+  file_name_results <- file.path(dir, "03_scm_mat", "interim", paste0(file_stem, "_", tolower(phase), "_results.csv"))
   file_name_ts <- file.path(dir, "03_scm_mat", "interim", paste0(file_stem, "_", tolower(phase), "_timeseries.csv"))
   
   run_gridsearch <- T
   
   # execute gridsearch
   if (run_gridsearch) {
+    
+    # save grid
+    write.csv(out, file = file_name_grid, row.names = FALSE)
+    
     
     start <- Sys.time()
 
@@ -281,7 +347,7 @@ for (p in 1:length(phases)) {
     print( Sys.time() - start )
     
     # Save results
-    write.csv(results$results, file = file_name, row.names = FALSE)
+    write.csv(results$results, file = file_name_results, row.names = FALSE)
     write.csv(results$timeseries, file = file_name_ts, row.names = FALSE)
     
   } 
