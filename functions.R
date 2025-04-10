@@ -1490,13 +1490,20 @@ grid_search_scpi_mat <- function(param_grid, sim = F) {
     stringsAsFactors = FALSE
   )
   
+  # create empty df - for timeseries export
+  df_empty = data.frame(time_period = numeric(1),
+                        period = character(1),
+                        actual = numeric(1),
+                        synthetic = numeric(1),
+                        gap = numeric(1)
+  )
+  
+  # debug
+  # i = 1
+  # params <- param_grid[i , ]
+  # row.names(params) <- 1
   
   run_scm <- function(df, params) {
-    
-    # debug
-    # params <- param_grid[2158 , ]
-    # params <- param_grid[i , ]
-    # row.names(params) <- 1
     
     # Merge with parameters in grid
     tmp <- default_values[, setdiff(names(default_values), names(params))]
@@ -1534,7 +1541,6 @@ grid_search_scpi_mat <- function(param_grid, sim = F) {
       # Simulate data using the timeseries mean #
       if(max(params$period.post[[1]]) > max(data$df_avg$time_period)){
         
-        
         # Repeat the process for each period and combine the results
         ave_list <- lapply(params$period.post[[1]], function(period) {
           data$df_avg %>%
@@ -1551,7 +1557,6 @@ grid_search_scpi_mat <- function(param_grid, sim = F) {
       }
       
     }
-    
     
     # determine ids of control schools
     id_cont <- unique(tmp$group_uid[tmp$group_uid != uid_treated])
@@ -1599,7 +1604,6 @@ grid_search_scpi_mat <- function(param_grid, sim = F) {
       # add to params
       params$w.constr.str <- w.constr
       
-      
       return(list(status = scdata.out$error,
                   n_pool = NA,
                   n_active = NA, 
@@ -1607,7 +1611,8 @@ grid_search_scpi_mat <- function(param_grid, sim = F) {
                   m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
                   rmspe_pre = NA, mspe_pre = NA, mae_pre = NA, 
                   rmspe_post = NA, mspe_post = NA, mae_post = NA,
-                  params = params))
+                  params = params,
+                  time_series = df_empty))
     } else { 
       n_pool <- length(scdata.out$specs$donors.units)
     }
@@ -1643,7 +1648,8 @@ grid_search_scpi_mat <- function(param_grid, sim = F) {
                   m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
                   rmspe_pre = NA, mspe_pre = NA, mae_pre = NA, 
                   rmspe_post = NA, mspe_post = NA, mae_post = NA,
-                  params = params))
+                  params = params,
+                  time_series = df_empty))
     } else {
       # save info on weight constraints
       w.constr <- scest.out$est.results$w.constr
@@ -1662,25 +1668,33 @@ grid_search_scpi_mat <- function(param_grid, sim = F) {
     actual_pre <- scest.out$data$Y.pre
     synthetic_pre <- scest.out$est.results$Y.pre.fit
     gap_pre <- actual_pre - synthetic_pre # compute gap as difference between both
+    years_pre <- as.numeric(gsub(paste0(params$unit.tr[[1]], "."), "", row.names(scest.out$data$Y.pre)))
     
     # Compute fit - PRE
     rmspe_pre <- sqrt(mean((gap_pre)^2, na.rm = TRUE))
     mspe_pre <- mean((gap_pre)^2, na.rm = TRUE)
     mae_pre <- mean(abs(gap_pre), na.rm = TRUE)
     
+    # Extract the actual and synthetic control outcomes for all years - POST
+    actual_post <- scest.out$data$Y.post
+    synthetic_post <- scest.out$est.results$Y.post.fit
+    gap_post <- actual_post - synthetic_post # compute gap as difference between both... # Compute fit - POST
+    years_post <- as.numeric(gsub(paste0(params$unit.tr[[1]], "."), "", row.names(scest.out$data$Y.post)))
+    
+    # Store time series data
+    df_ts <- data.frame(
+      time_period = c(years_pre, years_post),
+      period = c(rep("pre", length(years_pre)), rep("post", length(years_post))),
+      actual = c(actual_pre, actual_post),
+      synthetic = c(synthetic_pre, synthetic_post),
+      gap = c(gap_pre, gap_post)
+    )
+    
     if (params$cross.val) {
       
-      # Extract the actual and synthetic control outcomes for all years - POST
-      actual_post <- scest.out$data$Y.post
-      synthetic_post <- scest.out$est.results$Y.post.fit
-      gap_post <- actual_post - synthetic_post # compute gap as difference between both
-      
-      # Compute fit - POST
       rmspe_post <- sqrt(mean((gap_post)^2, na.rm = TRUE))
       mspe_post <- mean((gap_post)^2, na.rm = TRUE)
       mae_post <- mean(abs(gap_post), na.rm = TRUE)
-      
-      rm(actual_post, synthetic_post, gap_post)
       
     } else {
       
@@ -1691,7 +1705,6 @@ grid_search_scpi_mat <- function(param_grid, sim = F) {
       
     }
     
-    
     # compute performance parameters
     sd_treated <- sd(actual_pre, na.rm = TRUE)
     m_gap <- mean(gap_pre, na.rm = TRUE)
@@ -1700,8 +1713,6 @@ grid_search_scpi_mat <- function(param_grid, sim = F) {
     max_gap <- max(gap_pre, na.rm = TRUE)
     cor <- cor(actual_pre, synthetic_pre)[1]
     
-    rm(actual_pre, synthetic_pre, gap_pre)
-    
     return(list(status = "scest() completed",
                 n_pool = n_pool,
                 n_active = n_active, 
@@ -1709,13 +1720,14 @@ grid_search_scpi_mat <- function(param_grid, sim = F) {
                 m_gap = m_gap, sd_gap = sd_gap, min_gap = min_gap, max_gap = max_gap, cor = cor,
                 rmspe_pre = rmspe_pre, mspe_pre = mspe_pre, mae_pre = mae_pre, 
                 rmspe_post = rmspe_post, mspe_post = mspe_post, mae_post = mae_post, 
-                params = params))
+                params = params,
+                time_series = df_ts))
     
   }
   
   # Perform grid search without parallel processing
   
-  results <- do.call(rbind, lapply(1:nrow(param_grid), function(i) {
+  results <- lapply(1:nrow(param_grid), function(i) {
     message(i)
     params <- param_grid[i, ]
     row.names(params) <- 1
@@ -1734,9 +1746,9 @@ grid_search_scpi_mat <- function(param_grid, sim = F) {
                   sd_treated = NA, 
                   m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
                   rmspe_pre = NA, mspe_pre = NA, mae_pre = NA,
-                  rmspe_post = NA, mspe_post = NA, mae_post = NA,
-                  params = params))
-      
+                  rmspe_post = NA, mspe_post = NA, mae_post = NA, 
+                  params = params,
+                  time_series = df_empty))
     }
     
     # Create a list to store the results
@@ -1788,10 +1800,32 @@ grid_search_scpi_mat <- function(param_grid, sim = F) {
     )
     
     # Convert the list to a data frame
-    result_df <- as.data.frame(result_list, stringsAsFactors = FALSE)
+    df_result <- as.data.frame(result_list, stringsAsFactors = FALSE)
     
-    return(result_df)
-  }))
+    # Add run ID to both data frames for identification
+    df_result$run_id <- i
+    
+    # Assuming df_ts is created in the run_scm function or exists beforehand
+    # Add the run_id to df_ts as well
+    if (exists("df_ts")) {
+      df_ts$run_id <- i
+    } else {
+      # If df_ts doesn't exist, create a placeholder
+      df_empty$run_id <- i
+    }
+    
+    return(list(results = df_result, timeseries = df_ts))
+  })
+  
+  # Extract and combine all results into two separate data frames
+  all_results <- do.call(rbind, lapply(results, function(x) x$results))
+  all_timeseries <- do.call(rbind, lapply(results, function(x) x$timeseries))
+  
+  # Final output structure
+  results <- list(
+    results = all_results,
+    timeseries = all_timeseries
+  )
   
   return(results)
 }

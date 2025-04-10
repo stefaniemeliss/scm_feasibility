@@ -381,7 +381,7 @@ cat("\n\n")
 #### process data grid search ####
 
 # declare file name
-file_name <- file.path(getwd(), "interim", paste0("03_treated_mat_scpi_cv_", tolower(phase), ".csv"))
+file_name <- file.path(getwd(), "interim", paste0("03_treated_mat_scpi_cv_", tolower(phase), "_results.csv"))
 
 # read in results
 results <- read.csv(file_name)

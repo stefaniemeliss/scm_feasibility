@@ -265,7 +265,8 @@ for (p in 1:length(phases)) {
   param_grid$included <- NULL
   
   # determine output filename
-  file_name <- file.path(dir, "03_scm_mat", "interim", paste0(file_stem, "_", tolower(phase), ".csv"))
+  file_name <- file.path(dir, "03_scm_mat", "interim", paste0(file_stem, "_", tolower(phase), "_results.csv"))
+  file_name_ts <- file.path(dir, "03_scm_mat", "interim", paste0(file_stem, "_", tolower(phase), "_timeseries.csv"))
   
   run_gridsearch <- T
   
@@ -280,7 +281,8 @@ for (p in 1:length(phases)) {
     print( Sys.time() - start )
     
     # Save results
-    write.csv(results, file = file_name, row.names = FALSE)
+    write.csv(results$results, file = file_name, row.names = FALSE)
+    write.csv(results$timeseries, file = file_name_ts, row.names = FALSE)
     
   } 
 }
