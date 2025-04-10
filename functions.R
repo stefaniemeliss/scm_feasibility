@@ -1537,15 +1537,20 @@ grid_search_scpi_mat <- function(param_grid, sim = F) {
     #if (params$exclude.northwest) tmp <- tmp[! (tmp$multiple_gor == F & tmp$gor_north_west == T), ]
     
     if(sim){
-      
       # Simulate data using the timeseries mean #
       if(max(params$period.post[[1]]) > max(data$df_avg$time_period)){
-        
+
         # Repeat the process for each period and combine the results
         ave_list <- lapply(params$period.post[[1]], function(period) {
+          
+          # determine which columns to do this for
+          if (params$outcome.var %in% params$features[[1]]) {
+            cols_to_compute <- params$features[[1]]
+          } else { cols_to_compute <- c(params$features[[1]], params$outcome.var) }
+          
           data$df_avg %>%
             group_by(group_uid) %>%
-            summarise(across(all_of(params$features[[1]]), mean, .names = "{.col}")) %>%
+            summarise(across(all_of(cols_to_compute), mean, .names = "{.col}")) %>%
             mutate(time_period = period)
         })
         
@@ -1554,6 +1559,7 @@ grid_search_scpi_mat <- function(param_grid, sim = F) {
         
         # Combine the result
         data$df_avg <- bind_rows(data$df_avg, ave)
+        
       }
       
     }
@@ -1726,7 +1732,6 @@ grid_search_scpi_mat <- function(param_grid, sim = F) {
   }
   
   # Perform grid search without parallel processing
-  
   results <- lapply(1:nrow(param_grid), function(i) {
     message(i)
     params <- param_grid[i, ]
@@ -1802,18 +1807,12 @@ grid_search_scpi_mat <- function(param_grid, sim = F) {
     # Convert the list to a data frame
     df_result <- as.data.frame(result_list, stringsAsFactors = FALSE)
     
-    # Add run ID to both data frames for identification
+    # Add run ID to data frame for identification
     df_result$run_id <- i
     
-    # Assuming df_ts is created in the run_scm function or exists beforehand
-    # Add the run_id to df_ts as well
-    if (exists("df_ts")) {
-      df_ts$run_id <- i
-    } else {
-      # If df_ts doesn't exist, create a placeholder
-      df_empty$run_id <- i
-    }
-    
+    # Combine results and timeseries
+    df_ts <- merge(df_result, result$time_series) # this is either df_ts or df_empty
+
     return(list(results = df_result, timeseries = df_ts))
   })
   
