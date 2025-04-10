@@ -1,5 +1,5 @@
 ---
-title: "Results of cross-validated gridsearch with *scpi* package"
+title: " Detailed results of cross-validated gridsearch with *scpi* package"
 author: "Stefanie Meliss"
 date: "`r Sys.Date()`"
 output:
