@@ -984,7 +984,7 @@ summarise_scest <- function(object, id_treated, id_name, cv = F) {
     w.size  <- round(object$est.results$w.constr[["Q"]], 3)
   }
   cat("\n\n")
-  cat(paste0("#### Synthetic Control Prediction - Setup \n"))
+  cat(paste0("###### Synthetic Control Prediction - Setup \n"))
   cat("\n\n")
   
   cat(paste("Constraint Type:                           ", w.cons, "\n\n"))
@@ -1021,7 +1021,7 @@ summarise_scest <- function(object, id_treated, id_name, cv = F) {
   active.w  <- sum(abs(Weights) > 0)
   
   cat("\n\n")
-  cat("#### Synthetic Control Prediction - Results \n")
+  cat("###### Synthetic Control Prediction - Results \n")
   cat("\n\n")
   cat(paste("Active donors:", active.w,"\n\n"))
   cat("\n\n")
@@ -1035,7 +1035,7 @@ summarise_scest <- function(object, id_treated, id_name, cv = F) {
   
   
   cat("\n\n")
-  cat("#### Synthetic Control Prediction - Fit \n")
+  cat("###### Synthetic Control Prediction - Fit \n")
   cat("\n\n")
   
   # Extract the actual and synthetic control outcomes for all years - PRE
@@ -1155,7 +1155,7 @@ summarise_scest <- function(object, id_treated, id_name, cv = F) {
   
   # calculate correlation 
   cat("\n\n")
-  cat(paste("\n##### Intercorrelation matrix (entries above the diagonal adjusted for multiple tests) \n"))
+  cat(paste("\n###### Intercorrelation matrix (entries above the diagonal adjusted for multiple tests) \n"))
   tmp <- psych::corr.test(data.frame(actual = actual, synthetic = synthetic, gap = gap))
   corrplot::corrplot(tmp$r,
                      p.mat = tmp$p,
