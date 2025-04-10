@@ -134,6 +134,14 @@ lookup <- data.frame(time_period = sort(unique(swf$time_period)))
 lookup$time_period_str <- insert_slash(lookup$time_period)
 lookup$time_period <- as.numeric(substr(lookup$time_period, 0, 4))
 
+
+# Create the data frame
+lookup <- data.frame(time_period = c(2010:2026), 
+                     time_period_str = c("2010/11", "2011/12", "2012/13", "2013/14", "2014/15", "2015/16", 
+                     "2016/17", "2017/18", "2018/19", "2019/20", "2020/21", "2021/22", 
+                     "2022/23", "2023/24", "2024/25", "2025/26", "2026/27"))
+
+
 ```
 
 
@@ -283,7 +291,6 @@ cat("</details>\n\n")
 ```
 
 
-
 ```{r proc grid ts, eval=FALSE, echo=F}
 #### check timeseries effects ####
 
@@ -365,6 +372,7 @@ print(plt)
 cat("\n\n")
 ```
 
+
 ```{r proc grid donor, eval=FALSE, echo=F}
 file_name <- file.path(getwd(), "interim", paste0(file_stem, "_", tolower(phase), ".csv"))
 
@@ -373,7 +381,7 @@ if (run_gridsearch) {
   # - create param_grid - #
   
   # read in data
-  param_grid <- read.csv(file.path(getwd(), "interim", paste0("03_treated_mat_scpi_cv_", tolower(phase), ".csv")))
+  param_grid <- read.csv(file.path(getwd(), "interim", paste0("03_treated_mat_scpi_cv_", tolower(phase), "_results.csv")))
   
   # add min and max year
   param_grid$min_year <- sapply(param_grid$period.pre, function(x) extract_min_max_years(x)[1])
@@ -489,7 +497,6 @@ if (phase == "mixed") {
 
 ```
 
-
 ```{r plot grid donor, eval=FALSE, echo=F}
 cat("### Effects on the donor pool\n\n")
 
@@ -553,7 +560,7 @@ for(phase_filter in unique(df_long$phase)){
 #### process data grid search ####
 
 # declare file name
-file_name <- file.path(getwd(), "interim", paste0("03_treated_mat_scpi_cv_", tolower(phase), ".csv"))
+file_name <- file.path(getwd(), "interim", paste0("03_treated_mat_scpi_cv_", tolower(phase), "_results.csv"))
 
 # read in results
 results <- read.csv(file_name)
@@ -640,7 +647,7 @@ results_fit <- results_fit %>%
            region, phase, excl.out, 
            swf.filter, period.pre, period.post, min_year, max_year, 
            feat_dv, adj, method, 
-           n_pool, sd_treated, rmspe_pre, rmspe_post, status, error))
+           n_pool, n_active, sd_treated, rmspe_pre, rmspe_post, status, error))
 
 # identify promising combinations
 results_fit <- results_fit %>%
@@ -725,7 +732,7 @@ plt <- ggplot(data = df_plot,
   geom_point(aes(colour = method), size = 1) +
   geom_line(aes(colour = method)) +
   geom_label(data = df_plot[df_plot$data == "all", ], 
-             aes(x = 2, y = 5.5, label = as.character(n_pool), fill = check), hjust = 0.5, vjust = 0.5, show.legend = F) +
+             aes(x = 2, y = 5.5, label = paste(n_pool, "/", n_active), fill = check), hjust = 0.5, vjust = 0.5, show.legend = F) +
   scale_x_continuous(
     breaks = unique(df_plot$data_numeric),
     labels = unique(df_plot$data)
@@ -738,7 +745,6 @@ plt <- ggplot(data = df_plot,
         legend.text = element_text(size = 10),
         axis.title = element_text(size = 10),
         axis.text = element_text(size = 10),
-        #axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
         plot.caption = element_text(size = 10),
         legend.margin=margin(t = -8)) +
   ylab("Root Mean Squared Prediction Error (RMSPE)") +
@@ -754,9 +760,221 @@ cat("\n\n")
 ```
 
 
+```{r proc grid gap, eval=FALSE, echo=F}
+# declare file name
+file_name <- file.path(getwd(), "interim", paste0("03_treated_mat_scpi_cv_", tolower(phase), "_timeseries.csv"))
+
+# read in results
+results <- read.csv(file_name)
+
+# PROCESS RESULTS #
+results_gap <- results
+
+
+# create new vars for facets #
+# How was the average timeseries obtained?
+results_gap$min.years.obs <- paste0(results_gap$min.years.obs, "Y")
+results_gap$min.years.obs <- factor(results_gap$min.years.obs)
+results_gap$min.schools.per.timeperiod <- paste0(results_gap$min.schools.per.timeperiod, "S/Y")
+results_gap$min.schools.per.timeperiod <- factor(results_gap$min.schools.per.timeperiod)
+results_gap$min.schools.per.mat <- paste0(results_gap$min.schools.per.mat, "S")
+results_gap$min.schools.per.mat <- factor(results_gap$min.schools.per.mat)
+
+
+# were any MATs excluded?
+if (phase == "mixed") {
+  results_gap$phase <- ifelse(results_gap$exclude.single.phase, "excl. single phase", "incl. single phase")
+  results_gap$phase <- factor(results_gap$phase)
+} else {
+  results_gap$phase <- "same phase"
+  results_gap$phase <- factor(results_gap$phase)
+}
+
+# did we remove outliers
+results_gap$excl.out <- ifelse(results_gap$excl.outlier, "excl. out", "incl. out")
+
+# donor pool filtering options # 
+
+# which region was used for filtering
+results_gap$region <- ifelse(grepl("North West", results_gap$regions), "YS&H + NW", "YS&H")
+results_gap$region <- factor(results_gap$region)
+# were any MATs excluded?
+if (phase == "mixed") {
+  results_gap$phase <- ifelse(results_gap$exclude.single.phase, "excl. single phase", "incl. single phase")
+  results_gap$phase <- factor(results_gap$phase)
+} else {
+  results_gap$phase <- "same phase"
+  results_gap$phase <- factor(results_gap$phase)
+}
+
+# SCM setup options in scpi #
+
+# is DV in features?
+results_gap$feat_dv <- ifelse(grepl("ratio", results_gap$features), "incl. DV", "excl. DV")
+results_gap$feat_dv <- factor(results_gap$feat_dv)
+
+# covariate adjustment
+results_gap$adj <- ifelse(is.na(results_gap$cov.adj), "none", results_gap$cov.adj)
+results_gap$adj <- factor(results_gap$adj, levels = c("none", "constant", "trend", "constant, trend"),
+                          labels = c("none", "Constant", "Trend", "C + T"))
+
+# which years were used in training
+results_gap$min_year <- sapply(results_gap$period.pre, function(x) extract_min_max_years(x)[1])
+results_gap$max_year <- sapply(results_gap$period.pre, function(x) extract_min_max_years(x)[2])
+# results_gap$period.pre <- paste0(results_gap$min_year, ":", results_gap$max_year)
+# results_gap$period.pre <- factor(results_gap$period.pre)
+
+# which constraints were applied to the weights
+results_gap$method <- tstrsplit(results_gap$w.constr, "; ")[[1]]
+results_gap$method <- gsub("name = ", "", results_gap$method)
+results_gap$method <- factor(results_gap$method, levels = c("simplex", "L1-L2", "lasso", "user provided"))
+
+# create a bool capturing if there was an error
+results_gap$error <- grepl("Error", results_gap$status)
+
+
+# create a grid with all combinations of variables evaluated
+comb <- results_gap %>%
+  # select parameter settings
+  select(-c(status, error, n_pool, n_active, sd_treated, m_gap, sd_gap, min_gap, max_gap, cor, 
+            rmspe_pre, mspe_pre, mae_pre, rmspe_post, mspe_post, mae_post, 
+            run_id, time_period, period, actual, synthetic, gap)) %>%
+  # remove duplicates
+  filter(!duplicated(.)) %>%
+  # only those not impacted by CV (hence not using period.pre)
+  group_by(feat_dv, adj, region, phase, min_year, method, min.schools.per.timeperiod, min.schools.per.mat, min.years.obs) %>%
+  # check that there are two each (CV == T and CV == F)
+  summarise(n = n()) %>%
+  ungroup() %>%
+  # create column indexing the iteration
+  mutate(it = as.character(1:nrow(.)))
+
+# finalise dataset
+results_gap <- results_gap %>%
+  full_join(comb, .) %>%
+  # select columns
+  select(c(it, cross.val, 
+           min.schools.per.timeperiod, min.schools.per.mat, min.years.obs, 
+           region, phase, excl.out, 
+           swf.filter, period.pre, period.post, min_year, max_year, 
+           feat_dv, adj, method, 
+           n_pool, n_active, sd_treated, rmspe_pre, rmspe_post, 
+           run_id, time_period, period, actual, synthetic, gap,
+           status, error)) %>%
+# remove all error runs
+  filter(!error) %>%
+  as.data.frame()
+
+# identify promising combinations
+results_gap <- results_gap %>%
+  # create one col per rmspe
+  mutate(
+    sd_all = sd_treated[cross.val == F & time_period == 2014],
+    rmspe_all = rmspe_pre[cross.val == F & time_period == 2014], 
+    rmspe_T = rmspe_pre[cross.val == T & time_period == 2014], 
+    rmspe_V = rmspe_post[cross.val == T & time_period == 2014],
+    .by = it
+  ) %>%
+  # compute ratios #
+  # if ratio is below 1: worse fit in training than in validation data
+  # if ratio is above 1: worse fit in training than in validation data
+  # if ratio is equal to 1: equal fit in training and validation data
+  mutate(ratio = rmspe_V / rmspe_T) %>%
+  # run checks
+  mutate(
+    # compare all rmspe against pretreatment SD
+    rmspe_below_sd = rmspe_all < sd_all & rmspe_T < sd_all & rmspe_V < sd_all,
+    # compare ratio against limits
+    ratio_within_limits = between(ratio, .8, 1.2),
+    # bookmark good parameter combinations
+    promising = as.logical(rmspe_below_sd * ratio_within_limits))
+
+
+# focus on SCM estimations
+results_gap <- results_gap[results_gap$method == "simplex", ]
+
+```
+
+```{r plot grid gap, eval=FALSE, echo=F}
+
+#### plot data grid search ####
+
+cat("### Effects on the synthetic timeseries \n\n")
+
+cols <- c(red, blue, black)
+names(cols) <- c("Synthetic MAT CV", "Synthetic MAT", id_group)
+
+
+xintercept1 = eval(parse(text = years))[length(eval(parse(text = years)))-2]+0.5
+xintercept2 = eval(parse(text = years))[length(eval(parse(text = years)))]+0.5
+x_mid = eval(parse(text = years))[(length(eval(parse(text = years)))+3)/2]
+
+for(phase_filter in unique(df_plot$phase)){
+  
+  tmp <- df_plot[df_plot$phase == phase_filter,]
+
+plt <- ggplot() +
+  geom_vline(xintercept = xintercept1, linetype = "dotted") +
+  geom_vline(xintercept = xintercept2, linetype = "dotted") +
+  geom_label(data = tmp[tmp$cross.val == F, ],
+             aes(x = x_mid, y = 25.5, label = paste(n_pool, "/", n_active), fill = check), hjust = 0.5, vjust = 0.5, show.legend = F) +
+  geom_line(data = tmp[tmp$cross.val == T, ], aes(x = time_period, y = synthetic, col = "Synthetic MAT CV")) +
+  geom_line(data = tmp[tmp$cross.val == F, ], aes(x = time_period, y = synthetic, col = "Synthetic MAT")) +
+  geom_line(data = tmp, aes(x = time_period, y = actual, col = paste(id_group))) +
+  ggh4x::facet_grid2(cols = vars(phase, min.schools.per.timeperiod, min.schools.per.mat), rows = vars(feat_dv, adj), strip = ggh4x::strip_nested()) +
+  ambition_theme +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.title = element_blank(),
+        strip.text = element_text(size = 10),
+        legend.text = element_text(size = 10),
+        axis.title = element_text(size = 10),
+        axis.text = element_text(size = 10),
+        plot.caption = element_text(size = 10),
+        legend.margin=margin(t = -8)) +
+  coord_cartesian(ylim = c(12, 26)) +
+  ylab("Ratio of pupils to qualified teachers") + xlab("Academic year") +
+  scale_x_continuous(breaks = lookup$time_period[seq(1, length(lookup$time_period), 2)], labels = lookup$time_period_str[seq(1, length(lookup$time_period_str), 2)]) +
+  scale_color_manual(breaks = c(id_group, "Synthetic MAT CV", "Synthetic MAT"), values = cols) +
+  scale_fill_manual(values= c("TRUE" = navy40, "FALSE" = white))
+suppressWarnings(print(plt))
+  
+  
+plt <- ggplot() +
+  geom_vline(xintercept = xintercept1, linetype = "dotted") +
+  geom_vline(xintercept = xintercept2, linetype = "dotted") +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_label(data = tmp[tmp$cross.val == F, ],
+             aes(x = x_mid, y = 4.5, label = paste(n_pool, "/", n_active), fill = check), hjust = 0.5, vjust = 0.5, show.legend = F) +
+  geom_line(data = tmp[tmp$cross.val == T, ], aes(x = time_period, y = gap, col = "Synthetic MAT CV")) +
+  geom_line(data = tmp[tmp$cross.val == F, ], aes(x = time_period, y = gap, col = "Synthetic MAT")) +
+  ggh4x::facet_grid2(cols = vars(phase, min.schools.per.timeperiod, min.schools.per.mat), rows = vars(feat_dv, adj), strip = ggh4x::strip_nested()) +
+  ambition_theme +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.title = element_blank(),
+        strip.text = element_text(size = 10),
+        legend.text = element_text(size = 10),
+        axis.title = element_text(size = 10),
+        axis.text = element_text(size = 10),
+        plot.caption = element_text(size = 10),
+        legend.margin=margin(t = -8)) +
+  coord_cartesian(ylim = c(-5, 5)) +
+  ylab("Gap in ratio of pupils to qualified teachers") + xlab("Academic year") +
+  scale_x_continuous(breaks = lookup$time_period[seq(1, length(lookup$time_period), 2)], labels = lookup$time_period_str[seq(1, length(lookup$time_period_str), 2)]) +
+  scale_color_manual(breaks = c(id_group, "Synthetic MAT CV", "Synthetic MAT"), values = cols) +
+  scale_fill_manual(values= c("TRUE" = navy40, "FALSE" = white))
+suppressWarnings(print(plt))
+  
+  
+}
+
+
+```
+
+
 ```{r, echo=F, message=FALSE, results='asis', fig.align='center', fig.height=10, fig.width=13, out.width='100%', out.height='100%'}
 # define phases to loop through
 phases <- c("mixed", "Secondary", "Primary")
+phases <- c("mixed")
 
 headings <- c("Whole MAT", "Secondary schools only", "Primary schools only")
 p = 1 # debug
@@ -772,18 +990,23 @@ for (p in 1:length(phases)) {
     # process fit grid data
 <<proc grid fit>>
     
+    # process gap grid data
+<<proc grid gap>>
+    
     # define different filter option for each phase #
     
     if (phase == "mixed") {
       swf_filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)"
       filter_phase = c("Not applicable", "16 plus")
       results_fit$check <- ifelse(results_fit$min_year == 2014, results_fit$rmspe_below_sd, results_fit$promising)
+      results_gap$check <- ifelse(results_gap$min_year == 2014, results_gap$rmspe_below_sd, results_gap$promising)
       tmp_long$check <- ifelse(tmp_long$min_year == 2014, tmp_long$rmspe_below_sd, tmp_long$promising)
       nrow_legend = 2
     } else if (phase == "Secondary") {
       swf_filter = "! time_period %in% c(201011, 201112, 201213, 201314)"
       filter_phase = unique(groups$phaseofeducation_name)[!grepl("econdary", unique(groups$phaseofeducation_name))]
       results_fit$check <- results_fit$promising
+      results_gap$check <- results_gap$promising
       tmp_long$check <- tmp_long$promising
       nrow_legend = 2
     } else if (phase == "Primary") {
@@ -828,7 +1051,7 @@ for (p in 1:length(phases)) {
     
     # subset fit data for plotting
     year <- unlist(strsplit(years, ":"))[1]
-    df_plot <- tmp_long %>%
+    df_plot <- tmp_long %>% # derivative of results_fit
       filter(min_year == as.numeric(year) & !error)
     
     if (nrow(df_plot) > 0) {# if there is fit data for that year
@@ -842,6 +1065,11 @@ for (p in 1:length(phases)) {
         
         # plot the rmspe
 <<plot grid fit>>
+
+# plot the timeseries of treated and synthetic unit
+df_plot <- results_gap %>%
+      filter(min_year == as.numeric(year) & !error)
+<<plot grid gap>>
         
         # show promising combinations
         results_fit %>%
@@ -853,7 +1081,7 @@ for (p in 1:length(phases)) {
                  !error & 
                  !cross.val) %>%
         select(c(feat_dv, adj, phase, min.schools.per.timeperiod, min.schools.per.mat,
-                 n_pool, rmspe_all, rmspe_T, rmspe_V, ratio)) %>%
+                 n_pool, n_active, rmspe_all, rmspe_T, rmspe_V, ratio)) %>%
         arrange(feat_dv, adj, phase, min.schools.per.timeperiod, min.schools.per.mat) %>%
         rename("S/Y" = min.schools.per.timeperiod, "S/M" = min.schools.per.mat) %>%
         # print #
