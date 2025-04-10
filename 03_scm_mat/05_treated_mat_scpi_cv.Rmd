@@ -660,7 +660,7 @@ results_fit <- results_fit %>%
   # run checks
   mutate(
     # compare all rmspe against pretreatment SD
-    rmspe_below_sd = rmspe_all < sd_all & rmspe_pre < sd_all & rmspe_post < sd_all,
+    rmspe_below_sd = rmspe_all < sd_all & rmspe_T < sd_all & rmspe_V < sd_all,
     # compare ratio against limits
     ratio_within_limits = between(ratio, .8, 1.2),
     # bookmark good parameter combinations
