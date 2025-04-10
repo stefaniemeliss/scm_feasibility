@@ -725,7 +725,7 @@ plt <- ggplot(data = df_plot,
   geom_point(aes(colour = method), size = 1) +
   geom_line(aes(colour = method)) +
   geom_label(data = df_plot[df_plot$data == "all", ], 
-             aes(x = 2, y = 5.5, label = as.character(n_pool), fill = promising), hjust = 0.5, vjust = 0.5, show.legend = F) +
+             aes(x = 2, y = 5.5, label = as.character(n_pool), fill = check), hjust = 0.5, vjust = 0.5, show.legend = F) +
   scale_x_continuous(
     breaks = unique(df_plot$data_numeric),
     labels = unique(df_plot$data)
@@ -764,104 +764,109 @@ for (p in 1:length(phases)) {
   
   phase = phases[p]
   
-  # define different filter option for each phase #
+  cat("# ", headings[p], "\n\n")
   
-  if (phase == "mixed") {
-    swf_filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)"
-    filter_phase = c("Not applicable", "16 plus")
-    nrow_legend = 2
-  } else if (phase == "Secondary") {
-    swf_filter = "! time_period %in% c(201011, 201112, 201213, 201314)"
-    filter_phase = unique(groups$phaseofeducation_name)[!grepl("econdary", unique(groups$phaseofeducation_name))]
-    nrow_legend = 2
-  } else if (phase == "Primary") {
-    swf_filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112, 201213, 201314, 201415)"
-    filter_phase = unique(groups$phaseofeducation_name)[!grepl("imary", unique(groups$phaseofeducation_name))]
-    nrow_legend = 1
-  }
+  # process timeseries grid data
+<<proc grid ts>>
+    
+    # process fit grid data
+<<proc grid fit>>
+    
+    # define different filter option for each phase #
+    
+    if (phase == "mixed") {
+      swf_filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)"
+      filter_phase = c("Not applicable", "16 plus")
+      results_fit$check <- ifelse(results_fit$min_year == 2014, results_fit$rmspe_below_sd, results_fit$promising)
+      tmp_long$check <- ifelse(tmp_long$min_year == 2014, tmp_long$rmspe_below_sd, tmp_long$promising)
+      nrow_legend = 2
+    } else if (phase == "Secondary") {
+      swf_filter = "! time_period %in% c(201011, 201112, 201213, 201314)"
+      filter_phase = unique(groups$phaseofeducation_name)[!grepl("econdary", unique(groups$phaseofeducation_name))]
+      results_fit$check <- results_fit$promising
+      tmp_long$check <- tmp_long$promising
+      nrow_legend = 2
+    } else if (phase == "Primary") {
+      swf_filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112, 201213, 201314, 201415)"
+      filter_phase = unique(groups$phaseofeducation_name)[!grepl("imary", unique(groups$phaseofeducation_name))]
+      results_fit$check <- results_fit$promising
+      tmp_long$check <- tmp_long$promising
+      nrow_legend = 1
+    }
+  
   
   # Define target regions for filtering the donor pool
   regions <- c("Yorkshire and the Humber", "North West")
   
-  
-  cat("# ", headings[p], "\n\n")
-  
-  # process timeseries grid data
-  <<proc grid ts>>
+  # loop through years available
+  for (y in 1:length(unique(results_ts$period.pre))) {
     
-    # process fit grid data
-    <<proc grid fit>>
+    years <- unique(as.character(results_ts$period.pre))[y]
     
+    cat("## Pre-treatment timeseries", years, "\n\n")
     
-    # loop through years available
-    for (y in 1:length(unique(results_ts$period.pre))) {
+    # subset ts data for plotting
+    df_plot <- results_ts %>%
+      filter(period.pre == years)
+    
+    # plot ts grid
+    if (nrow(df_plot) > 0) {
       
-      years <- unique(as.character(results_ts$period.pre))[y]
+      # process data at MAT level
+      process_data_scm_mat(uid_treated = uid_treated, target_regions = regions, filter_phase = filter_phase,
+                           swf_filter = unique(df_plot$swf.filter), min_years_obs = 8)
       
-      cat("## Pre-treatment timeseries", years, "\n\n")
+      # Plot timeseries
+<<plot_ts>>
+        
+        cat("<details><summary> Timeseries is unaffected by processing choices </summary>\n\n")
+<<plot grid ts>>
+        cat("</details>\n\n")
       
-      # subset ts data for plotting
-      df_plot <- results_ts %>%
-        filter(period.pre == years)
-      
-      # plot ts grid
-      if (nrow(df_plot) > 0) {
-        
-        # process data at MAT level
-        process_data_scm_mat(uid_treated = uid_treated, target_regions = regions, filter_phase = filter_phase,
-                             swf_filter = unique(df_plot$swf.filter), min_years_obs = 8)
-        
-        # Plot timeseries
-        <<plot_ts>>
-          
-          cat("<details><summary> Timeseries is unaffected by processing choices </summary>\n\n")
-        <<plot grid ts>>
-          cat("</details>\n\n")
-        
-        
-      }
-      
-      # subset fit data for plotting
-      year <- unlist(strsplit(years, ":"))[1]
-      df_plot <- tmp_long %>%
-        filter(min_year == as.numeric(year) & !error)
-      
-      if (nrow(df_plot) > 0) {# if there is fit data for that year
-        
-        # process and plot donor pool timeseries
-        run_gridsearch <- T
-        
-        <<proc grid donor>>
-          
-          <<plot grid donor>>
-          
-          # plot the rmspe
-          <<plot grid fit>>
-          
-          # show promising combinations
-          results_fit %>%
-            # filter by sd: all rmspe below sd
-            filter(promising) %>%
-            # prepare for printing
-            filter(min_year == as.numeric(year) & 
-                     method == "simplex" &
-                     !error & 
-                     !cross.val) %>%
-          select(c(feat_dv, adj, phase, min.schools.per.timeperiod, min.schools.per.mat,
-                   n_pool, rmspe_all, rmspe_T, rmspe_V, ratio)) %>%
-          arrange(feat_dv, adj, phase, min.schools.per.timeperiod, min.schools.per.mat) %>%
-          rename("S/Y" = min.schools.per.timeperiod, "S/M" = min.schools.per.mat) %>%
-          # print #
-          kbl(row.names = F, digits = 3) %>%
-          kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
-          footnote(paste0("Parameter combinations are shown if all RMSPE were below the SD of the pre-treatment period and if the ratio between post to pre RMSPE was between 0.8 and 1.2. The pre-treatment period has an SD = ", round(unique(na.exclude(results_fit$sd_treated[results_fit$min_year == year & !results_fit$cross.val])), 3), ".")) %>%
-          print()
-        cat("\n\n")
-      }
       
     }
+    
+    # subset fit data for plotting
+    year <- unlist(strsplit(years, ":"))[1]
+    df_plot <- tmp_long %>%
+      filter(min_year == as.numeric(year) & !error)
+    
+    if (nrow(df_plot) > 0) {# if there is fit data for that year
+      
+      # process and plot donor pool timeseries
+      run_gridsearch <- T
+      
+<<proc grid donor>>
+        
+<<plot grid donor>>
+        
+        # plot the rmspe
+<<plot grid fit>>
+        
+        # show promising combinations
+        results_fit %>%
+        # filter by sd: all rmspe below sd
+        filter(check) %>%
+        # prepare for printing
+        filter(min_year == as.numeric(year) & 
+                 method == "simplex" &
+                 !error & 
+                 !cross.val) %>%
+        select(c(feat_dv, adj, phase, min.schools.per.timeperiod, min.schools.per.mat,
+                 n_pool, rmspe_all, rmspe_T, rmspe_V, ratio)) %>%
+        arrange(feat_dv, adj, phase, min.schools.per.timeperiod, min.schools.per.mat) %>%
+        rename("S/Y" = min.schools.per.timeperiod, "S/M" = min.schools.per.mat) %>%
+        # print #
+        kbl(row.names = F, digits = 3) %>%
+        kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
+        footnote(paste0("Parameter combinations are shown if all RMSPE were below the SD of the pre-treatment period and if the ratio between post to pre RMSPE was between 0.8 and 1.2 (unless the time period starts in 2014/15). The pre-treatment period has an SD = ", round(unique(na.exclude(results_fit$sd_treated[results_fit$min_year == year & !results_fit$cross.val])), 3), ".")) %>%
+        print()
+      cat("\n\n")
+    }
+    
+  }
   
 }
-  
+
 ```
-  
+
