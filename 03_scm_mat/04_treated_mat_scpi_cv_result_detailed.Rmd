@@ -36,6 +36,9 @@ options(scipen = 999)
 rm(list = ls())
 gc()
 
+# Set seed
+set.seed(202324)
+
 # load libraries
 library(kableExtra)
 library(dplyr)
@@ -913,9 +916,35 @@ plt <- ggplot() +
   scale_fill_manual(values= c("TRUE" = navy40, "FALSE" = white))
 suppressWarnings(print(plt))
   
-  
-}
 
+
+# show promising combinations
+tmpp <- tmp %>%
+  # filter by sd: all rmspe below sd
+  #filter(check) %>%
+  # prepare for printing
+  filter(min_year == as.numeric(year) & 
+           time_period == 2015 &
+           method == "simplex" &
+           !error & 
+           !cross.val) %>%
+  select(c(check, it, feat_dv, adj, phase, min.schools.per.timeperiod, min.schools.per.mat,
+           n_pool, n_active, rmspe_all, rmspe_T, rmspe_V, ratio, m_gap, sd_gap, min_gap, max_gap)) %>%
+  arrange(feat_dv, adj, phase, min.schools.per.timeperiod, min.schools.per.mat) %>%
+  rename("S/Y" = min.schools.per.timeperiod, "S/M" = min.schools.per.mat)
+
+row_idx <- which(tmpp$check == T)
+  # print #
+kbl(tmpp, row.names = F, digits = 3) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
+  footnote(paste0("The pre-treatment period has an SD = ", round(unique(na.exclude(results_fit$sd_treated[results_fit$min_year == year & !results_fit$cross.val])), 3), ".")) %>%
+  column_spec(c(1,2), bold = T) %>%
+  column_spec(c(2), border_right =  T) %>%
+  row_spec(row_idx, bold = T) %>%
+  print()
+cat("\n\n")
+
+}
 
 ```
 
@@ -1025,26 +1054,6 @@ df_plot <- results_gap %>%
       filter(min_year == as.numeric(year) & !error)
 <<plot grid gap>>
         
-        # show promising combinations
-        results_fit %>%
-        # filter by sd: all rmspe below sd
-        filter(check) %>%
-        # prepare for printing
-        filter(min_year == as.numeric(year) & 
-                 method == "simplex" &
-                 !error & 
-                 !cross.val) %>%
-        select(c(it, feat_dv, adj, phase, min.schools.per.timeperiod, min.schools.per.mat,
-                 n_pool, n_active, rmspe_all, rmspe_T, rmspe_V, ratio, m_gap, sd_gap, min_gap, max_gap)) %>%
-        arrange(feat_dv, adj, phase, min.schools.per.timeperiod, min.schools.per.mat) %>%
-        rename("S/Y" = min.schools.per.timeperiod, "S/M" = min.schools.per.mat) %>%
-        # print #
-        kbl(row.names = F, digits = 3) %>%
-        kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
-        #column_spec(1, border_right = T, bold = T) %>%
-        footnote(paste0("Parameter combinations are shown if all RMSPE were below the SD of the pre-treatment period and if the ratio between post to pre RMSPE was between 0.8 and 1.2 (unless the time period starts in 2014/15). The pre-treatment period has an SD = ", round(unique(na.exclude(results_fit$sd_treated[results_fit$min_year == year & !results_fit$cross.val])), 3), ".")) %>%
-        print()
-      cat("\n\n")
     }
     
   }
