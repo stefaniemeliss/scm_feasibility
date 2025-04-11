@@ -1539,33 +1539,111 @@ grid_search_scpi_mat <- function(param_grid, sim = F) {
     if (params$exclude.single.phase) tmp <- tmp[tmp$multiple_phases, ]
     #if (params$exclude.northwest) tmp <- tmp[! (tmp$multiple_gor == F & tmp$gor_north_west == T), ]
     
+    # if(sim){
+    #   # Simulate data using the timeseries mean #
+    #   if(max(params$period.post[[1]]) > max(data$df_avg$time_period)){
+    # 
+    #     # Repeat the process for each period and combine the results
+    #     ave_list <- lapply(params$period.post[[1]], function(period) {
+    #       
+    #       # determine which columns to do this for
+    #       if (params$outcome.var %in% params$features[[1]]) {
+    #         cols_to_compute <- params$features[[1]]
+    #       } else { cols_to_compute <- c(params$features[[1]], params$outcome.var) }
+    #       
+    #       data$df_avg %>%
+    #         group_by(group_uid) %>%
+    #         summarise(across(all_of(cols_to_compute), mean, .names = "{.col}")) %>%
+    #         mutate(time_period = period)
+    #     })
+    #     
+    #     # Combine all data frames in the list
+    #     ave <- bind_rows(ave_list)
+    #     
+    #     # Combine the result
+    #     data$df_avg <- bind_rows(data$df_avg, ave)
+    #     
+    #   }
+    #   
+    # }
+    
     if(sim){
-      # Simulate data using the timeseries mean #
-      if(max(params$period.post[[1]]) > max(data$df_avg$time_period)){
-
-        # Repeat the process for each period and combine the results
-        ave_list <- lapply(params$period.post[[1]], function(period) {
-          
-          # determine which columns to do this for
-          if (params$outcome.var %in% params$features[[1]]) {
-            cols_to_compute <- params$features[[1]]
-          } else { cols_to_compute <- c(params$features[[1]], params$outcome.var) }
-          
-          data$df_avg %>%
-            group_by(group_uid) %>%
-            summarise(across(all_of(cols_to_compute), mean, .names = "{.col}")) %>%
-            mutate(time_period = period)
-        })
-        
-        # Combine all data frames in the list
-        ave <- bind_rows(ave_list)
-        
-        # Combine the result
-        data$df_avg <- bind_rows(data$df_avg, ave)
-        
-      }
+      
+      df <- data$df
+      
+      # simulate data using linear projection for the next three years #
+      
+      # transform data structure
+      df$laestab_f <- factor(df$laestab)
+      df$time_centered <- df$time_period - min(df$time_period)
+      
+      # add LA to data
+      df$la <- as.factor(substr(df$laestab, 1, 3))
+      
+      # Fit model
+      # Different baseline levels for each laestab (school)
+      # Different rates of change over time for each la (local authority)
+      m1 <- lmer(get(dv) ~ 
+                   time_centered + # fixed effect for time_period
+                   (1 | laestab_f) + # random intercept for laestab with (1 | laestab)
+                   (0 + time_centered | la), # random slope for time_period grouped by la
+                 data = df[df$time_period %in% c(2021, 2022, 2023), ])
+      
+      # Generate the prediction data frame for the next three academic years
+      simulated_data <- expand.grid(
+        laestab = unique(df$laestab),
+        time_period = c(2024, 2025, 2026)  # Representing 2024/25, 2025/26, 2026/27
+      )
+      
+      simulated_data$laestab_f <- factor(simulated_data$laestab)
+      simulated_data$la <- as.factor(substr(simulated_data$laestab, 1, 3))
+      simulated_data$time_centered <- simulated_data$time_period - min(df$time_period)
+      simulated_data$time_period_str <- case_match(simulated_data$time_period,
+                                                   2024 ~ "2024/25",
+                                                   2025 ~ "2025/26",
+                                                   2026 ~ "2026/27")
+      
+      # Generate *simulations* conditioned on all random effects with noise
+      simulations <- simulate(m1, nsim = 1, seed = 202324,
+                              newdata = simulated_data, 
+                              re.form = NULL, allow.new.levels = FALSE)
+      
+      # Add predictions to the data frame
+      # simulated_data$pred <- predictions
+      simulated_data[, dv] <- simulations$sim_1
+      
+      # Combine data
+      df_sim <- bind_rows(df, simulated_data) %>%
+        # group by schools
+        group_by(laestab) %>%
+        arrange(time_period) %>%
+        mutate(
+          # fill missing values: observations to be carried forward
+          across(c(establishmentname, group_uid, group_name, gor_name, phaseofeducation_name, status),
+                 ~zoo::na.locf(., na.rm = FALSE, fromLast = FALSE)))  %>%
+        ungroup() %>%
+        arrange(laestab, time_period) %>%
+        as.data.frame()
+      
+      # compute MAT level average
+      df_avg <- df_sim %>% 
+        group_by(group_uid, time_period)  %>%
+        summarise(
+          !!sym(dv) := mean(!!sym(dv)),
+          !!sym(var_teach) := mean(!!sym(var_teach)),
+          !!sym(var_pup) := mean(!!sym(var_pup)),
+          n = n(), .groups = "drop"
+        ) %>% 
+        ungroup() %>%
+        left_join(unique(df_sim[, c("time_period", "time_period_str")]), .) %>%
+        mutate(status = ifelse(group_uid == uid_treated, id_group, "Donor MATs")) %>%
+        arrange(group_uid, time_period)
+      
+      # overwrite data
+      data$df_avg = df_avg
       
     }
+    
     
     # determine ids of control schools
     id_cont <- unique(tmp$group_uid[tmp$group_uid != uid_treated])
