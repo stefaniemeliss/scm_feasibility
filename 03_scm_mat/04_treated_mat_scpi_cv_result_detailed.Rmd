@@ -521,7 +521,7 @@ xintercept = eval(parse(text = years))[length(eval(parse(text = years)))-2]+0.5
 cols <- c(navy40, coral)
 names(cols) <- c("Donor MATs", id_group)
 
-for(phase_filter in unique(df_long$phase)){
+for(phase_filter in sort(unique(df_long$phase))){
   
   tmp <- df_long[df_long$phase == phase_filter,]
   
@@ -627,30 +627,10 @@ results_fit$error <- grepl("Error", results_fit$status)
 
 # --- process data for plotting --- #
 
-# create a grid with all combinations of variables evaluated
-comb <- results_fit %>%
-  # select parameter settings
-  # only those not impacted by CV (hence not using period.pre)
-  group_by(feat_dv, adj, region, phase, min_year, method, min.schools.per.timeperiod, min.schools.per.mat, min.years.obs) %>%
-  # check that there are two each (CV == T and CV == F)
-  summarise(n = n()) %>%
-  ungroup() %>%
-  # create column indexing the iteration
-  mutate(it = as.character(1:nrow(.)))
-
-# finalise dataset
-results_fit <- results_fit %>%
-  full_join(comb, .) %>%
-  # select columns
-  select(c(it, cross.val, 
-           min.schools.per.timeperiod, min.schools.per.mat, min.years.obs, 
-           region, phase, excl.out, 
-           swf.filter, period.pre, period.post, min_year, max_year, 
-           feat_dv, adj, method, 
-           n_pool, n_active, sd_treated, rmspe_pre, rmspe_post, status, error))
-
 # identify promising combinations
 results_fit <- results_fit %>%
+  # remove all error runs
+  filter(!error) %>%
   # create one col per rmspe
   mutate(
     sd_all = sd_treated[cross.val == F],
@@ -732,7 +712,7 @@ plt <- ggplot(data = df_plot,
   geom_point(aes(colour = method), size = 1) +
   geom_line(aes(colour = method)) +
   geom_label(data = df_plot[df_plot$data == "all", ], 
-             aes(x = 2, y = 5.5, label = paste(n_pool, "/", n_active), fill = check), hjust = 0.5, vjust = 0.5, show.legend = F) +
+             aes(x = 2, y = 5.5, label = paste0(n_pool, "|", n_active), fill = check), hjust = 0.5, vjust = 0.5, show.legend = F) +
   scale_x_continuous(
     breaks = unique(df_plot$data_numeric),
     labels = unique(df_plot$data)
@@ -832,47 +812,16 @@ results_gap$method <- factor(results_gap$method, levels = c("simplex", "L1-L2", 
 # create a bool capturing if there was an error
 results_gap$error <- grepl("Error", results_gap$status)
 
-
-# create a grid with all combinations of variables evaluated
-comb <- results_gap %>%
-  # select parameter settings
-  select(-c(status, error, n_pool, n_active, sd_treated, m_gap, sd_gap, min_gap, max_gap, cor, 
-            rmspe_pre, mspe_pre, mae_pre, rmspe_post, mspe_post, mae_post, 
-            run_id, time_period, period, actual, synthetic, gap)) %>%
-  # remove duplicates
-  filter(!duplicated(.)) %>%
-  # only those not impacted by CV (hence not using period.pre)
-  group_by(feat_dv, adj, region, phase, min_year, method, min.schools.per.timeperiod, min.schools.per.mat, min.years.obs) %>%
-  # check that there are two each (CV == T and CV == F)
-  summarise(n = n()) %>%
-  ungroup() %>%
-  # create column indexing the iteration
-  mutate(it = as.character(1:nrow(.)))
-
-# finalise dataset
-results_gap <- results_gap %>%
-  full_join(comb, .) %>%
-  # select columns
-  select(c(it, cross.val, 
-           min.schools.per.timeperiod, min.schools.per.mat, min.years.obs, 
-           region, phase, excl.out, 
-           swf.filter, period.pre, period.post, min_year, max_year, 
-           feat_dv, adj, method, 
-           n_pool, n_active, sd_treated, rmspe_pre, rmspe_post, 
-           run_id, time_period, period, actual, synthetic, gap,
-           status, error)) %>%
-# remove all error runs
-  filter(!error) %>%
-  as.data.frame()
-
 # identify promising combinations
 results_gap <- results_gap %>%
+    # remove all error runs
+  filter(!error) %>%
   # create one col per rmspe
   mutate(
-    sd_all = sd_treated[cross.val == F & time_period == 2014],
-    rmspe_all = rmspe_pre[cross.val == F & time_period == 2014], 
-    rmspe_T = rmspe_pre[cross.val == T & time_period == 2014], 
-    rmspe_V = rmspe_post[cross.val == T & time_period == 2014],
+    sd_all = sd_treated[cross.val == F & time_period == 2015],
+    rmspe_all = rmspe_pre[cross.val == F & time_period == 2015], 
+    rmspe_T = rmspe_pre[cross.val == T & time_period == 2015], 
+    rmspe_V = rmspe_post[cross.val == T & time_period == 2015],
     .by = it
   ) %>%
   # compute ratios #
@@ -907,9 +856,9 @@ names(cols) <- c("Synthetic MAT CV", "Synthetic MAT", id_group)
 
 xintercept1 = eval(parse(text = years))[length(eval(parse(text = years)))-2]+0.5
 xintercept2 = eval(parse(text = years))[length(eval(parse(text = years)))]+0.5
-x_mid = eval(parse(text = years))[(length(eval(parse(text = years)))+3)/2]
+x_mid = eval(parse(text = years))[ceiling((length(eval(parse(text = years)))+3)/2)]
 
-for(phase_filter in unique(df_plot$phase)){
+for(phase_filter in sort(unique(df_long$phase))){
   
   tmp <- df_plot[df_plot$phase == phase_filter,]
 
@@ -917,10 +866,10 @@ plt <- ggplot() +
   geom_vline(xintercept = xintercept1, linetype = "dotted") +
   geom_vline(xintercept = xintercept2, linetype = "dotted") +
   geom_label(data = tmp[tmp$cross.val == F, ],
-             aes(x = x_mid, y = 25.5, label = paste(n_pool, "/", n_active), fill = check), hjust = 0.5, vjust = 0.5, show.legend = F) +
+             aes(x = x_mid, y = 25.5, label = paste0("it ", it,": ", n_pool, "|", n_active), fill = check), hjust = 0.5, vjust = 0.5, show.legend = F) +
+  geom_line(data = tmp, aes(x = time_period, y = actual, col = paste(id_group))) +
   geom_line(data = tmp[tmp$cross.val == T, ], aes(x = time_period, y = synthetic, col = "Synthetic MAT CV")) +
   geom_line(data = tmp[tmp$cross.val == F, ], aes(x = time_period, y = synthetic, col = "Synthetic MAT")) +
-  geom_line(data = tmp, aes(x = time_period, y = actual, col = paste(id_group))) +
   ggh4x::facet_grid2(cols = vars(phase, min.schools.per.timeperiod, min.schools.per.mat), rows = vars(feat_dv, adj), strip = ggh4x::strip_nested()) +
   ambition_theme +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
@@ -944,7 +893,7 @@ plt <- ggplot() +
   geom_vline(xintercept = xintercept2, linetype = "dotted") +
   geom_hline(yintercept = 0, linetype = "dashed") +
   geom_label(data = tmp[tmp$cross.val == F, ],
-             aes(x = x_mid, y = 4.5, label = paste(n_pool, "/", n_active), fill = check), hjust = 0.5, vjust = 0.5, show.legend = F) +
+             aes(x = x_mid, y = 4.5, label = paste0("it ", it,": ", n_pool, "|", n_active), fill = check), hjust = 0.5, vjust = 0.5, show.legend = F) +
   geom_line(data = tmp[tmp$cross.val == T, ], aes(x = time_period, y = gap, col = "Synthetic MAT CV")) +
   geom_line(data = tmp[tmp$cross.val == F, ], aes(x = time_period, y = gap, col = "Synthetic MAT")) +
   ggh4x::facet_grid2(cols = vars(phase, min.schools.per.timeperiod, min.schools.per.mat), rows = vars(feat_dv, adj), strip = ggh4x::strip_nested()) +
@@ -974,7 +923,6 @@ suppressWarnings(print(plt))
 ```{r, echo=F, message=FALSE, results='asis', fig.align='center', fig.height=10, fig.width=13, out.width='100%', out.height='100%'}
 # define phases to loop through
 phases <- c("mixed", "Secondary", "Primary")
-phases <- c("mixed")
 
 headings <- c("Whole MAT", "Secondary schools only", "Primary schools only")
 p = 1 # debug
@@ -1013,9 +961,15 @@ for (p in 1:length(phases)) {
       swf_filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112, 201213, 201314, 201415)"
       filter_phase = unique(groups$phaseofeducation_name)[!grepl("imary", unique(groups$phaseofeducation_name))]
       results_fit$check <- results_fit$promising
+      results_gap$check <- results_gap$promising
       tmp_long$check <- tmp_long$promising
       nrow_legend = 1
     }
+
+      # new
+      results_fit$check <- results_fit$rmspe_below_sd
+      results_gap$check <- results_gap$rmspe_below_sd
+      tmp_long$check <- tmp_long$rmspe_below_sd
   
   
   # Define target regions for filtering the donor pool
@@ -1080,13 +1034,14 @@ df_plot <- results_gap %>%
                  method == "simplex" &
                  !error & 
                  !cross.val) %>%
-        select(c(feat_dv, adj, phase, min.schools.per.timeperiod, min.schools.per.mat,
-                 n_pool, n_active, rmspe_all, rmspe_T, rmspe_V, ratio)) %>%
+        select(c(it, feat_dv, adj, phase, min.schools.per.timeperiod, min.schools.per.mat,
+                 n_pool, n_active, rmspe_all, rmspe_T, rmspe_V, ratio, m_gap, sd_gap, min_gap, max_gap)) %>%
         arrange(feat_dv, adj, phase, min.schools.per.timeperiod, min.schools.per.mat) %>%
         rename("S/Y" = min.schools.per.timeperiod, "S/M" = min.schools.per.mat) %>%
         # print #
         kbl(row.names = F, digits = 3) %>%
         kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
+        #column_spec(1, border_right = T, bold = T) %>%
         footnote(paste0("Parameter combinations are shown if all RMSPE were below the SD of the pre-treatment period and if the ratio between post to pre RMSPE was between 0.8 and 1.2 (unless the time period starts in 2014/15). The pre-treatment period has an SD = ", round(unique(na.exclude(results_fit$sd_treated[results_fit$min_year == year & !results_fit$cross.val])), 3), ".")) %>%
         print()
       cat("\n\n")
