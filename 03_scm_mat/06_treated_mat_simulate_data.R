@@ -147,15 +147,10 @@ for (p in 1:length(phases)) {
     filter_phase = unique(groups$phaseofeducation_name)[!grepl("imary", unique(groups$phaseofeducation_name))]
   }
   
-  # subset results of grid search to match
-  tmp_grid <- results[results$it %in% it & !results$cross.val, ]
-  
-  for (ii in 1:nrow(tmp_grid)) {
-    
-    # ii = 1
+  for (ii in it) {
     
     # select params
-    params <- tmp_grid[ii, ]
+    params <- results[results$it == ii & !results$cross.val, ]
     
     # process data at MAT level
     process_data_scm_mat(uid_treated = uid_treated, target_regions = target_regions, filter_phase = filter_phase,
@@ -284,14 +279,13 @@ for (p in 1:length(phases)) {
                     legend.title = element_blank()) +
               guides(size = "none"))
       cat("\n\n")  # Add some space between plots
- 
+      
       # determine output filename
       file_name <- file.path(dir, "03_scm_mat", "interim", paste0(file_stem, "_", tolower(phase), "_it_", sprintf("%03d", ii), ".csv"))
       # Save results
       write.csv(df_sim, file = file_name, row.names = F)
-
+      
     }
   }
   
 }
-  
