@@ -4,6 +4,9 @@
 rm(list = ls())
 gc()
 
+# Set seed
+set.seed(202324)
+
 # load libraries
 library(kableExtra)
 library(dplyr)
@@ -11,6 +14,7 @@ library(data.table)
 library(scpi)
 library(foreach)
 library(doParallel)
+library(lme4)
 
 # create function to source code
 source_code <- function(root_dir_name = "code", target_repo = "helper_functions", branch = "main", file_name = "file.R") {
@@ -156,7 +160,7 @@ w.constr.options = list(
 # define options for cross validation
 cross.val.options <- c(TRUE, FALSE)
 
-
+idx = c(1:30, 271:300, 541:570, 811:840) # debug
 for (p in 1:length(phases)) {
   
   phase = phases[p]
