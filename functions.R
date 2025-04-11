@@ -1184,7 +1184,7 @@ compute_pairwise_correlations <- function(data, vars, new_names) {
 }
 
 process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("Not applicable"), 
-                                 dv = "pupil_to_qual_teacher_ratio", var1 = "fte_avg_age", var2 = "pnpupfsm_e",
+                                 dv = "pupil_to_qual_teacher_ratio", var_teach = "fte_avg_age", var_pup = "pnpupfsm_e",
                                  min_years_obs = 4, min_schools_per_mat = 2, min_schools_per_timeperiod = 2, 
                                  swf_filter = NULL, pup_filter = NULL) {
   # ---- Get info on treated group ----
@@ -1243,7 +1243,7 @@ process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("
     z <- z %>% filter(!!rlang::parse_expr(swf_filter))
   }
   
-  z <- z %>% select(time_period, laestab, !!sym(dv), !!sym(var1))
+  z <- z %>% select(time_period, laestab, !!sym(dv), !!sym(var_teach))
   
   # Filter pupil data to create predictor dataset with selected variables
   x <- pup %>% 
@@ -1254,7 +1254,7 @@ process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("
     x <- x %>% filter(!!rlang::parse_expr(pup_filter))
   }
   
-  x <- x %>% select(time_period, laestab, !!sym(var2))
+  x <- x %>% select(time_period, laestab, !!sym(var_pup))
   
   # Combine outcome and predictor datasets
   df <- merge(z, x, all = T, by = c("laestab", "time_period"))
@@ -1265,7 +1265,7 @@ process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("
   
   # merge with a scaffold so that timeseries is complete again
   df <- merge(expand.grid(laestab = unique(df$laestab),
-                         time_period = unique(df$time_period)), 
+                          time_period = unique(df$time_period)), 
               df, all = T)
   
   # Add MAT information to the dataset
@@ -1312,7 +1312,7 @@ process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("
   
   # Update list of schools to include only those that don't have any missing values in the middle or at the end
   list_laestab <- unique(df$laestab)
-    
+  
   # ---- MAT-level filtering ----
   # Identify MATs that meet specific criteria:
   # - Have multiple schools with min_years_obs+ years of data
@@ -1345,8 +1345,8 @@ process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("
     group_by(group_uid, time_period) %>% 
     summarise(
       !!sym(dv) := mean(!!sym(dv)),
-      !!sym(var1) := mean(!!sym(var1)),
-      !!sym(var2) := mean(!!sym(var2)),
+      !!sym(var_teach) := mean(!!sym(var_teach)),
+      !!sym(var_pup) := mean(!!sym(var_pup)),
       n = n(), .groups = "drop"
     ) %>% 
     ungroup()
@@ -1376,8 +1376,8 @@ process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("
     group_by(group_uid) %>%
     mutate(
       count_outliers_dv = sum(is_outlier_3sd(!!sym(dv))),
-      count_outliers_var1 = sum(is_outlier_3sd(!!sym(var1))),
-      count_outliers_var2 = sum(is_outlier_3sd(!!sym(var2)))
+      count_outliers_var1 = sum(is_outlier_3sd(!!sym(var_teach))),
+      count_outliers_var2 = sum(is_outlier_3sd(!!sym(var_pup)))
     ) %>%
     ungroup() %>%
     mutate(
@@ -1403,8 +1403,8 @@ process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("
     mutate(
       # Here outliers are calculated across all MATs in the donor pool
       outlier_dv = is_outlier_3sd(!!sym(dv)),
-      outlier_var1 = is_outlier_3sd(!!sym(var1)),
-      outlier_var2 = is_outlier_3sd(!!sym(var2))
+      outlier_var1 = is_outlier_3sd(!!sym(var_teach)),
+      outlier_var2 = is_outlier_3sd(!!sym(var_pup))
     ) %>%
     group_by(group_uid) %>%
     mutate(
@@ -1459,10 +1459,13 @@ process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("
   assign("df_treat", df_treat, envir = .GlobalEnv)
   assign("df_donor", df_donor, envir = .GlobalEnv)
   assign("MATs", MATs, envir = .GlobalEnv)  
-
+  
   # export other values
   assign("id_group", id_group, envir = .GlobalEnv)  
-  
+  assign("dv", dv, envir = .GlobalEnv)  
+  assign("var_teach", var_teach, envir = .GlobalEnv)  
+  assign("var_pup", var_pup, envir = .GlobalEnv)  
+
   # Return invisible to suppress output but still allow assignment if desired
   invisible(list(df = df, df_avg = df_avg, df_treat = df_treat, df_donor = df_donor, MATs = MATs))
 }
