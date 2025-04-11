@@ -72,110 +72,50 @@ source_code <- function(root_dir_name = "code", target_repo = "helper_functions"
 source_code(target_repo = "scm_feasibility", file_name = "functions.R")
 
 # Define the base directory
-get_directory()
+dir <- get_directory()
+dir_data <- file.path(dir, "data")
+dir_misc <- file.path(dir, "misc")
 
 # get file stem name
 file_stem <- get_file_stem()
 
-# process data establishments #
+# copy data #
+file.copy(
+  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_swf.csv"), dir_data, overwrite = T)
+file.copy(
+  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_pupils.csv"), dir_data, overwrite = T)
+file.copy(
+  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_establishments_search.csv"), dir_data, overwrite = T)
+file.copy(
+  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_establishments_groups.csv"), dir_data, overwrite = T)
 
-# load in file with timeseries desc
-summary <- read.csv(file.path(dir, "02_scm",  "interim",  "02_treated_schools_filter_donor_pool_out.csv"))
+# load data #
 
-# only select schools with sufficient donor pool
-summary <- subset(summary, n_pool >= 50)
+swf <- fread(file.path(dir_data, "data_swf.csv"))
+pup <- fread(file.path(dir_data, "data_pupils.csv"))
+est <- fread(file.path(dir_data, "data_establishments_search.csv"), na.strings = "")
+groups <- fread(file.path(dir_data, "data_establishments_groups.csv"), na.strings = "")
 
-# save laestab numbers
-list_laestab_treated <- unique(summary$laestab)
-list_laestab_treated <- list_laestab_treated[1] # focus on St. Peters for now
-list_laestab_treated <- list_laestab_treated[c(3, 4, 9)] # focus on St. Peters, Marchbank Primary, Manningham Academy and City for now
+# get info on treated group
+uid_treated <- 2939
 
-# create df_region as reference
-df_region <- unique(summary[, c("laestab", "school", "same", "neighbouring")])
-
-
-#### Define best parameter settings from grid search - per school ####
-info <- list(
-  # St Peters
-  list(school = "St Peter's Catholic School",
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = list(c("constant")),
-       region.filter = "same",
-       sd.range = NULL),
-  # Dixon Music primary
-  list(school = "Dixons Music Primary",
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
-       cov.adj = list(c("constant")),
-       region.filter = "same",
-       sd.range = 50),
-  # Marchbank Primary
-  list(school = "Dixons Marchbank Primary",
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
-       cov.adj = list(c("constant")),
-       region.filter = "same",
-       sd.range = 50),
-  # Manningham Academy
-  list(school = "Dixons Manningham Academy",
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
-       cov.adj = list(c("trend")),
-       region.filter = "same",
-       sd.range = 50),
-  # Kings Academy
-  list(school = "Dixons Kings Academy",
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
-       cov.adj = list(c("constant")),
-       region.filter = "same",
-       sd.range = NULL),
-  # Dixons Trinity Academy
-  list(school = "Dixons Trinity Academy",
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
-       cov.adj = list(c("constant")),
-       region.filter = "same",
-       sd.range = NULL),
-  # McMillan Academy
-  list(school = "Dixons McMillan Academy",
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
-       cov.adj = NULL,
-       region.filter = "same",
-       sd.range = NULL),
-  # Cottingley Academy
-  list(school = "Dixons Cottingley Academy",
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
-       cov.adj = list(c("trend")),
-       region.filter = "same",
-       sd.range = NULL),
-  # City Academy
-  list(school = "Dixons City Academy",
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
-       cov.adj = list(c("constant")),
-       region.filter = c("same","neighbouring"),
-       sd.range = 100),
-  # Dixons Unity Academy
-  list(school = "Dixons Unity Academy",
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
-       cov.adj = list(c("constant")),
-       region.filter = "same",
-       sd.range = NULL),
-  # Highcrest Academy
-  list(school = "The Highcrest Academy",
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = list(c("constant")),
-       region.filter = c("same","neighbouring"),
-       sd.range = 100)
-)
-info <- info[c(1, 3, 4, 9)] # focus on St. Peters, Marchbank Primary, Manningham Academy and City for now
-info <- info[c(3, 4, 9)] # focus on St. Peters, Marchbank Primary, Manningham Academy and City for now
-# info <- info[c(3)] # focus on St. Peters, Marchbank Primary, Manningham Academy and City for now
+# define phases to loop through
+phases <- c("mixed", "Secondary", "Primary")
+phases <- c("mixed")
+p = 1 # debug
 
 ### Process data ###
 
 # Set options for data preparation
-id.var <- "laestab" # ID variable
+id.var <- "group_uid" # ID variable
 time.var <- "time_period" # Time variable
 outcome.var <- "pupil_to_qual_teacher_ratio" # Dependent variable
 
 w.constr <- list(name = "simplex") # use canonical SC
 
+# default options
+target_regions <- c("Yorkshire and the Humber", "North West")
+min.years.obs <- 8
 
 #### RUN PERMUTATION IN LOOP ####
 
@@ -187,196 +127,226 @@ run_placebo <- TRUE
 sim = 1
 n_sim = 50
 
-# Set options for data preparation
-id.var <- "laestab" # ID variable
-time.var <- "time_period" # Time variable
-outcome.var <- "pupil_to_qual_teacher_ratio" # Dependent variable
+s = 1
+k = 1
+#### SIMULATE DATA IN LOOP ####
 
-w.constr <- list(name = "simplex") # use canonical SC
-
-i = 1 # debug
-ii = 1 # debug
-k = 2 # debug
-s = 1 # debug
-
-
-for (i in 1:length(info)) {
+for (p in 1:length(phases)) {
   
-  # get best parameter for given school
-  # i = 3 # debug
-  params <- info[[i]]
-  # determine features and covariate adjustment settings
-  features <- params$features
-  cov.adj<- params$cov.adj
+  phase = phases[p]
   
-  
-  # define id_treated
-  id_name <- params$school
-  id_treated <- df_region$laestab[df_region$school == id_name]
-  
-  # determine control units based on outputs of cross validation #
-  
-  # load in df
-  if ("region.filter" %in% names(params)) {
-    
-    # define correct regions to use
-    if ("same" %in% params$region.filter) (regions <- unlist(c(df_region[df_region$laestab == id_treated, c("same")])))
-    if ("neighbouring" %in% params$region.filter) (regions <- unlist(c(df_region[df_region$laestab == id_treated, c("same", "neighbouring")])))
-    
-    # process data
-    if (i == 1) { df <- process_data_scm(id_treated = id_treated, regions = regions, read_files = T, export_data.tables = T)
-    } else { df <- process_data_scm(id_treated = id_treated, regions = regions) }
-    
-  }
-  
-  if ("sd.range" %in% names(params) & !is.null(params$sd.range)) {
-    
-    # filter by SD crit
-    df <- sd_filtering(data = df, perc = params$sd.range, var = outcome.var)
-    df[df$laestab == id_treated, paste0("crit_sd_", outcome.var)] <- T
-    df <- subset(df, df[, paste0("crit_sd_", outcome.var)] == T)
-    
-  }
-  
-  
-  # load in simulated data # 
-  
-  # determine input filename
-  file_name <- file.path(dir, "02_scm", "interim", paste0("08_treated_schools_simulate_data_", gsub(" ", "_", id_name), ".csv"))
+  # declare file name
+  file_name <- file.path(getwd(), "03_scm_mat", "interim", paste0("03_treated_mat_scpi_cv_", tolower(phase), "_results.csv"))
   
   # read in results
-  df_sim_raw <- read.csv(file_name)
-  lookup <- unique(df_sim_raw[, c("time_period", "time_period_str")])
+  results <- read.csv(file_name)
   
-  # Define timeseries
-  period.simulated <- unique(df_sim_raw$time_period[is.na(df_sim_raw$pupil_to_qual_teacher_ratio)]) # identify simulated years
-  period.post <- period.simulated # Simulated post-treatment period
-  period.avail <- sort(unique(df_sim_raw$time_period))
-  period.pre <- setdiff(period.avail, period.post) # Pre-treatment period
+  # define different filter option for each phase #
   
-  # for each data simulation
-  for (s in sim:n_sim) {
+  if (phase == "mixed") {
+    filter_phase = c("Not applicable", "16 plus")
+    it <- c(197, 217, 277, 237, 297)
+    it <- c(197)
+  } else if (phase == "Secondary") {
+    filter_phase = unique(groups$phaseofeducation_name)[!grepl("econdary", unique(groups$phaseofeducation_name))]
+  } else if (phase == "Primary") {
+    filter_phase = unique(groups$phaseofeducation_name)[!grepl("imary", unique(groups$phaseofeducation_name))]
+  }
+  
+  ii = it[1] # debug
+  
+  for (ii in it) {
     
-    # simulate effects (i.e., decrease in pupil-to-teacher ratio)
-    for (k in 1:length(increments)) {
+    # select params
+    params <- results[results$it == ii & !results$cross.val, ]
     
-    # create copy to simulate interventions
-    df_sim_int <- df_sim_raw %>%
-      # only focus on one simulation
-      mutate(sim = get(paste0("sim_", s))) %>%
-      select(c(laestab, time_period, time_period_str, school, 
-               pupil_to_qual_teacher_ratio, fte_avg_age, pnpupfsm_e,
-               sim)) %>%
-      arrange(laestab, time_period) %>%
-      as.data.frame()
+    # process data at MAT level
+    process_data_scm_mat(uid_treated = uid_treated, target_regions = target_regions, filter_phase = filter_phase,
+                         swf_filter = params$swf.filter, 
+                         min_years_obs = min.years.obs, 
+                         min_schools_per_timeperiod = params$min.schools.per.timeperiod, min_schools_per_mat = params$min.schools.per.mat)
     
-    # determine multiplier
-    decrease = increments[k]      
-    multiplier <- 1 - decrease
+    # Apply more filtering
+    if (params$exclude.single.phase) {
+      # remove MATs from MATs
+      MATs$multiple_phases <- grepl(" | ", MATs$phase, fixed = T)
+      MATs <- MATs[MATs$multiple_phases, ]
+      # remove average MAT ts
+      df_avg <- df_avg[df_avg$group_uid %in% MATs$group_uid, ]
+      # remove school TS
+      df <- df[df$group_uid %in% MATs$group_uid, ]
+    }
     
-    df_sim_int <- df_sim_int %>%
-      # Apply decrease
-      mutate(sim_eff = ifelse(laestab == id_treated, sim*multiplier, sim)) %>%
-      # replace NAs with simulated values
-      mutate(pupil_to_qual_teacher_ratio = ifelse(is.na(pupil_to_qual_teacher_ratio), sim_eff, pupil_to_qual_teacher_ratio)) %>%
-      arrange(laestab, time_period) %>%
-      as.data.frame()
+    # determine features and covariate adjustment settings
+    features <- unlist(strsplit(params$features, ", "))
+    if(!is.na(params$cov.adj)){
+      cov.adj <- case_match(params$cov.adj, "constant" ~ list(c("constant")), "trend" ~ list(c("trend")), "constant, trend" ~ list(c("constant", "trend")))
+    } else { 
+      cov.adj <- NULL
+    }
     
-      if (run_placebo) {
-        
-        start.time <- Sys.time()
-        
-        # determine output filename
-        file_name <- file.path(dir, "02_scm", "interim", paste0(file_stem, "_" , gsub(" ", "_", id_name), "_decrease_", sprintf("%.2f", decrease), "_sim_", sprintf("%03d", s), ".csv"))
-
-        # store all schools in a vector
-        units <- unique(df$laestab)
-        
-        # # create struture to hold results
-        # storegaps <- 
-        #   matrix(NA,
-        #          length(period.avail), # rows
-        #          length(units) # columns
-        #   )
-        # rownames(storegaps) <- period.avail
-        # colnames(storegaps) <- units
-        
-        # Determine number of cores to use
-        totalCores <- detectCores(logical = FALSE)
-        # Use 75% of available cores to avoid overloading the system
-        cl <- makeCluster(floor(0.75 * totalCores))
-        registerDoParallel(cl)
-        
-        # # loop over all units in the donor pool (incl. treated schools)
-        # for(ii in 1:length(units)){
-        
-        # Parallelize the loop over all units in the donor pool
-        storegaps <- foreach(ii = 1:length(units), .combine = 'cbind', .packages = 'scpi') %dopar% {
-          
-          
-          unit <- units[ii]
-          
-          unit.tr <- unit # looping through all units in donor pool
-          unit.co <- unique(df$laestab[df$laestab != unit])
-          
-          ### Data preparation
-          scdata.out <- scdata(df = df_sim_int, 
-                               id.var = id.var, 
-                               time.var = time.var,
-                               outcome.var = outcome.var,
-                               period.pre = period.pre,
-                               period.post = period.post,
-                               unit.tr = unit.tr,
-                               unit.co = unit.co,
-                               features = features,
-                               cov.adj = cov.adj)
-          
-          
-          ### SC - point estimation with simplex
-          scest.out <- scest(data = scdata.out, 
-                             w.constr = w.constr
-          )
-          
-          ### SC - extract gap
-          
-          # Extract the actual and synthetic control outcomes for all years - PRE
-          actual_pre <- scest.out$data$Y.pre
-          synthetic_pre <- scest.out$est.results$Y.pre.fit
-          gap_pre <- actual_pre - synthetic_pre # compute gap as difference between both
-          
-          # Extract the actual and synthetic control outcomes for all years - POST
-          actual_post <- scest.out$data$Y.post
-          synthetic_post <- scest.out$est.results$Y.post.fit
-          gap_post <- actual_post - synthetic_post # compute gap as difference between both
-          
-          # # store in matrix
-          # storegaps[,ii] <- c(gap_pre, gap_post)
-          
-          # Return a vector of gaps
-          c(gap_pre, gap_post)
-          
-        } # close loop over control units
-        
-        # Set row and column names for the resulting matrix
-        rownames(storegaps) <- period.avail
-        colnames(storegaps) <- units
-        
-        # Stop the cluster when done
-        stopCluster(cl)
-        
-        # Save results
-        write.csv(storegaps, file = file_name)
-        
-        end.time <- Sys.time()
-        time.taken <- end.time - start.time
-        print(time.taken)
-        
-      } 
+    
+    # load in simulated data # 
+    
+    # determine input filename
+    file_name <- file.path(dir, "03_scm_mat", "interim", paste0("06_treated_mat_simulate_data_", tolower(phase), "_it_", sprintf("%03d", ii), ".csv"))
+    
+    # read in results
+    df_sim_raw <- read.csv(file_name)
+    lookup <- unique(df_sim_raw[, c("time_period", "time_period_str")])
+    
+    # Define timeseries
+    period.simulated <- unique(df_sim_raw$time_period[is.na(df_sim_raw$pupil_to_qual_teacher_ratio)]) # identify simulated years
+    period.post <- period.simulated # Simulated post-treatment period
+    period.avail <- sort(unique(df_sim_raw$time_period))
+    period.pre <- setdiff(period.avail, period.post) # Pre-treatment period
+    
+    # get names of treated schools
+    list_laestab_treated <- unique(df_sim_raw$laestab[df_sim_raw$group_uid %in% uid_treated])
+    
+    # for each data simulation
+    for (s in sim:n_sim) {
       
+      # simulate effects (i.e., decrease in pupil-to-teacher ratio)
+      for (k in 1:length(increments)) {
+        
+        cols_to_remove <- names(df_sim_raw)[grepl("sim_", names(df_sim_raw))]
+        sim_col = paste0("sim_", s)
+        
+        # create copy to simulate interventions
+        df_sim_raw <- df_sim_raw %>%
+          # only focus on one simulation
+          mutate(sim := !!sym(sim_col)) %>%
+          #select(-c(any_of(cols_to_remove))) %>%
+          #mutate(!!sym(dv) := ifelse(is.na(!!sym(dv)), sim, !!sym(dv))) %>%
+          arrange(laestab, time_period) %>%
+          as.data.frame()
+        
+        # determine multiplier
+        decrease = increments[k]      
+        multiplier <- 1 - decrease
+        
+        # # APPLY EFFECTS AT SCHOOL LEVEL
+        # df_sim_int <- df_sim_raw %>%
+        #   # Apply decrease
+        #   mutate(sim_eff = ifelse(laestab == id_treated, sim*multiplier, sim)) %>%
+        #   # replace NAs with simulated values
+        #   mutate(!!sym(dv) := ifelse(is.na(!!sym(dv)), sim_eff, !!sym(dv))) %>%
+        #   arrange(laestab, time_period) %>%
+        #   as.data.frame()
+        
+        # compute MAT level average
+        # df_avg <- df_sim_int %>% # APPLY EFFECTS AT SCHOOL LEVEL
+        df_avg_raw <- df_sim_raw %>% # APPLY EFFECTS AT MAT LEVEL
+          group_by(group_uid, time_period)  %>%
+          summarise(
+            !!sym(dv) := mean(!!sym(dv)),
+            !!sym(var_teach) := mean(!!sym(var_teach)),
+            !!sym(var_pup) := mean(!!sym(var_pup)),
+            sim = mean(sim),
+            n = n(), .groups = "drop"
+          ) %>% 
+          ungroup() %>%
+          left_join(lookup, .) %>%
+          mutate(status = ifelse(group_uid == uid_treated, id_group, "Donor MATs")) %>%
+          arrange(group_uid, time_period) %>%
+          as.data.frame()
+        
+        # APPLY EFFECTS AT SCHOOL LEVEL
+        df_avg_int <- df_avg_raw %>%
+          # Apply decrease
+          mutate(sim_eff = ifelse(group_uid == uid_treated, sim*multiplier, sim)) %>%
+          # replace NAs with simulated values
+          mutate(!!sym(dv) := ifelse(is.na(!!sym(dv)), sim_eff, !!sym(dv))) %>%
+          arrange(group_uid, time_period) %>%
+          as.data.frame()
+        
+        
+        if (run_placebo) {
+          
+          start.time <- Sys.time()
+          
+          # determine output filename
+          file_name <- file.path(dir, "03_scm_mat", "interim", paste0(file_stem, "_" , tolower(phase), "_it_", sprintf("%03d", ii), "_sim_", sprintf("%03d", s), "_decrease_", sprintf("%.2f", decrease), ".csv"))
+          
+          # store all schools in a vector
+          units <- unique(df_avg$group_uid)
+          
+          # Determine number of cores to use
+          totalCores <- detectCores(logical = FALSE)
+          # Use 75% of available cores to avoid overloading the system
+          cl <- makeCluster(floor(0.75 * totalCores))
+          registerDoParallel(cl)
+          
+          # Parallelize the loop over all units in the donor pool
+          storegaps <- foreach(iii = 1:length(units), .combine = 'cbind', .packages = 'scpi') %dopar% {
+            
+            
+            unit <- units[iii]
+            message(unit, "\n")
+            
+            unit.tr <- unit # looping through all units in donor pool
+            unit.co <- unique(df_avg$group_uid[df_avg$group_uid != unit])
+            
+            ### Data preparation
+            scdata.out <- scdata(df = df_avg_int, 
+                                 id.var = id.var, 
+                                 time.var = time.var,
+                                 outcome.var = outcome.var,
+                                 period.pre = period.pre,
+                                 period.post = period.post,
+                                 unit.tr = unit.tr,
+                                 unit.co = unit.co,
+                                 features = features,
+                                 cov.adj = cov.adj)
+            
+            
+            ### SC - point estimation with simplex
+            scest.out <- scest(data = scdata.out, 
+                               w.constr = w.constr
+            )
+            
+            ### SC - extract gap
+            
+            # Extract the actual and synthetic control outcomes for all years - PRE
+            actual_pre <- scest.out$data$Y.pre
+            synthetic_pre <- scest.out$est.results$Y.pre.fit
+            gap_pre <- actual_pre - synthetic_pre # compute gap as difference between both
+            
+            # Extract the actual and synthetic control outcomes for all years - POST
+            actual_post <- scest.out$data$Y.post
+            synthetic_post <- scest.out$est.results$Y.post.fit
+            gap_post <- actual_post - synthetic_post # compute gap as difference between both
+            
+            # # store in matrix
+            # storegaps[,ii] <- c(gap_pre, gap_post)
+            
+            # Return a vector of gaps
+            c(gap_pre, gap_post)
+            
+          } # close loop over control units
+          
+          # Set row and column names for the resulting matrix
+          rownames(storegaps) <- period.avail
+          colnames(storegaps) <- units
+          
+          # Stop the cluster when done
+          stopCluster(cl)
+          
+          # Save results
+          write.csv(storegaps, file = file_name)
+          
+          end.time <- Sys.time()
+          time.taken <- end.time - start.time
+          print(time.taken)
+          
+        } 
+        
+        
+      }
       
     }
     
   }
   
 }
-  
