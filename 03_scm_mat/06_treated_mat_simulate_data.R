@@ -147,6 +147,8 @@ for (p in 1:length(phases)) {
     filter_phase = unique(groups$phaseofeducation_name)[!grepl("imary", unique(groups$phaseofeducation_name))]
   }
   
+  ii = it[1] # debug
+  
   for (ii in it) {
     
     # select params
@@ -183,7 +185,7 @@ for (p in 1:length(phases)) {
       # Fit model
       # Different baseline levels for each laestab (school)
       # Different rates of change over time for each la (local authority)
-      m1 <- lmer(pupil_to_qual_teacher_ratio ~ 
+      m1 <- lmer(get(dv) ~ 
                    time_centered + # fixed effect for time_period
                    (1 | laestab_f) + # random intercept for laestab with (1 | laestab)
                    (0 + time_centered | la), # random slope for time_period grouped by la
@@ -202,6 +204,7 @@ for (p in 1:length(phases)) {
                                                    2024 ~ "2024/25",
                                                    2025 ~ "2025/26",
                                                    2026 ~ "2026/27")
+      simulated_data[, dv] <- numeric()
       
       # Generate *simulations* conditioned on all random effects with noise
       simulations <- simulate(m1, nsim = 100, seed = 202324,
@@ -210,14 +213,6 @@ for (p in 1:length(phases)) {
       
       # Add simulations to the data frame
       simulated_data <- cbind(simulated_data, simulations)
-      
-      # check simulated timeseries #
-      
-      idx <- sample(1:100, 1)
-      
-      # Add predictions to the data frame
-      # simulated_data$pred <- predictions
-      simulated_data$pupil_to_qual_teacher_ratio <- simulations[, paste0("sim_", idx)]
       
       # Combine data
       df_sim <- bind_rows(df, simulated_data) %>%
@@ -229,8 +224,24 @@ for (p in 1:length(phases)) {
           across(c(establishmentname, group_uid, group_name, gor_name, phaseofeducation_name, status),
                  ~zoo::na.locf(., na.rm = FALSE, fromLast = FALSE)))  %>%
         ungroup() %>%
+        relocate(laestab, laestab_f, time_period, time_period_str, time_centered, establishmentname, group_uid, group_name, 
+                 la, gor_name, phaseofeducation_name) %>%
         arrange(laestab, time_period) %>%
         as.data.frame()
+      
+      # determine output filename
+      file_name <- file.path(dir, "03_scm_mat", "interim", paste0(file_stem, "_", tolower(phase), "_it_", sprintf("%03d", ii), ".csv"))
+      # Save results
+      write.csv(df_sim, file = file_name, row.names = F)
+      
+      
+      # check simulated timeseries #
+      
+      idx <- sample(1:100, 1)
+      
+      # Add predictions to the data frame
+      # simulated_data$pred <- predictions
+      df_sim[, dv] <- ifelse(is.na(df_sim[, dv]), simulations[, paste0("sim_", idx)], df_sim[, dv])
       
       # compute MAT level average
       df_avg <- df_sim %>% 
@@ -280,10 +291,6 @@ for (p in 1:length(phases)) {
               guides(size = "none"))
       cat("\n\n")  # Add some space between plots
       
-      # determine output filename
-      file_name <- file.path(dir, "03_scm_mat", "interim", paste0(file_stem, "_", tolower(phase), "_it_", sprintf("%03d", ii), ".csv"))
-      # Save results
-      write.csv(df_sim, file = file_name, row.names = F)
       
     }
   }
