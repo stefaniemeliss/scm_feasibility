@@ -91,7 +91,7 @@ file_stem <- get_file_stem()
 # process data establishments #
 
 # load in file with timeseries desc
-summary <- read.csv(file.path(dir, "02_scm",  "02_treated_schools_filter_donor_pool_out.csv"))
+summary <- read.csv(file.path(dir, "02_scm", "interim", "02_treated_schools_filter_donor_pool_out.csv"))
 
 # only select schools with sufficient donor pool
 summary <- subset(summary, n_pool >= 50)
@@ -165,7 +165,7 @@ sd_nat <- mean(desc$sd)
 # load in simulated data # 
 
 # determine output filename
-file_name <- file.path(dir, "02_scm", paste0("06_treated_schools_scpi_perm_", gsub(" ", "_", id_name), "_simdata.csv"))
+file_name <- file.path(dir, "02_scm", "interim",  paste0("06_treated_schools_scpi_perm_", gsub(" ", "_", id_name), "_simdata.csv"))
 
 # read in results
 df <- read.csv(file_name)
@@ -267,7 +267,7 @@ cat("\n\n")
 
 ```{r res, eval=FALSE, include=F}
 #### SC - evaluate results ####
-summarise_scest(scest.out, cv = F)
+summarise_scest(scest.out, id_treated = id_treated, id_name = id_name, cv = F)
 
 #### EXTRACT DATA #####
 
@@ -369,7 +369,7 @@ cat("\n\n")
 ```{r placebo, eval=FALSE, include=F}
 
 # determine output filename
-file_name <- file.path(dir, "02_scm", paste0("06_treated_schools_scpi_perm_", gsub(" ", "_", id_name), "_decrease_", decrease, ".csv"))
+file_name <- file.path(dir, "02_scm", "interim", paste0("06_treated_schools_scpi_perm_", gsub(" ", "_", id_name), "_decrease_", sprintf("%.2f", decrease), ".csv"))
 
 # read in results
 storegaps <- read.csv(file_name)
@@ -648,7 +648,7 @@ for (i in 1:length(info)) {
   cat("\n\n")
   
   # determine output filename
-  file_name <- file.path(dir, "02_scm", paste0(file_stem, "_", gsub(" ", "_", id_name), ".csv"))
+  file_name <- file.path(dir, "02_scm", "interim", paste0(file_stem, "_", gsub(" ", "_", id_name), ".csv"))
   
   # save output
   write.csv(df_out, file = file_name, row.names = FALSE)

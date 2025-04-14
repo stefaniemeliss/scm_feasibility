@@ -88,9 +88,12 @@ dir <- get_directory()
 dir_data <- file.path(dir, "data")
 dir_misc <- file.path(dir, "misc")
 
+# create interim folder
+dir.create(path = file.path(dir, "02_scm", "interim"))
+
 # get file stem name
-out_file <- paste0(get_file_stem(), "_out.csv")
-#if(file.exists(out_file)) file.remove(out_file)
+file_stem <- get_file_stem()
+out_file <- file.path(dir, "02_scm", "interim", paste0(file_stem, "_out.csv"))
 
 
 # copy data #

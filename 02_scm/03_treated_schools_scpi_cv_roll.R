@@ -75,7 +75,7 @@ file_stem <- get_file_stem()
 # process data establishments #
 
 # load in file with timeseries desc
-summary <- read.csv(file.path(dir, "02_scm",  "02_treated_schools_filter_donor_pool_out.csv"))
+summary <- read.csv(file.path(dir, "02_scm", "interim", "02_treated_schools_filter_donor_pool_out.csv"))
 
 # only select schools with sufficient donor pool
 summary <- subset(summary, n_pool >= 50)
@@ -221,7 +221,7 @@ for (i in 1:length(list_laestab_treated)) {
   param_grid$included <- NULL
   
   # determine output filename
-  file_name <- file.path(dir, "02_scm", paste0(file_stem, "_gridsearch_", gsub(" ", "_", id_name), ".csv"))
+  file_name <- file.path(dir, "02_scm", "interim", paste0(file_stem, "_gridsearch_", gsub(" ", "_", id_name), ".csv"))
   
   run_gridsearch <- T
   

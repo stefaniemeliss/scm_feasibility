@@ -84,6 +84,7 @@ get_directory()
 
 # get file stem name
 file_stem <- get_file_stem()
+out_file <- file.path(dir, "02_scm", "interim", paste0(file_stem, "_out.csv"))
 
 # process data establishments #
 
@@ -526,7 +527,6 @@ df_filt <- merge(df_region, df_filt, by = "laestab")
 df_filt$id_cont <- sapply(df_filt$id_cont, toString)
 
 # save information on regions and donor pool IDs
-out_file <- paste0(get_file_stem(), "_out.csv")
 write.csv(df_filt, out_file, row.names = F)
 # test <- read.csv(out_file)
 # test$id_cont <- lapply(strsplit(test$id_cont, ", "), as.numeric)

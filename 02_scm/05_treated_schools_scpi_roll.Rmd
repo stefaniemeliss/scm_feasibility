@@ -91,7 +91,7 @@ file_stem <- get_file_stem()
 # process data establishments #
 
 # load in file with timeseries desc
-summary <- read.csv(file.path(dir, "02_scm",  "02_treated_schools_filter_donor_pool_out.csv"))
+summary <- read.csv(file.path(dir, "02_scm", "interim",  "02_treated_schools_filter_donor_pool_out.csv"))
 
 # only select schools with sufficient donor pool
 summary <- subset(summary, n_pool >= 50)
@@ -356,7 +356,7 @@ scest.out <- scest(data = scdata.out,
 
 ```{r res, eval=FALSE, include=F}
 #### SC - evaluate results ####
-summarise_scest(scest.out, cv = F)
+summarise_scest(scest.out, id_treated = id_treated, id_name = id_name, cv = F)
 
 print(scplot(result = scest.out, plot.range = period.pre,
              label.xy = list(x.lab = "Start of academic year", y.lab = "Ratio of pupils to qualified teachers")))
@@ -459,7 +459,7 @@ cat("\n\n")
 
 ```{r res_cv, eval=FALSE, include=F}
 #### SC - evaluate results ####
-summarise_scest(scest.out, cv = T)
+summarise_scest(scest.out, id_treated = id_treated, id_name = id_name, cv = T)
 
 print(scplot(result = scest.out, plot.range = period.avail,
              label.xy = list(x.lab = "Start of academic year", y.lab = "Ratio of pupils to qualified teachers")))
@@ -669,7 +669,7 @@ if (!is.null(scest.out$data$C)) {
 ```{r placebo, eval=FALSE, include=F}
 
 # determine output filename
-file_name <- file.path(dir, "02_scm", paste0(file_stem, "_gaps_cv_", setting, "_", gsub(" ", "_", id_name), ".csv"))
+file_name <- file.path(dir, "02_scm", "interim", paste0(file_stem, "_gaps_cv_", setting, "_", gsub(" ", "_", id_name), ".csv"))
 
 if (run_placebo) {
   # store all schools in a vector

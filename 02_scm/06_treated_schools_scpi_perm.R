@@ -79,7 +79,7 @@ file_stem <- get_file_stem()
 # process data establishments #
 
 # load in file with timeseries desc
-summary <- read.csv(file.path(dir, "02_scm",  "02_treated_schools_filter_donor_pool_out.csv"))
+summary <- read.csv(file.path(dir, "02_scm", "interim", "02_treated_schools_filter_donor_pool_out.csv"))
 
 # only select schools with sufficient donor pool
 summary <- subset(summary, n_pool >= 50)
@@ -319,7 +319,7 @@ for (i in 1:length(info)) {
                     legend.title = element_blank()))
       
       # determine output filename
-      file_name <- file.path(dir, "02_scm", paste0(file_stem, "_" , gsub(" ", "_", id_name), "_simdata.csv"))
+      file_name <- file.path(dir, "02_scm", "interim", paste0(file_stem, "_" , gsub(" ", "_", id_name), "_simdata.csv"))
       # Save results
       write.csv(df_perm, file = file_name, row.names = F)
     }
@@ -337,7 +337,7 @@ for (i in 1:length(info)) {
     if (run_placebo) {
       
       # determine output filename
-      file_name <- file.path(dir, "02_scm", paste0(file_stem, "_" , gsub(" ", "_", id_name), "_decrease_", decrease, ".csv"))
+      file_name <- file.path(dir, "02_scm", "interim", paste0(file_stem, "_" , gsub(" ", "_", id_name), "_decrease_", sprintf("%.2f", decrease), ".csv"))
       
       # store all schools in a vector
       units <- unique(df_perm$laestab)
@@ -355,7 +355,7 @@ for (i in 1:length(info)) {
       for(i in 1:length(units)){
         
         unit <- units[i]
-        
+        message(i)
         unit.tr <- unit # looping through all units in donor pool
         unit.co <- unique(df$laestab[df$laestab != unit])
         

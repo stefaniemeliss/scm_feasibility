@@ -78,7 +78,7 @@ file_stem <- get_file_stem()
 # process data establishments #
 
 # load in file with timeseries desc
-summary <- read.csv(file.path(dir, "02_scm",  "02_treated_schools_filter_donor_pool_out.csv"))
+summary <- read.csv(file.path(dir, "02_scm", "interim", "02_treated_schools_filter_donor_pool_out.csv"))
 
 # only select schools with sufficient donor pool
 summary <- subset(summary, n_pool >= 50)
@@ -87,6 +87,7 @@ summary <- subset(summary, n_pool >= 50)
 list_laestab_treated <- unique(summary$laestab)
 # list_laestab_treated <- list_laestab_treated[1] # focus on St. Peters for now
 list_laestab_treated <- list_laestab_treated[c(1, 3, 4, 9)] # focus on St. Peters, Marchbank Primary, Manningham Academy and City for now
+list_laestab_treated <- list_laestab_treated[c(3, 4, 9)] # focus on St. Peters, Marchbank Primary, Manningham Academy and City for now
 
 # create df_region as reference
 df_region <- unique(summary[, c("laestab", "school", "same", "neighbouring")])
@@ -163,6 +164,7 @@ info <- list(
 
 # info <- info[c(4, 9)] # focus on Manningham Academy and City for now
 info <- info[c(1, 3, 4, 9)] # focus on St. Peters, Marchbank Primary, Manningham Academy and City for now
+info <- info[c(3, 4, 9)] # focus on St. Peters, Marchbank Primary, Manningham Academy and City for now
 
 
 ### Process data ###

@@ -100,7 +100,7 @@ file_stem <- get_file_stem()
 # process data establishments #
 
 # load in file with timeseries desc
-summary <- read.csv(file.path(dir, "02_scm",  "02_treated_schools_filter_donor_pool_out.csv"))
+summary <- read.csv(file.path(dir, "02_scm", "interim", "02_treated_schools_filter_donor_pool_out.csv"))
 
 # only select schools with sufficient donor pool
 summary <- subset(summary, n_pool >= 50)
@@ -195,7 +195,7 @@ cat("\n\n")  # Add some space between plots
 #### process data grid search ####
 
 # declare file name
-file_name <- file.path(getwd(), paste0("03_treated_schools_scpi_cv_gridsearch_", gsub(" ", "_", id_name), ".csv"))
+file_name <- file.path(dir, "02_scm", "interim", paste0("03_treated_schools_scpi_cv_gridsearch_", gsub(" ", "_", id_name), ".csv"))
 
 # read in results
 results <- read.csv(file_name)
