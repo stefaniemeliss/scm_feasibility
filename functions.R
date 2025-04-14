@@ -14,94 +14,54 @@ insert_slash <- function(number) {
 
 process_data_scm <- function(id_treated = "id_treated", 
                              dv = "pupil_to_qual_teacher_ratio",
-                             var1 = "fte_avg_age",
-                             var2 = "pnpupfsm_e",
+                             var_teach = "fte_avg_age",
+                             var_pup = "pnpupfsm_e",
                              regions = NULL,
-                             copy_files = F,
-                             read_files = F,
-                             export_data.tables = F
+                             swf_filter = NULL, pup_filter = NULL
 ){
   
   # This is a data pre-processing function for later synthetic control method (SCM) analysis using [id_treated] as the treated school.
   # The script copies and loads data files, processes data for treated and control schools
   # to create outcome and predictor time series.
   
+  # ---- Determine available years ----
   
-  #### SETUP ####
+  # Filter School Workforce (SWF) data to create outcome dataset with selected variables
+  z <- swf %>%
+    filter(laestab %in% id_treated)
   
-  # Define directories based on the current working directory
-  dir <- normalizePath(dir, winslash = "/")
-  dir_data <- file.path(dir, "data")
-  dir_misc <- file.path(dir, "misc")
-  
-  # Export the root and subdirectory to the global environment
-  assign("dir_data", dir_data, envir = .GlobalEnv)
-  assign("dir_misc", dir_misc, envir = .GlobalEnv)
-  
-  if(copy_files){
-    
-    # Copy data files from the source directory to the target directory
-    file.copy(
-      file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_swf.csv"),
-      dir_data,
-      overwrite = TRUE
-    )
-    file.copy(
-      file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_pupils.csv"),
-      dir_data,
-      overwrite = TRUE
-    )
-    file.copy(
-      file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_establishments_search.csv"),
-      dir_data,
-      overwrite = TRUE
-    )
+  # Apply additional filter to SWF data if provided
+  if (!is.null(swf_filter)) {
+    z <- z %>% filter(!!rlang::parse_expr(swf_filter))
   }
   
-  if (read_files) {
-    # Load data from CSV files into data tables
-    swf <- fread(file = file.path(dir_data, "data_swf.csv"))
-    pup <- fread(file = file.path(dir_data, "data_pupils.csv"))
-    est <- fread(file = file.path(dir_data, "data_establishments_search.csv"), na.strings = "")
+  z <- z %>% select(time_period, laestab, !!sym(dv), !!sym(var_teach))
+  
+  # Filter pupil data to create predictor dataset with selected variables
+  x <- pup %>% 
+    filter(laestab %in% id_treated)
+  
+  # Apply additional filter to pupil data if provided
+  if (!is.null(pup_filter)) {
+    x <- x %>% filter(!!rlang::parse_expr(pup_filter))
   }
   
+  x <- x %>% select(time_period, laestab, !!sym(var_pup))
   
-  #### DETERMINE AVAILABLE TIMESERIES DATA ####
+  # Determine available timeseries data for id_treated
+  data_avail <- full_join(z, x) %>%
+    na.omit() %>%
+    pull(time_period) %>%
+    unique() %>%
+    sort()
   
-  # Identify years for which there are observations for treated school
-  data_avail_dv <- swf %>%
-    filter(!is.na(get(dv))) %>%
-    filter(laestab == id_treated) %>%
-    select(time_period, laestab, paste(dv)) %>%
-    distinct(time_period) %>%
-    pull(time_period)
+  # ---- Dataset creation: all ----
   
-  # Identify years for which there are observations for treated school
-  data_avail_age <- swf %>%
-    filter(!is.na(get(var1))) %>%
-    filter(laestab == id_treated) %>%
-    select(time_period, laestab, paste(var1)) %>%
-    distinct(time_period) %>%
-    pull(time_period)
-  
-  # Identify years for which there are observations for treated school
-  data_avail_fsm <- pup %>%
-    filter(!is.na(get(var2))) %>%
-    filter(laestab == id_treated) %>%
-    select(time_period, laestab, paste(var2)) %>%
-    distinct(time_period) %>%
-    pull(time_period)
-  
-  # combine, excluding duplicates
-  data_avail <- intersect(data_avail_dv, intersect(data_avail_age, data_avail_fsm))
-  
-  
-  #### PROCESS DATA FOR ESTABLISHMENTS ####
+  # Process establishment data to get list_laestab #
   
   # Get data for the treated school based on the ID
   est_treated <- est %>%
-    filter(laestab == id_treated) %>%
-    mutate(status = "treated") %>%
+    filter(laestab %in% id_treated) %>%
     as.data.frame()
   
   # overwrite region with default if not previously specified
@@ -114,6 +74,7 @@ process_data_scm <- function(id_treated = "id_treated",
     est_cont <- est %>%
       tidyr::replace_na(list(admissionspolicy_name = "unknown", boarders_name = "unknown")) %>% 
       filter(
+        grepl("Open", establishmentstatus_name),
         !laestab %in% list_laestab_exclude,
         phaseofeducation_name %in% unique(c(est_treated$phaseofeducation_name)),
         gor_name %in% regions,
@@ -121,12 +82,12 @@ process_data_scm <- function(id_treated = "id_treated",
         ! grepl("Boarding school", boarders_name),
         admissionspolicy_name != "Selective"
       ) %>%
-      mutate(status = "untreated") %>%
       as.data.frame()
   } else {
     est_cont <- est %>%
       tidyr::replace_na(list(admissionspolicy_name = "unknown", boarders_name = "unknown")) %>% 
       filter(
+        grepl("Open", establishmentstatus_name),
         laestab != id_treated,
         phaseofeducation_name %in% unique(c(est_treated$phaseofeducation_name)),
         gor_name %in% regions,
@@ -134,114 +95,149 @@ process_data_scm <- function(id_treated = "id_treated",
         ! grepl("Boarding school", boarders_name),
         admissionspolicy_name != "Selective"
       ) %>%
-      mutate(status = "untreated") %>%
       as.data.frame()
   }
   
   # Save unique lists of laestab and urn
   list_laestab <- c(unique(est_cont[, "laestab"]), unique(est_treated[, "laestab"]))
   
-  #### CREATE OUTCOME DATASET ####
   
-  # Filter SWF data to create outcome dataset
-  z <- swf[laestab %in% list_laestab & time_period %in% data_avail]
+  # Filter School Workforce (SWF) data to create outcome dataset with selected variables
+  z <- swf %>%
+    filter(laestab %in% list_laestab & time_period %in% data_avail)
   
-  # Remove rows for years for which the treated school has no data, 
-  # rows with NA for the dependent variable and age predictor 
-  # and add observation count and count of outliers per school
-  z <- z %>%
-    select(time_period, laestab, school, pupil_to_qual_teacher_ratio, pupil_to_qual_unqual_teacher_ratio, fte_avg_age) %>%
-    filter(!is.na(get(dv))) %>%
+  # Apply additional filter to SWF data if provided
+  if (!is.null(swf_filter)) {
+    z <- z %>% filter(!!rlang::parse_expr(swf_filter))
+  }
+  
+  z <- z %>% select(time_period, laestab, !!sym(dv), !!sym(var_teach))
+  
+  # Filter pupil data to create predictor dataset with selected variables
+  x <- pup %>% 
+    filter(laestab %in% list_laestab & time_period %in% data_avail)
+  
+  # Apply additional filter to pupil data if provided
+  if (!is.null(pup_filter)) {
+    x <- x %>% filter(!!rlang::parse_expr(pup_filter))
+  }
+  
+  x <- x %>% select(time_period, laestab, !!sym(var_pup))
+  
+  # Combine outcome and predictor datasets
+  df <- merge(z, x, all = T, by = c("laestab", "time_period"))
+  
+  # Remove any rows with missing values
+  # This creates complete obs for all vars
+  df <- na.omit(df)
+  list_laestab <- unique(df$laestab)
+  
+  
+  # merge with a scaffold so that timeseries is complete again
+  df <- merge(expand.grid(laestab = list_laestab,
+                          time_period = data_avail), 
+              df, all = T)
+  
+  # Add MAT information to the dataset
+  # Create lookup table with relevant group information (avoiding duplicates)
+  lookup <- est[grepl("Open", establishmentstatus_name) & laestab %in% list_laestab, c("laestab", "establishmentname", "gor_name", "phaseofeducation_name")]
+  lookup <- lookup[!duplicated(lookup), ]
+  df <- merge(df, lookup, by = "laestab", all.x = T)
+  
+  # ---- Longitudinal data filtering ----
+  
+  # Remove any NA years at the beginning of the timeseries
+  # Create a cumulative sum of non-NA values starting from the first non-NA value encountered.
+  # cum_non_na remain zero as long as the values are NAs
+  df <- df %>%
     group_by(laestab) %>%
-    mutate(
-      obs_count_dv = sum(!is.na(get(dv))),
-      obs_count_var1 = sum(!is.na(get(var1))),
-      count_outliers_dv = sum(is_outlier_3sd(get(dv))),
-      count_outliers_var1 = sum(is_outlier_3sd(get(var1)))
-    ) %>%
+    # sort ascending by timeseries - BEGINNING
+    arrange(time_period) %>%
+    mutate(cum_non_na_start = cumsum(!is.na(!!sym(dv)))) %>%
+    filter(cum_non_na_start > 0) %>%
+    select(-cum_non_na_start) %>%
     ungroup() %>%
-    as.data.frame()
+    arrange(laestab, time_period)
   
-  # Filter for rows where observation count matches the treated ID and select columns
-  z <- z %>%
-    # Filter for rows where observation count matches the treated ID and select columns
-    filter(obs_count_dv == unique(z$obs_count_dv[z$laestab == id_treated])) %>%
-    filter(obs_count_var1 == unique(z$obs_count_var1[z$laestab == id_treated])) %>%
-    # Remove any schools that have an outlier within their timeseries
-    filter(count_outliers_dv == 0) %>%
-    filter(count_outliers_var1 == 0) %>%
-    select(time_period, laestab, school, pupil_to_qual_teacher_ratio, pupil_to_qual_unqual_teacher_ratio, fte_avg_age) %>%
+  # Identify schools that do not have gaps at the end of the timeseries
+  list_laestab <- df %>%
     group_by(laestab) %>%
-    arrange(laestab, desc(time_period)) %>%
-    mutate(school = first(school)) %>%
-    ungroup() %>%
-    as.data.frame()
-  
-  # Update list of laestab numbers based on the dependent dviable
-  check <- z %>% group_by(laestab) %>% summarise(n = n()) # identify estabs with more than 1 idaci decile (school has moved locations)
-  id_remove <- check$laestab[check$n != check$n[check$laestab == id_treated]] # identify estab numbers
-  list_laestab_dv <- unique(z$laestab)
-  list_laestab_dv <- setdiff(list_laestab_dv, id_remove)# update list_laestab_dv to exclude the ids that should be removed
-  rm(check)
-  
-  #### CREATE PREDICTOR DATASET ####
-  
-  # Filter SWF data to create outcome dataset
-  x <- pup[laestab %in% list_laestab_dv & time_period %in% data_avail]
-  
-  # Remove rows for years for which the treated school has no data, 
-  # rows with NA for the dependent variable and age predictor 
-  # and add observation count
-  x <- x %>%
-    filter(!is.na(get(var2))) %>%
-    group_by(laestab) %>%
-    mutate(
-      obs_count_var2 = sum(!is.na(get(var2))),
-      count_outliers_var2 = sum(is_outlier_3sd(get(var2)))
+    # sort ascending by timeseries - END
+    arrange(desc(time_period)) %>%
+    mutate(cum_non_na_end = cumsum(!is.na(!!sym(dv)))) %>%
+    # check if there are any per laestab
+    summarise(
+      n = n(),
+      cum_non_na_end = sum(cum_non_na_end > 0)
     ) %>%
-    ungroup()
+    # remove if so
+    filter(n == cum_non_na_end) %>%
+    pull(laestab) %>%
+    unique()
   
-  # Filter for rows where observation count matches the treated ID and select columns
-  x <- x %>%
-    filter(obs_count_var2 == unique(x$obs_count_var2[x$laestab == id_treated])) %>%
-    filter(count_outliers_var2 == 0) %>%
-    select(time_period, laestab, urn, pnpupfsm_e) %>%
-    arrange(laestab, desc(time_period)) %>%
-    as.data.frame()
+  # Remove any schools with gaps in their timeseries (i.e., NA in the middle of their data)
+  df <- df %>%
+    filter(laestab %in% list_laestab) %>%
+    group_by(laestab) %>%
+    mutate(na = sum(is.na(!!sym(dv)))) %>%
+    ungroup() %>%
+    filter(na == 0) %>%
+    select(-na)
   
-  #### COMBINE OUTCOME AND PREDICTOR ####
+  # Only keep schools with as many observations as there are in the treated school
+  df <- df %>% 
+    group_by(laestab) %>%
+    mutate(n_obs = sum(!is.na(get(dv)))) %>%
+    ungroup() %>%
+    filter(n_obs >= length(data_avail)) %>%
+    select(-n_obs)
   
-  df <- merge(z, x, by = c("laestab", "time_period"))
+  # Update list of schools to include only those that don't have any missing values in the middle or at the end
+  list_laestab <- unique(df$laestab)
+  
+  vars <- c(dv, var_teach, var_pup)
+  vars_out <- paste0(vars, "_out_count")
   
   df_treat <- df %>%
     filter(laestab == id_treated)
   
-  # Remove outliers from donor pool
+  # Remove within-school timeseries outliers from donor pool
+  list_laestab <- df %>%
+    filter(laestab != id_treated) %>%
+    group_by(laestab) %>%
+    summarise(
+      across(all_of(vars), ~ sum(is_outlier_3sd(.x)), .names = "{col}_out_count")
+    ) %>%
+    filter(if_all(all_of(vars_out), ~ .x == 0)) %>%
+    pull(laestab) %>%
+    unique()
+  
+  # Apply to df
   df_donor <- df %>%
+    filter(laestab %in% c(list_laestab))
+  
+  
+  # Remove across-school timeseries outliers from donor pool
+  list_laestab <- df_donor %>%
     filter(laestab != id_treated) %>%
     mutate(
-      outlier_dv = is_outlier_3sd(get(dv)),
-      outlier_var1 = is_outlier_3sd(get(var1)),
-      outlier_var2 = is_outlier_3sd(get(var2))
+      across(all_of(vars), ~ is_outlier_3sd(.x), .names = "{col}_out_count")
     ) %>%
     group_by(laestab) %>%
-    mutate(
-      count_outliers_dv = sum(outlier_dv),
-      count_outliers_var1 = sum(outlier_var1),
-      count_outliers_var2 = sum(outlier_var2)
+    summarise(
+      across(all_of(vars_out), ~ sum(.x))
     ) %>%
-    ungroup() %>%
-    # Remove any schools that have an outlier within their timeseries
-    filter(count_outliers_dv == 0) %>%
-    filter(count_outliers_var1 == 0) %>%
-    filter(count_outliers_var2 == 0) %>%
-    select(-outlier_dv, -outlier_var1, -outlier_var2, -count_outliers_dv, -count_outliers_var1, -count_outliers_var2) %>%
-    as.data.frame()
+    filter(if_all(all_of(vars_out), ~ .x == 0)) %>%
+    pull(laestab) %>%
+    unique()
+  
+  # apply
+  df_donor <- df %>%
+    filter(laestab %in% list_laestab)
   
   # arrange data
   df <- df_treat %>%
     bind_rows(df_donor) %>%
-    relocate(urn, .after = laestab) %>%
     arrange(laestab, time_period) %>%
     mutate(
       # # change name to include laestab to navigate duplicates
@@ -253,8 +249,10 @@ process_data_scm <- function(id_treated = "id_treated",
     ) %>%
     as.data.frame()
   
+  list_laestab <- unique(df$laestab)
+  
   # export school name
-  id_name <- unique(df$school[df$laestab == id_treated])
+  id_name <- unique(df$establishmentname[df$laestab == id_treated])
   assign("id_name", id_name, envir = .GlobalEnv)
   
   # save information about school to environment
@@ -264,15 +262,14 @@ process_data_scm <- function(id_treated = "id_treated",
   }
   assign("est_treated", est_treated, envir = .GlobalEnv)
   
+  # export other values
+  assign("dv", dv, envir = .GlobalEnv)  
+  assign("var_teach", var_teach, envir = .GlobalEnv)  
+  assign("var_pup", var_pup, envir = .GlobalEnv)    
+  assign("vars", vars, envir = .GlobalEnv)    
+  
   # clean up a little
   gc()
-  
-  if(export_data.tables){
-    assign("swf", swf, envir = .GlobalEnv)
-    assign("pup", pup, envir = .GlobalEnv)
-    assign("est", est, envir = .GlobalEnv)
-    
-  }
   
   return(df)
 }
