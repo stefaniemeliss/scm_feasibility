@@ -23,7 +23,13 @@ source_code <- function(root_dir_name = "code", target_repo = "helper_functions"
   
   # attempt to download from github
   tempp_file <- tempfile(fileext = ".R")
-  message <- curl::curl_download(git_url, tempp_file, quiet = F)
+  
+  # run processing with the parameters
+  message <- tryCatch({
+    curl::curl_download(git_url, tempp_file, quiet = F)
+  }, error = function(e) {
+    return(error = paste("Error in curl::curl_download:", e$message))
+  })
   
   if(!grepl("Error", message)) {
     
