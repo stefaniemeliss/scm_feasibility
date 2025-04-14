@@ -864,86 +864,86 @@ x_mid = eval(parse(text = years))[ceiling((length(eval(parse(text = years)))+3)/
 for(phase_filter in sort(unique(df_long$phase))){
   
   tmp <- df_plot[df_plot$phase == phase_filter,]
-
-plt <- ggplot() +
-  geom_vline(xintercept = xintercept1, linetype = "dotted") +
-  geom_vline(xintercept = xintercept2, linetype = "dotted") +
-  geom_label(data = tmp[tmp$cross.val == F, ],
-             aes(x = x_mid, y = 25.5, label = paste0("it ", it,": ", n_pool, "|", n_active), fill = check), hjust = 0.5, vjust = 0.5, show.legend = F) +
-  geom_line(data = tmp, aes(x = time_period, y = actual, col = paste(id_group))) +
-  geom_line(data = tmp[tmp$cross.val == T, ], aes(x = time_period, y = synthetic, col = "Synthetic MAT CV")) +
-  geom_line(data = tmp[tmp$cross.val == F, ], aes(x = time_period, y = synthetic, col = "Synthetic MAT")) +
-  ggh4x::facet_grid2(cols = vars(phase, min.schools.per.timeperiod, min.schools.per.mat), rows = vars(feat_dv, adj), strip = ggh4x::strip_nested()) +
-  ambition_theme +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1),
-        legend.title = element_blank(),
-        strip.text = element_text(size = 10),
-        legend.text = element_text(size = 10),
-        axis.title = element_text(size = 10),
-        axis.text = element_text(size = 10),
-        plot.caption = element_text(size = 10),
-        legend.margin=margin(t = -8)) +
-  coord_cartesian(ylim = c(12, 26)) +
-  ylab("Ratio of pupils to qualified teachers") + xlab("Academic year") +
-  scale_x_continuous(breaks = lookup$time_period[seq(1, length(lookup$time_period), 2)], labels = lookup$time_period_str[seq(1, length(lookup$time_period_str), 2)]) +
-  scale_color_manual(breaks = c(id_group, "Synthetic MAT CV", "Synthetic MAT"), values = cols) +
-  scale_fill_manual(values= c("TRUE" = navy40, "FALSE" = white))
-suppressWarnings(print(plt))
+  
+  plt <- ggplot() +
+    geom_vline(xintercept = xintercept1, linetype = "dotted") +
+    geom_vline(xintercept = xintercept2, linetype = "dotted") +
+    geom_label(data = tmp[tmp$cross.val == F, ],
+               aes(x = x_mid, y = 25.5, label = paste0("it ", it,": ", n_pool, "|", n_active), fill = check), hjust = 0.5, vjust = 0.5, show.legend = F) +
+    geom_line(data = tmp, aes(x = time_period, y = actual, col = paste(id_group))) +
+    geom_line(data = tmp[tmp$cross.val == T, ], aes(x = time_period, y = synthetic, col = "Synthetic MAT CV")) +
+    geom_line(data = tmp[tmp$cross.val == F, ], aes(x = time_period, y = synthetic, col = "Synthetic MAT")) +
+    ggh4x::facet_grid2(cols = vars(phase, min.schools.per.timeperiod, min.schools.per.mat), rows = vars(feat_dv, adj), strip = ggh4x::strip_nested()) +
+    ambition_theme +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          legend.title = element_blank(),
+          strip.text = element_text(size = 10),
+          legend.text = element_text(size = 10),
+          axis.title = element_text(size = 10),
+          axis.text = element_text(size = 10),
+          plot.caption = element_text(size = 10),
+          legend.margin=margin(t = -8)) +
+    coord_cartesian(ylim = c(12, 26)) +
+    ylab("Ratio of pupils to qualified teachers") + xlab("Academic year") +
+    scale_x_continuous(breaks = lookup$time_period[seq(1, length(lookup$time_period), 2)], labels = lookup$time_period_str[seq(1, length(lookup$time_period_str), 2)]) +
+    scale_color_manual(breaks = c(id_group, "Synthetic MAT CV", "Synthetic MAT"), values = cols) +
+    scale_fill_manual(values= c("TRUE" = navy40, "FALSE" = white))
+  suppressWarnings(print(plt))
   
   
-plt <- ggplot() +
-  geom_vline(xintercept = xintercept1, linetype = "dotted") +
-  geom_vline(xintercept = xintercept2, linetype = "dotted") +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  geom_label(data = tmp[tmp$cross.val == F, ],
-             aes(x = x_mid, y = 4.5, label = paste0("it ", it,": ", n_pool, "|", n_active), fill = check), hjust = 0.5, vjust = 0.5, show.legend = F) +
-  geom_line(data = tmp[tmp$cross.val == T, ], aes(x = time_period, y = gap, col = "Synthetic MAT CV")) +
-  geom_line(data = tmp[tmp$cross.val == F, ], aes(x = time_period, y = gap, col = "Synthetic MAT")) +
-  ggh4x::facet_grid2(cols = vars(phase, min.schools.per.timeperiod, min.schools.per.mat), rows = vars(feat_dv, adj), strip = ggh4x::strip_nested()) +
-  ambition_theme +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1),
-        legend.title = element_blank(),
-        strip.text = element_text(size = 10),
-        legend.text = element_text(size = 10),
-        axis.title = element_text(size = 10),
-        axis.text = element_text(size = 10),
-        plot.caption = element_text(size = 10),
-        legend.margin=margin(t = -8)) +
-  coord_cartesian(ylim = c(-5, 5)) +
-  ylab("Gap in ratio of pupils to qualified teachers") + xlab("Academic year") +
-  scale_x_continuous(breaks = lookup$time_period[seq(1, length(lookup$time_period), 2)], labels = lookup$time_period_str[seq(1, length(lookup$time_period_str), 2)]) +
-  scale_color_manual(breaks = c(id_group, "Synthetic MAT CV", "Synthetic MAT"), values = cols) +
-  scale_fill_manual(values= c("TRUE" = navy40, "FALSE" = white))
-suppressWarnings(print(plt))
+  plt <- ggplot() +
+    geom_vline(xintercept = xintercept1, linetype = "dotted") +
+    geom_vline(xintercept = xintercept2, linetype = "dotted") +
+    geom_hline(yintercept = 0, linetype = "dashed") +
+    geom_label(data = tmp[tmp$cross.val == F, ],
+               aes(x = x_mid, y = 4.5, label = paste0("it ", it,": ", n_pool, "|", n_active), fill = check), hjust = 0.5, vjust = 0.5, show.legend = F) +
+    geom_line(data = tmp[tmp$cross.val == T, ], aes(x = time_period, y = gap, col = "Synthetic MAT CV")) +
+    geom_line(data = tmp[tmp$cross.val == F, ], aes(x = time_period, y = gap, col = "Synthetic MAT")) +
+    ggh4x::facet_grid2(cols = vars(phase, min.schools.per.timeperiod, min.schools.per.mat), rows = vars(feat_dv, adj), strip = ggh4x::strip_nested()) +
+    ambition_theme +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          legend.title = element_blank(),
+          strip.text = element_text(size = 10),
+          legend.text = element_text(size = 10),
+          axis.title = element_text(size = 10),
+          axis.text = element_text(size = 10),
+          plot.caption = element_text(size = 10),
+          legend.margin=margin(t = -8)) +
+    coord_cartesian(ylim = c(-5, 5)) +
+    ylab("Gap in ratio of pupils to qualified teachers") + xlab("Academic year") +
+    scale_x_continuous(breaks = lookup$time_period[seq(1, length(lookup$time_period), 2)], labels = lookup$time_period_str[seq(1, length(lookup$time_period_str), 2)]) +
+    scale_color_manual(breaks = c(id_group, "Synthetic MAT CV", "Synthetic MAT"), values = cols) +
+    scale_fill_manual(values= c("TRUE" = navy40, "FALSE" = white))
+  suppressWarnings(print(plt))
   
-
-
-# show promising combinations
-tmpp <- tmp %>%
-  # filter by sd: all rmspe below sd
-  #filter(check) %>%
-  # prepare for printing
-  filter(min_year == as.numeric(year) & 
-           time_period == 2015 &
-           method == "simplex" &
-           !error & 
-           !cross.val) %>%
-  select(c(check, it, feat_dv, adj, phase, min.schools.per.timeperiod, min.schools.per.mat,
-           n_pool, n_active, rmspe_all, rmspe_T, rmspe_V, ratio, m_gap, sd_gap, min_gap, max_gap)) %>%
-  arrange(feat_dv, adj, phase, min.schools.per.timeperiod, min.schools.per.mat) %>%
-  rename("S/Y" = min.schools.per.timeperiod, "S/M" = min.schools.per.mat)
-
-row_idx <- which(tmpp$check == T)
+  
+  
+  # show promising combinations
+  tmpp <- tmp %>%
+    # filter by sd: all rmspe below sd
+    #filter(check) %>%
+    # prepare for printing
+    filter(min_year == as.numeric(year) & 
+             time_period == 2015 &
+             method == "simplex" &
+             !error & 
+             !cross.val) %>%
+    select(c(check, it, feat_dv, adj, phase, min.schools.per.timeperiod, min.schools.per.mat,
+             n_pool, n_active, rmspe_all, rmspe_T, rmspe_V, ratio, m_gap, sd_gap, min_gap, max_gap)) %>%
+    arrange(feat_dv, adj, phase, min.schools.per.timeperiod, min.schools.per.mat) %>%
+    rename("S/Y" = min.schools.per.timeperiod, "S/M" = min.schools.per.mat)
+  
+  row_idx <- which(tmpp$check == T)
   # print #
-kbl(tmpp, row.names = F, digits = 3) %>%
-  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
-  footnote(paste0("The pre-treatment period has an SD = ", round(unique(na.exclude(results_fit$sd_treated[results_fit$min_year == year & !results_fit$cross.val])), 3), ".")) %>%
-  column_spec(c(1,2), bold = T) %>%
-  column_spec(c(2), border_right =  T) %>%
-  row_spec(row_idx, bold = T) %>%
-  print()
-cat("\n\n")
-
+  kbl(tmpp, row.names = F, digits = 3) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
+    footnote(paste0("The pre-treatment period has an SD = ", round(unique(na.exclude(results_fit$sd_treated[results_fit$min_year == year & !results_fit$cross.val])), 3), ".")) %>%
+    column_spec(c(1,2), bold = T) %>%
+    column_spec(c(2), border_right =  T) %>%
+    row_spec(row_idx, bold = T) %>%
+    print()
+  cat("\n\n")
+  
 }
 
 ```
