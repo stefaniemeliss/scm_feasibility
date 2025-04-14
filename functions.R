@@ -1276,26 +1276,38 @@ process_data_scm_mat <- function(uid_treated, target_regions, filter_phase = c("
   
   # ---- Longitudinal data filtering ----
   
-  # Remove any NA years at the beginning and at the end of the timeseries
+  # Remove any NA years at the beginning of the timeseries
   # Create a cumulative sum of non-NA values starting from the first non-NA value encountered.
-  # cum_non_na remain zero as long as the values are NAs (i.e., at the beginning/end of the timeseries due to arrange)
+  # cum_non_na remain zero as long as the values are NAs
   df <- df %>%
     group_by(laestab) %>%
     # sort ascending by timeseries - BEGINNING
     arrange(time_period) %>%
-    mutate(cum_non_na = cumsum(!is.na(!!sym(dv)))) %>%
-    filter(cum_non_na > 0) %>%
-    select(-cum_non_na) %>%
-    # sort ascending by timeseries - END
-    arrange(desc(time_period)) %>%
-    mutate(cum_non_na = cumsum(!is.na(!!sym(dv)))) %>%
-    filter(cum_non_na > 0) %>%
-    select(-cum_non_na) %>%
+    mutate(cum_non_na_start = cumsum(!is.na(!!sym(dv)))) %>%
+    filter(cum_non_na_start > 0) %>%
+    select(-cum_non_na_start) %>%
     ungroup() %>%
     arrange(laestab, time_period)
   
+  # Identify schools that do not have gaps at the end of the timeseries
+  list_laestab <- df %>%
+    group_by(laestab) %>%
+    # sort ascending by timeseries - END
+    arrange(desc(time_period)) %>%
+    mutate(cum_non_na_end = cumsum(!is.na(!!sym(dv)))) %>%
+    # check if there are any per laestab
+    summarise(
+      n = n(),
+      cum_non_na_end = sum(cum_non_na_end > 0)
+    ) %>%
+    # remove if so
+    filter(n == cum_non_na_end) %>%
+    pull(laestab) %>%
+    unique()
+  
   # Remove any schools with gaps in their timeseries (i.e., NA in the middle of their data)
   df <- df %>%
+    filter(laestab %in% laestab) %>%
     group_by(laestab) %>%
     mutate(na = sum(is.na(!!sym(dv)))) %>%
     ungroup() %>%
