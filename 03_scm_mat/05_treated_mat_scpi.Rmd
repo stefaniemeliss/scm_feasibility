@@ -24,7 +24,6 @@ library(dplyr)
 library(data.table)
 library(ggplot2)
 library(scpi)
-library(lme4)
 
 # create function to source code
 source_code <- function(root_dir_name = "code", target_repo = "helper_functions", branch = "main", file_name = "file.R") {
@@ -232,86 +231,34 @@ cat("\n\n")  # Add some space between plots
 ```{r est, eval=FALSE, include=F}
 ### ---- prepare data ---- ###
 
+# load in simulated data #
+# determine input filename
+file_name <- file.path(dir, "03_scm_mat", "interim", paste0("06_treated_mat_simulate_data_", tolower(phase), "_it_", sprintf("%03d", ii), ".csv"))
 
-if(simulate_data){
-  
-  # simulate data using linear projection for the next three years #
-  
-  # transform data structure
-  df$laestab_f <- factor(df$laestab)
-  df$time_centered <- df$time_period - min(df$time_period)
-  
-  # add LA to data
-  df$la <- as.factor(substr(df$laestab, 1, 3))
-  
-  # Fit model
-  # Different baseline levels for each laestab (school)
-  # Different rates of change over time for each la (local authority)
-  m1 <- lmer(pupil_to_qual_teacher_ratio ~ 
-               time_centered + # fixed effect for time_period
-               (1 | laestab_f) + # random intercept for laestab with (1 | laestab)
-               (0 + time_centered | la), # random slope for time_period grouped by la
-             data = df[df$time_period %in% c(2021, 2022, 2023), ])
-  
-  # Generate the prediction data frame for the next three academic years
-  simulated_data <- expand.grid(
-    laestab = unique(df$laestab),
-    time_period = c(2024, 2025, 2026)  # Representing 2024/25, 2025/26, 2026/27
-  )
-  
-  simulated_data$laestab_f <- factor(simulated_data$laestab)
-  simulated_data$la <- as.factor(substr(simulated_data$laestab, 1, 3))
-  simulated_data$time_centered <- simulated_data$time_period - min(df$time_period)
-  simulated_data$time_period_str <- case_match(simulated_data$time_period,
-                                               2024 ~ "2024/25",
-                                               2025 ~ "2025/26",
-                                               2026 ~ "2026/27")
-  
-  # Generate *simulations* conditioned on all random effects with noise
-  simulations <- simulate(m1, nsim = 1, seed = 202324,
-                          newdata = simulated_data, 
-                          re.form = NULL, allow.new.levels = FALSE)
-  
-  # Add predictions to the data frame
-  # simulated_data$pred <- predictions
-  simulated_data$pupil_to_qual_teacher_ratio <- simulations$sim_1
-  
-  # Combine data
-  df_sim <- bind_rows(df, simulated_data) %>%
-    # group by schools
-    group_by(laestab) %>%
-    arrange(time_period) %>%
-    mutate(
-      # fill missing values: observations to be carried forward
-      across(c(establishmentname, group_uid, group_name, gor_name, phaseofeducation_name, status),
-             ~zoo::na.locf(., na.rm = FALSE, fromLast = FALSE)))  %>%
-    ungroup() %>%
-    arrange(laestab, time_period) %>%
-    as.data.frame()
-  
-  # compute MAT level average
-  df_avg <- df_sim %>% 
-    group_by(group_uid, time_period)  %>%
-    summarise(
-      !!sym(dv) := mean(!!sym(dv)),
-      !!sym(var_teach) := mean(!!sym(var_teach)),
-      !!sym(var_pup) := mean(!!sym(var_pup)),
-      n = n(), .groups = "drop"
-    ) %>% 
-    ungroup() %>%
-    left_join(unique(df_sim[, c("time_period", "time_period_str")]), .) %>%
-    mutate(status = ifelse(group_uid == uid_treated, id_group, "Donor MATs")) %>%
-    arrange(group_uid, time_period)
-  
-  
-  
-}
+# read in results
+df_sim_raw <- read.csv(file_name)
+lookup <- unique(df_sim_raw[, c("time_period", "time_period_str")])
 
 
-
-# Define timeseries
-period.avail <- sort(unique(df_avg$time_period))
-period.pre <- setdiff(period.avail, period.post) # Pre-treatment period
+# compute MAT level average
+# df_avg <- df_sim_int %>% # APPLY EFFECTS AT SCHOOL LEVEL
+df_avg_raw <- df_sim_raw %>% # APPLY EFFECTS AT MAT LEVEL
+  group_by(group_uid, time_period)  %>%
+  summarise(
+    !!sym(dv) := mean(!!sym(dv)),
+    !!sym(var_teach) := mean(!!sym(var_teach)),
+    !!sym(var_pup) := mean(!!sym(var_pup)),
+    sim = mean(sim_1),
+    n = n(), .groups = "drop"
+  ) %>% 
+  ungroup() %>%
+  left_join(lookup, .) %>%
+  mutate(
+    status = ifelse(group_uid == uid_treated, id_group, "Donor MATs"),
+    !!sym(dv) := ifelse(is.na(!!sym(dv)), sim, !!sym(dv))
+    ) %>%
+  arrange(group_uid, time_period) %>%
+  as.data.frame()
 
 # determine ids of control schools
 id_cont <- unique(MATs$group_uid[MATs$group_uid != uid_treated])
@@ -327,9 +274,13 @@ if(!is.na(params$cov.adj)){
   cov.adj <- NULL
 }
 
+# Define timeseries
+period.avail <- sort(unique(df$time_period))
+period.pre <- setdiff(period.avail, period.post) # Pre-treatment period
+
 ####################################
 ### Data preparation
-scdata.out <- scdata(df = df_avg, 
+scdata.out <- scdata(df = df_avg_raw, 
                      id.var = id.var, 
                      time.var = time.var,
                      outcome.var = outcome.var,
@@ -651,127 +602,11 @@ if (!is.null(scest.out$data$C)) {
 
 ```
 
-```{r res_sim, eval=FALSE, include=F}
-#### SC - evaluate results ####
-summarise_scest(scest.out, id_treated = uid_treated, id_name = id_group, cv = T)
-
-print(scplot(result = scest.out, plot.range = period.avail,
-             label.xy = list(x.lab = "Start of academic year", y.lab = "Ratio of pupils to qualified teachers")))
-cat("\n\n")
-#### EXTRACT DATA #####
-
-# Access and examine the raw features for the treated unit (A)
-# Each row represents a different feature-year combination for the treated unit.
-treated_features <- scest.out$data$A
-
-# Access and examine the raw features for the control units (B)
-# Each row represents a different feature-year combination for the control units, and each column represents a different control unit.
-control_features <- scest.out$data$B
-
-# Access and examine the synthetic control weights (w)
-# Each element represents the weight assigned to a corresponding control unit in constructing the synthetic control.
-weights <- scest.out$est.results$w
-
-# Compute the synthetic control's pre-treatment feature values
-synthetic_features_raw <- control_features %*% weights # this is a hypothetical scenario where we only take the weights into consideration
-
-# Compare the treated and synthetic control feature values
-comparison_raw <- cbind(treated_features, synthetic_features_raw)
-colnames(comparison_raw) <- c(id_group, "Synthetic MAT")
-comparison_raw <- as.data.frame(comparison_raw)
-comparison_raw$Variable <- row.names(comparison_raw)
-comparison_raw$Year <- as.numeric(stringi::stri_extract_last_regex(comparison_raw$Variable, "\\d{4}"))
-comparison_raw$Variable <- gsub("[[:digit:]]+", "", comparison_raw$Variable)
-comparison_raw$Variable <- gsub(".", "", comparison_raw$Variable, fixed = T)
-
-# Make data long for plotting
-comparison_raw <- reshape2::melt(comparison_raw, id.var = c("Variable", "Year"), value.name = "Value", variable.name = "Unit")
-comparison_raw$Variable <- factor(comparison_raw$Variable,
-                                  levels = c("pupil_to_qual_teacher_ratio", "fte_avg_age", "pnpupfsm_e"),
-                                  labels = c("Outcome", "Teacher age", "% pupils FSM"))
-
-# Plot the feature values
-cols <- c(navy, coral)
-names(cols) <- c("Synthetic MAT", id_group)
-
-print(ggplot(data = comparison_raw, aes(x = Year, y = Value, group = Unit)) +
-        geom_line(data = comparison_raw[comparison_raw$Unit == id_group, ], aes(col = paste(id_group))) +
-        geom_point(data = comparison_raw[comparison_raw$Unit == id_group, ], aes(col = paste(id_group))) +
-        geom_line(data = comparison_raw[comparison_raw$Unit == "Synthetic MAT", ], aes(col = "Synthetic MAT")) +
-        geom_point(data = comparison_raw[comparison_raw$Unit == "Synthetic MAT", ], aes(col = "Synthetic MAT")) +
-        facet_wrap(vars(Variable), ncol = 1, scales = "free_y") +
-        labs(title = "Feature timeseries without covariate adjustment",
-             x = "Academic year",
-             y = "Reported value") +
-        ambition_theme +
-        theme(axis.text.x = element_text(angle = 45, hjust = 1),
-              legend.title = element_blank(),
-              strip.text = element_text(size = 10)) +
-        scale_color_manual(
-          breaks=c(id_group, "Synthetic MAT"),
-          values=cols) +
-        scale_x_continuous(breaks = lookup$time_period, labels = lookup$time_period_str)
-)
-
-if (!is.null(scest.out$data$C)) {
-  
-  # Access and examine the raw features for the control units (B) **and the covariates (C)**
-  # Each row represents a different feature-year combination for the control units, and each column represents a different control unit.
-  control_features <- cbind(scest.out$data$B, scdata.out$C)
-  
-  # Access and examine matrix *b*, containing the synthetic control weights (w) and values of the covariate adjustment (r)
-  b <- scest.out$est.results$b # a matrix containing w (a matrix containing the estimated weights of the donors) and r (a matrix containing the values of the covariates used for adjustment)
-  
-  # Compute the synthetic control's pre-treatment feature values
-  synthetic_features_adjusted <- control_features %*% b # this is how scest.out$est.results$A.hat is internally computed
-  
-  # Compare the treated and synthetic control feature values
-  comparison_adjusted <- cbind(treated_features, synthetic_features_adjusted)
-  colnames(comparison_adjusted) <- c(id_group, "Synthetic MAT")
-  comparison_adjusted <- as.data.frame(comparison_adjusted)
-  comparison_adjusted$Variable <- row.names(comparison_adjusted)
-  comparison_adjusted$Year <- as.numeric(stringi::stri_extract_last_regex(comparison_adjusted$Variable, "\\d{4}"))
-  comparison_adjusted$Variable <- gsub("[[:digit:]]+", "", comparison_adjusted$Variable)
-  comparison_adjusted$Variable <- gsub(".", "", comparison_adjusted$Variable, fixed = T)
-  
-  # Make data long for plotting
-  comparison_adjusted <- reshape2::melt(comparison_adjusted, id.var = c("Variable", "Year"), value.name = "Value", variable.name = "Unit")
-  comparison_adjusted$Variable <- factor(comparison_adjusted$Variable,
-                                         levels = c("pupil_to_qual_teacher_ratio", "fte_avg_age", "pnpupfsm_e"),
-                                         labels = c("Outcome", "Teacher age", "% pupils FSM"))
-  
-  # Plot the feature values
-  print(ggplot(data = comparison_adjusted, aes(x = Year, y = Value, group = Unit)) +
-          geom_line(data = comparison_adjusted[comparison_adjusted$Unit == id_group, ], aes(col = paste(id_group))) +
-          geom_point(data = comparison_adjusted[comparison_adjusted$Unit == id_group, ], aes(col = paste(id_group))) +
-          geom_line(data = comparison_adjusted[comparison_adjusted$Unit == "Synthetic MAT", ], aes(col = "Synthetic MAT")) +
-          geom_point(data = comparison_adjusted[comparison_adjusted$Unit == "Synthetic MAT", ], aes(col = "Synthetic MAT")) +
-          facet_wrap(vars(Variable), ncol = 1, scales = "free_y") +
-          labs(title = "Feature timeseries with covariate adjustment",
-               x = "Academic year",
-               y = "Reported value") +
-          ambition_theme +
-          theme(axis.text.x = element_text(angle = 45, hjust = 1),
-                legend.title = element_blank(),
-                strip.text = element_text(size = 10)) +
-          scale_color_manual(
-            breaks=c(id_group, "Synthetic MAT"),
-            values=cols) +
-          scale_x_continuous(breaks = lookup$time_period, labels = lookup$time_period_str)
-  )
-  
-}
-cat("\n\n")
-
-
-
-```
-
 ```{r placebo, eval=FALSE, include=F}
 
 if (run_placebo) {
   # store all schools in a vector
-  units <- unique(df_avg$group_uid)
+  units <- unique(df_avg_raw$group_uid)
   
   # create struture to hold results
   storegaps <- 
@@ -788,10 +623,10 @@ if (run_placebo) {
     unit <- units[i]
     
     unit.tr <- unit # looping through all units in donor pool
-    unit.co <- unique(df_avg$group_uid[df_avg$group_uid != unit])
+    unit.co <- unique(df_avg_raw$group_uid[df_avg_raw$group_uid != unit])
     
     ### Data preparation
-    scdata.out <- scdata(df = df_avg, 
+    scdata.out <- scdata(df = df_avg_raw, 
                          id.var = id.var, 
                          time.var = time.var,
                          outcome.var = outcome.var,
@@ -930,6 +765,90 @@ cat("\n\n")
 
 ```
 
+```{r proc grid, eval = F, include=F}
+# declare file name
+file_name <- file.path(dir, "03_scm_mat", "interim", paste0("03_treated_mat_scpi_cv_", tolower(phase), "_results.csv"))
+
+# read in results
+results <- read.csv(file_name)
+
+#### process data grid search ####
+
+# copy data for editing
+results_fit <- results
+
+# --- create new vars for facets --- #
+
+# timeseries processing options #
+# min years per school
+results_fit$min.years.obs <- paste0(results_fit$min.years.obs, "Y")
+results_fit$min.years.obs <- factor(results_fit$min.years.obs)
+# min schools per year
+results_fit$min.schools.per.timeperiod <- paste0(results_fit$min.schools.per.timeperiod, "S/Y")
+results_fit$min.schools.per.timeperiod <- factor(results_fit$min.schools.per.timeperiod)
+# min schools per mat
+results_fit$min.schools.per.mat <- paste0(results_fit$min.schools.per.mat, "S")
+results_fit$min.schools.per.mat <- factor(results_fit$min.schools.per.mat)
+
+# did we remove outliers
+results_fit$excl.out <- ifelse(results_fit$excl.outlier, "excl. out", "incl. out")
+
+# donor pool filtering options # 
+
+# which region was used for filtering
+results_fit$region <- ifelse(grepl("North West", results_fit$regions), "YS&H + NW", "YS&H")
+results_fit$region <- factor(results_fit$region)
+# were any MATs excluded?
+if (phase == "mixed") {
+  results_fit$phase <- ifelse(results_fit$exclude.single.phase, "excl. single phase", "incl. single phase")
+  results_fit$phase <- factor(results_fit$phase)
+} else {
+  results_fit$phase <- "same phase"
+  results_fit$phase <- factor(results_fit$phase)
+}
+
+# SCM setup options in scpi #
+
+# is DV in features?
+results_fit$feat_dv <- ifelse(grepl("ratio", results_fit$features), "incl. DV", "excl. DV")
+results_fit$feat_dv <- factor(results_fit$feat_dv)
+
+# covariate adjustment
+results_fit$adj <- ifelse(is.na(results_fit$cov.adj), "none", results_fit$cov.adj)
+results_fit$adj <- factor(results_fit$adj, levels = c("none", "constant", "trend", "constant, trend"),
+                          labels = c("none", "Constant", "Trend", "C + T"))
+
+# which years were used in training
+results_fit$min_year <- sapply(results_fit$period.pre, function(x) extract_min_max_years(x)[1])
+results_fit$max_year <- sapply(results_fit$period.pre, function(x) extract_min_max_years(x)[2])
+results_fit$period.pre <- paste0(results_fit$min_year, ":", results_fit$max_year)
+results_fit$period.pre <- factor(results_fit$period.pre)
+
+# which constraints were applied to the weights
+results_fit$method <- tstrsplit(results_fit$w.constr, "; ")[[1]]
+results_fit$method <- gsub("name = ", "", results_fit$method)
+results_fit$method <- factor(results_fit$method, levels = c("simplex", "L1-L2", "lasso", "user provided"))
+
+# compute fit stats
+results_fit <- results_fit %>%
+  # create one col per rmspe
+  mutate(
+    sd_all = sd_treated[cross.val == F],
+    rmspe_all = rmspe_pre[cross.val == F], 
+    rmspe_T = rmspe_pre[cross.val == T], 
+    rmspe_V = rmspe_post[cross.val == T],
+    .by = it
+  ) %>%
+  # compute ratios #
+  # if ratio is below 1: worse fit in training than in validation data
+  # if ratio is above 1: worse fit in training than in validation data
+  # if ratio is equal to 1: equal fit in training and validation data
+  mutate(ratio = rmspe_V / rmspe_T) %>%
+  # remove all CV runs
+  filter(cross.val == F)
+
+```
+
 
 ```{r, echo=F, message=FALSE, results='asis', fig.align='center', fig.height=8, fig.width=10, out.width='100%', out.height='100%'}
 # Set options for data preparation
@@ -945,6 +864,7 @@ min.years.obs <- 8
 
 # define phases to loop through
 phases <- c("mixed", "Secondary", "Primary")
+phases <- c("mixed")
 
 headings <- c("Whole MAT", "Secondary schools only", "Primary schools only")
 p = 1 # debug
@@ -954,169 +874,98 @@ for (p in 1:length(phases)) {
   
   phase = phases[p]
   
-  # declare file name
-  file_name <- file.path(getwd(), "interim", paste0("03_treated_mat_scpi_cv_", tolower(phase), ".csv"))
-  
-  # read in results
-  results <- read.csv(file_name)
-  
-  # create a grid with all combinations of variables evaluated
-  results_fit <- results %>%
-    # select parameter settings
-    # only those not impacted by CV (hence not using period.pre)
-    group_by(features, cov.adj, regions, swf.filter, exclude.single.phase, min.years.obs, min.schools.per.timeperiod, min.schools.per.mat, w.constr) %>%
-    # check that there are two each (CV == T and CV == F)
-    summarise(n = n()) %>%
-    ungroup() %>%
-    # create column indexing the iteration
-    mutate(it = as.character(1:nrow(.))) %>%
-    relocate(it) %>%
-    # combine with fit data
-    full_join(., results)
-  
-  # identify promising combinations
-  results_fit <- results_fit %>%
-    # help with ordering
-    mutate(
-      exclude.single.phase.ordered = ifelse(exclude.single.phase == T, 1, 2),
-      adj = factor(ifelse(is.na(cov.adj), "none", cov.adj), levels = c("none", "constant", "trend", "constant, trend"),
-                          labels = c("none", "Constant", "Trend", "C + T"))
-      ) %>%
-    # create one col per rmspe
-    mutate(
-      sd_all = sd_treated[cross.val == F],
-      rmspe_all = rmspe_pre[cross.val == F], 
-      rmspe_T = rmspe_pre[cross.val == T], 
-      rmspe_V = rmspe_post[cross.val == T],
-      .by = it
-    ) %>%
-    # compute ratios #
-    # if ratio is below 1: worse fit in training than in validation data
-    # if ratio is above 1: worse fit in training than in validation data
-    # if ratio is equal to 1: equal fit in training and validation data
-    mutate(ratio = rmspe_V / rmspe_T) %>%
-    # run checks
-    mutate(
-      # compare all rmspe against pretreatment SD
-      rmspe_below_sd = rmspe_all < sd_all & rmspe_T < sd_all & rmspe_V < sd_all,
-      # compare ratio against limits
-      ratio_within_limits = between(ratio, .8, 1.2),
-      # bookmark good parameter combinations
-      promising = as.logical(rmspe_below_sd * ratio_within_limits)) %>%
-    arrange(period.pre, features, adj, exclude.single.phase.ordered, min.schools.per.timeperiod, min.schools.per.mat)
-  
-  # select params to be inspected
-  param_grid <- results_fit %>%
-    filter(promising & !cross.val & grepl("simplex", w.constr))
-  param_grid <- results_fit %>%
-    filter(!cross.val & grepl("simplex", w.constr) & status == "scest() completed")
-  param_grid$min_year <- sapply(param_grid$period.pre, function(x) extract_min_max_years(x)[1])
-  param_grid$max_year <- sapply(param_grid$period.pre, function(x) extract_min_max_years(x)[2])
-  
+# get grid search results
+<<proc grid>>
   
   # define different filter option for each phase #
   
   if (phase == "mixed") {
     filter_phase = c("Not applicable", "16 plus")
-    param_grid$phase <- ifelse(param_grid$exclude.single.phase, "excl. single phase", "incl. single phase")
-    param_grid$check <- ifelse(param_grid$min_year == 2014, param_grid$rmspe_below_sd, param_grid$promising)
+    it <- c(197, 217, 277, 237, 297)
     nrow_legend = 2
   } else if (phase == "Secondary") {
     filter_phase = unique(groups$phaseofeducation_name)[!grepl("econdary", unique(groups$phaseofeducation_name))]
-    param_grid$phase <- "same phase"
-    param_grid$check <- param_grid$promising
+    results_fit$phase <- "same phase"
     nrow_legend = 1
   } else if (phase == "Primary") {
     filter_phase = unique(groups$phaseofeducation_name)[!grepl("imary", unique(groups$phaseofeducation_name))]
-    param_grid$phase <- "same phase"
-    param_grid$check <- param_grid$promising
+    results_fit$phase <- "same phase"
     nrow_legend = 1
   }
   
-  # only select those that should be plotted
-  param_grid <- param_grid[param_grid$check, ]
-  nrow_previous = 0
-  # param_grid = param_grid[1, ] # debug
+    # loop through years available
+  for (y in 1:length(unique(results_fit$period.pre))) {
+    
+    years <- unique(as.character(results_fit$period.pre))[y]
+    
+    
+    if (nrow(results_fit[results_fit$period.pre == years & results_fit$it %in% it, ]) > 0) {
+      
+      cat("## Pre-treatment timeseries", years, "\n\n")
+      
+      # identify the iterations for this TS
+      it_tmp <- results_fit$it[results_fit$period.pre == years & results_fit$it %in% it]
 
-  # loop through years available
-  for (y in 1:length(unique(param_grid$period.pre))) {
+      # loop through the iterations in this TS
+      for (ii in it_tmp) {
     
-    years <- unique(as.character(param_grid$period.pre))[y]
-    
-    extract_min_max_years(years)
-    
-    tmp_grid <- param_grid[param_grid$period.pre == years, ]
-    
-    cat("## Pre-treatment timeseries", extract_min_max_years(years)[1], "-" ,extract_min_max_years(years)[2], "\n\n")
-    
-    for (ii in 1:nrow(tmp_grid)) {
-      
-      counter = nrow_previous+ii
-      
-      cat("### Setting", counter, "\n\n")
-      
-      # select params
-      params <- tmp_grid[ii, ]
-      
-            # show params in markdown
-      out_params <- params %>%
-        mutate(
-          min.schools.per.mat = paste0(min.schools.per.mat, "S"),
-          min.schools.per.timeperiod = paste0(min.schools.per.timeperiod, "S/Y"),
-          feat_dv = ifelse(grepl("ratio", features), "incl. DV", "excl. DV"),
-          #adj = case_match(cov.adj, NA ~ "none", "constant" ~ "Constant", "trend" ~ "Trend", "constant, trend" ~ "C + T"),
-          pretreat = paste0(extract_min_max_years(period.pre)[1], ":", extract_min_max_years(period.pre)[2])
-        ) %>%
-        select(pretreat, feat_dv, adj, phase, min.schools.per.timeperiod, min.schools.per.mat, 
-               n_pool, sd_all, rmspe_all, rmspe_T, rmspe_V, ratio) %>%
-        rename("S/Y" = min.schools.per.timeperiod, "S/M" = min.schools.per.mat)
-      
-      # print #
-      kbl(out_params, row.names = F, digits = 3) %>%
-        kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
-        print()
-      cat("\n\n")
-
-      
-      # process data at MAT level
-      process_data_scm_mat(uid_treated = uid_treated, target_regions = target_regions, filter_phase = filter_phase,
-                           swf_filter = params$swf.filter, 
-                           min_years_obs = min.years.obs, 
-                           min_schools_per_timeperiod = params$min.schools.per.timeperiod, min_schools_per_mat = params$min.schools.per.mat)
-      
-      # Apply more filtering
-      if (params$exclude.single.phase) {
-        # remove MATs from MATs
-        MATs$multiple_phases <- grepl(" | ", MATs$phase, fixed = T)
-        MATs <- MATs[MATs$multiple_phases, ]
-        # remove average MAT ts
-        df_avg <- df_avg[df_avg$group_uid %in% MATs$group_uid, ]
-        # remove school TS
-        df <- df[df$group_uid %in% MATs$group_uid, ]
-      }
-      
-      cat("#### Timeseries plots \n\n")
+        cat("### Setting", ii, "\n\n")
+        
+        # process data at MAT level
+        
+        # select params
+        params <- results[results$it == ii & !results$cross.val, ]
+        
+        process_data_scm_mat(uid_treated = uid_treated, target_regions = target_regions, filter_phase = filter_phase,
+                             swf_filter = params$swf.filter, 
+                             min_years_obs = min.years.obs, 
+                             min_schools_per_timeperiod = params$min.schools.per.timeperiod, min_schools_per_mat = params$min.schools.per.mat)
+        
+        # Apply more filtering
+        if (params$exclude.single.phase) {
+          # remove MATs from MATs
+          MATs$multiple_phases <- grepl(" | ", MATs$phase, fixed = T)
+          MATs <- MATs[MATs$multiple_phases, ]
+          # remove average MAT ts
+          df_avg <- df_avg[df_avg$group_uid %in% MATs$group_uid, ]
+          # remove school TS
+          df <- df[df$group_uid %in% MATs$group_uid, ]
+        }
+        
+        cat("#### Timeseries plots \n\n")
       # Plot data
       <<plot_ts>>
         
         # run grid search
         cat("#### Evaluate gridsearch parameters \n\n")
-      
-      # show params in markdown
-      kbl(out_params, row.names = F, digits = 3) %>%
-        kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
-        print()
-      cat("\n\n")
 
-      
+        # select params
+        params_out <- results_fit[results_fit$it == ii & !results_fit$cross.val, ]
+        
+        # show params in markdown
+        out_params <- params_out %>%
+          mutate(
+            pretreat = paste0(min_year, ":", max_year)
+          ) %>%
+          select(it, pretreat, feat_dv, adj, phase, min.schools.per.timeperiod, min.schools.per.mat, 
+                 n_pool, n_active,
+                 sd_all, rmspe_all, rmspe_T, rmspe_V, ratio#, m_gap, sd_gap, min_gap, max_gap
+          ) %>%
+          rename("S/Y" = min.schools.per.timeperiod, "S/M" = min.schools.per.mat)
+        
+        # print #
+        kbl(out_params, row.names = F, digits = 3) %>%
+          kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
+          print()
+        cat("\n\n")
+
       # prepare data and estimate scm
       period.post <- c(2022:2023) # Validation period
-      simulate_data <- FALSE
       <<est>>
         # inspect results
         <<res_cv>>
         # determine output filename
-        file_name <- file.path(getwd(), "interim", paste0(file_stem, "_gaps_", phase, "_", sprintf("%03d", counter), "_cv.csv"))
+        file_name <- file.path(dir, "03_scm_mat", "interim", paste0(file_stem, "_gaps_" , tolower(phase), "_it_", sprintf("%03d", ii), "_cv.csv"))
       run_placebo <- T
       <<placebo>>
       
@@ -1134,7 +983,6 @@ for (p in 1:length(phases)) {
       period.post <- c(2024:2026) # Simulated post-treatment period
       
       # prepare data and estimate scm
-      simulate_data <- TRUE
       <<est>>
         # inspect results - pre-treatment only
         <<res>>
@@ -1143,534 +991,19 @@ for (p in 1:length(phases)) {
       # inspect results - incl. simulated time period
       summarise_scest(scest.out, id_treated = uid_treated, id_name = id_group, cv = T)
       
-      print(scplot(result = scest.out, plot.range = period.avail,
-                   label.xy = list(x.lab = "Start of academic year", y.lab = "Ratio of pupils to qualified teachers")))
+      # print(scplot(result = scest.out, plot.range = period.avail,
+      #              label.xy = list(x.lab = "Start of academic year", y.lab = "Ratio of pupils to qualified teachers")))
       cat("\n\n")
       # determine output filename
-      file_name <- file.path(getwd(), "interim", paste0(file_stem, "_gaps_", phase, "_", sprintf("%03d", counter), "_sim.csv"))
-      run_placebo <- T
-      <<placebo>>
+        file_name <- file.path(dir, "03_scm_mat", "interim", paste0(file_stem, "_gaps_" , tolower(phase), "_it_", sprintf("%03d", ii), "_sim.csv"))
+      #run_placebo <- F
+      #<<placebo>>
+          
+  }
       
     }
-    nrow_previous = nrow_previous + nrow(tmp_grid)
+
   }
-  
 }
-
-```
-
-```{r, eval = F, echo=F, message=FALSE, results='asis', fig.align='center', fig.height=8, fig.width=10, out.width='100%', out.height='100%'}
-info <- list(
-  
-  # --- mixed --- #
-  
-  # excl. DV 
-  # - NONE
-  
-  # incl. DV - no adj.
-  list(phase = "mixed",
-       # timeseries processing
-       min.schools.per.timeperiod = 2,
-       min.schools.per.mat = 2,
-       swf.filter = "! laestab %in% c(3802008)",
-       # donor pool filtering
-       exclude.single.phase = T,
-       # SCM specs
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = NULL
-  ),
-  
-  list(phase = "mixed",
-       # timeseries processing
-       min.schools.per.timeperiod = 2,
-       min.schools.per.mat = 3,
-       swf.filter = "! laestab %in% c(3802008)",
-       # donor pool filtering
-       exclude.single.phase = T,
-       # SCM specs
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = NULL
-  ),
-  
-  list(phase = "mixed",
-       # timeseries processing
-       min.schools.per.timeperiod = 2,
-       min.schools.per.mat = 2,
-       swf.filter = "! laestab %in% c(3802008)",
-       # donor pool filtering
-       exclude.single.phase = F,
-       # SCM specs
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = NULL
-  ),
-  
-  list(phase = "mixed",
-       # timeseries processing
-       min.schools.per.timeperiod = 2,
-       min.schools.per.mat = 2,
-       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
-       # donor pool filtering
-       exclude.single.phase = T,
-       # SCM specs
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = NULL
-  ),
-  
-  list(phase = "mixed",
-       # timeseries processing
-       min.schools.per.timeperiod = 2,
-       min.schools.per.mat = 3,
-       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
-       # donor pool filtering
-       exclude.single.phase = T,
-       # SCM specs
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = NULL
-  ),
-  
-  list(phase = "mixed",
-       # timeseries processing
-       min.schools.per.timeperiod = 3,
-       min.schools.per.mat = 2,
-       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
-       # donor pool filtering
-       exclude.single.phase = T,
-       # SCM specs
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = NULL
-  ),
-  
-  list(phase = "mixed",
-       # timeseries processing
-       min.schools.per.timeperiod = 3,
-       min.schools.per.mat = 3,
-       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
-       # donor pool filtering
-       exclude.single.phase = T,
-       # SCM specs
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = NULL
-  ),
-  
-  list(phase = "mixed",
-       # timeseries processing
-       min.schools.per.timeperiod = 2,
-       min.schools.per.mat = 2,
-       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
-       # donor pool filtering
-       exclude.single.phase = F,
-       # SCM specs
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = NULL
-  ),
-  
-  list(phase = "mixed",
-       # timeseries processing
-       min.schools.per.timeperiod = 2,
-       min.schools.per.mat = 3,
-       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
-       # donor pool filtering
-       exclude.single.phase = F,
-       # SCM specs
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = NULL
-  ),
-  
-  
-  list(phase = "mixed",
-       # timeseries processing
-       min.schools.per.timeperiod = 3,
-       min.schools.per.mat = 2,
-       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
-       # donor pool filtering
-       exclude.single.phase = F,
-       # SCM specs
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = NULL
-  ),
-  
-  list(phase = "mixed",
-       # timeseries processing
-       min.schools.per.timeperiod = 3,
-       min.schools.per.mat = 3,
-       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
-       # donor pool filtering
-       exclude.single.phase = F,
-       # SCM specs
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = NULL
-  ),
-  
-  # incl. DV - Constant
-  # - NONE
-  
-  # incl. DV - Trend
-  list(phase = "mixed",
-       # timeseries processing
-       min.schools.per.timeperiod = 2,
-       min.schools.per.mat = 2,
-       swf.filter = "! laestab %in% c(3802008)",
-       # donor pool filtering
-       exclude.single.phase = T,
-       # SCM specs
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = list(c("trend"))
-  ),
-  
-  list(phase = "mixed",
-       # timeseries processing
-       min.schools.per.timeperiod = 2,
-       min.schools.per.mat = 3,
-       swf.filter = "! laestab %in% c(3802008)",
-       # donor pool filtering
-       exclude.single.phase = T,
-       # SCM specs
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = list(c("trend"))
-  ),
-  
-  list(phase = "mixed",
-       # timeseries processing
-       min.schools.per.timeperiod = 2,
-       min.schools.per.mat = 4,
-       swf.filter = "! laestab %in% c(3802008)",
-       # donor pool filtering
-       exclude.single.phase = T,
-       # SCM specs
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = list(c("trend"))
-  ),
-  
-  list(phase = "mixed",
-       # timeseries processing
-       min.schools.per.timeperiod = 2,
-       min.schools.per.mat = 2,
-       swf.filter = "! laestab %in% c(3802008)",
-       # donor pool filtering
-       exclude.single.phase = F,
-       # SCM specs
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = list(c("trend"))
-  ),
-  
-  list(phase = "mixed",
-       # timeseries processing
-       min.schools.per.timeperiod = 2,
-       min.schools.per.mat = 3,
-       swf.filter = "! laestab %in% c(3802008)",
-       # donor pool filtering
-       exclude.single.phase = F,
-       # SCM specs
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = list(c("trend"))
-  ),
-  
-  list(phase = "mixed",
-       # timeseries processing
-       min.schools.per.timeperiod = 2,
-       min.schools.per.mat = 4,
-       swf.filter = "! laestab %in% c(3802008)",
-       # donor pool filtering
-       exclude.single.phase = F,
-       # SCM specs
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = list(c("trend"))
-  ),
-  
-  
-  # incl. DV - C&T
-  list(phase = "mixed",
-       # timeseries processing
-       min.schools.per.timeperiod = 2,
-       min.schools.per.mat = 2,
-       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
-       # donor pool filtering
-       exclude.single.phase = T,
-       # SCM specs
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = list(c("constant", "trend"))
-  ),
-  
-  list(phase = "mixed",
-       # timeseries processing
-       min.schools.per.timeperiod = 2,
-       min.schools.per.mat = 3,
-       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
-       # donor pool filtering
-       exclude.single.phase = T,
-       # SCM specs
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = list(c("constant", "trend"))
-  ),
-  
-  list(phase = "mixed",
-       # timeseries processing
-       min.schools.per.timeperiod = 2,
-       min.schools.per.mat = 4,
-       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
-       # donor pool filtering
-       exclude.single.phase = T,
-       # SCM specs
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = list(c("constant", "trend"))
-  ),
-  
-  list(phase = "mixed",
-       # timeseries processing
-       min.schools.per.timeperiod = 2,
-       min.schools.per.mat = 2,
-       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
-       # donor pool filtering
-       exclude.single.phase = F,
-       # SCM specs
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = list(c("constant", "trend"))
-  ),
-  
-  list(phase = "mixed",
-       # timeseries processing
-       min.schools.per.timeperiod = 2,
-       min.schools.per.mat = 3,
-       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
-       # donor pool filtering
-       exclude.single.phase = F,
-       # SCM specs
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = list(c("constant", "trend"))
-  ),
-  
-  list(phase = "mixed",
-       # timeseries processing
-       min.schools.per.timeperiod = 2,
-       min.schools.per.mat = 4,
-       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
-       # donor pool filtering
-       exclude.single.phase = F,
-       # SCM specs
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = list(c("constant", "trend"))
-  ),
-  
-  list(phase = "mixed",
-       # timeseries processing
-       min.schools.per.timeperiod = 3,
-       min.schools.per.mat = 2,
-       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
-       # donor pool filtering
-       exclude.single.phase = T,
-       # SCM specs
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = list(c("constant", "trend"))
-  ),
-  
-  list(phase = "mixed",
-       # timeseries processing
-       min.schools.per.timeperiod = 3,
-       min.schools.per.mat = 3,
-       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
-       # donor pool filtering
-       exclude.single.phase = T,
-       # SCM specs
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = list(c("constant", "trend"))
-  ),
-  
-  list(phase = "mixed",
-       # timeseries processing
-       min.schools.per.timeperiod = 3,
-       min.schools.per.mat = 4,
-       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
-       # donor pool filtering
-       exclude.single.phase = T,
-       # SCM specs
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = list(c("constant", "trend"))
-  ),
-  
-  list(phase = "mixed",
-       # timeseries processing
-       min.schools.per.timeperiod = 3,
-       min.schools.per.mat = 2,
-       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
-       # donor pool filtering
-       exclude.single.phase = F,
-       # SCM specs
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = list(c("constant", "trend"))
-  ),
-  
-  list(phase = "mixed",
-       # timeseries processing
-       min.schools.per.timeperiod = 3,
-       min.schools.per.mat = 3,
-       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
-       # donor pool filtering
-       exclude.single.phase = F,
-       # SCM specs
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = list(c("constant", "trend"))
-  ),
-  
-  list(phase = "mixed",
-       # timeseries processing
-       min.schools.per.timeperiod = 3,
-       min.schools.per.mat = 4,
-       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112)",
-       # donor pool filtering
-       exclude.single.phase = F,
-       # SCM specs
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = list(c("constant", "trend"))
-  ),
-  
-  # --- secondary --- #
-  list(phase = "Secondary",
-       # timeseries processing
-       min.schools.per.timeperiod = 2,
-       min.schools.per.mat = 2,
-       swf.filter = "! time_period %in% c(201011, 201112, 201213, 201314)",
-       # donor pool filtering
-       exclude.single.phase = F,
-       # SCM specs
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = NULL
-  ),
-  
-  
-  # --- secondary --- #
-  list(phase = "Primary",
-       # timeseries processing
-       min.schools.per.timeperiod = 2,
-       min.schools.per.mat = 2,
-       swf.filter = "! laestab %in% c(3802008) & ! time_period %in% c(201011, 201112, 201213, 201314, 201415)",
-       # donor pool filtering
-       exclude.single.phase = F,
-       # SCM specs
-       features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"), 
-       cov.adj = list(c("constant"))
-  )
-  
-  
-  
-  
-)
-
-
-# info <- info[1] # debug
-
-### Process data ###
-
-# Set options for data preparation
-id.var <- "group_uid" # ID variable
-time.var <- "time_period" # Time variable
-outcome.var <- "pupil_to_qual_teacher_ratio" # Dependent variable
-
-w.constr <- list(name = "simplex") # use canonical SC
-
-# default options
-target_regions <- c("Yorkshire and the Humber", "North West")
-min.years.obs <- 8
-
-ii = 1
-for (ii in 1:length(info)) {
-  
-  # get best parameter for given school
-  # i = 3 # debug
-  params <- info[[ii]]
-  
-  phase = params$phase
-  
-  cat("# ", phase, "- Settings", ii, "\n\n")
-  
-  # define different filter option for each phase #
-  
-  if (phase == "mixed") {
-    filter_phase = c("Not applicable", "16 plus")
-    nrow_legend = 2
-  } else if (phase == "Secondary") {
-    filter_phase = unique(groups$phaseofeducation_name)[!grepl("econdary", unique(groups$phaseofeducation_name))]
-    nrow_legend = 1
-  } else if (phase == "Primary") {
-    filter_phase = unique(groups$phaseofeducation_name)[!grepl("imary", unique(groups$phaseofeducation_name))]
-    nrow_legend = 1
-  }
-  
-  
-  # process data at MAT level
-  process_data_scm_mat(uid_treated = uid_treated, target_regions = target_regions, filter_phase = filter_phase,
-                       swf_filter = params$swf.filter, 
-                       min_years_obs = min.years.obs, 
-                       min_schools_per_timeperiod = params$min.schools.per.timeperiod, min_schools_per_mat = params$min.schools.per.mat)
-  
-  # Apply more filtering
-  if (params$exclude.single.phase) {
-    # remove MATs from MATs
-    MATs$multiple_phases <- grepl(" | ", MATs$phase, fixed = T)
-    MATs <- MATs[MATs$multiple_phases, ]
-    # remove average MAT ts
-    df_avg <- df_avg[df_avg$group_uid %in% MATs$group_uid, ]
-    # remove school TS
-    df <- df[df$group_uid %in% MATs$group_uid, ]
-  }
-  
-  
-  
-  cat("## Timeseries plots \n\n")
-  # Plot data
-  <<plot_ts>>
-    
-    # run grid search
-    cat("## Evaluate gridsearch parameters \n\n")
-  
-  # show params in markdown
-  kbl(sapply(params, paste, collapse = " + "), col.names = NULL) %>%
-    kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>%
-    print()
-  cat("\n")
-  
-  # prepare data and estimate scm
-  period.post <- c(2022:2023) # Validation period
-  simulate_data <- FALSE
-  <<est>>
-    # inspect results
-    <<res_cv>>
-    # determine output filename
-    file_name <- file.path(getwd(), "interim", paste0(file_stem, "_gaps_cv_", phase, "_", sprintf("%03d", ii), ".csv"))
-  run_placebo <- F
-  <<placebo>>
-    
-    cat("## Apply gridsearch parameters \n\n")
-  
-  # show params in markdown
-  kbl(sapply(params, paste, collapse = " + "), col.names = NULL) %>%
-    kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>%
-    print()
-  cat("\n")
-  
-  cat("### Whole pre-treatment timeseries \n\n")
-  
-  # Define timeseries
-  period.post <- c(2024:2026) # Simulated post-treatment period
-  
-  # prepare data and estimate scm
-  simulate_data <- TRUE
-  <<est>>
-    # inspect results - pre-treatment only
-    <<res>>
-    
-    cat("### Simulated post-treatment timeseries \n\n")
-  # inspect results - incl. simulated time period
-  summarise_scest(scest.out, id_treated = uid_treated, id_name = id_group, cv = T)
-  
-  print(scplot(result = scest.out, plot.range = period.avail,
-               label.xy = list(x.lab = "Start of academic year", y.lab = "Ratio of pupils to qualified teachers")))
-  cat("\n\n")
-  # determine output filename
-  file_name <- file.path(getwd(), "interim", paste0(file_stem, "_gaps_sim_", phase, "_", sprintf("%03d", ii), ".csv"))
-  run_placebo <- F
-  <<placebo>>
-    
-}
-
 
 ```
