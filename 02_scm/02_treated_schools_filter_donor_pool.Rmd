@@ -13,7 +13,8 @@ output:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
-# Clear the workspace and run garbage collection
+options(scipen = 999)
+# empty work space
 rm(list = ls())
 gc()
 
@@ -21,9 +22,7 @@ gc()
 library(kableExtra)
 library(dplyr)
 library(data.table)
-library(scpi)
-library(foreach)
-library(doParallel)
+library(ggplot2)
 
 # create function to source code
 source_code <- function(root_dir_name = "code", target_repo = "helper_functions", branch = "main", file_name = "file.R") {
@@ -33,7 +32,11 @@ source_code <- function(root_dir_name = "code", target_repo = "helper_functions"
   
   # attempt to download from github
   tempp_file <- tempfile(fileext = ".R")
-  message <- curl::curl_download(git_url, tempp_file, quiet = F)
+  message <- tryCatch({
+    curl::curl_download(git_url, tempp_file, quiet = F)
+  }, error = function(e) {
+    return(error = paste("Error in curl::curl_download:", e$message))
+  })
   
   if(!grepl("Error", message)) {
     
@@ -80,16 +83,36 @@ source_code <- function(root_dir_name = "code", target_repo = "helper_functions"
 source_code(target_repo = "scm_feasibility", file_name = "functions.R")
 
 # Define the base directory
-get_directory()
+dir <- get_directory()
+dir_data <- file.path(dir, "data")
+dir_misc <- file.path(dir, "misc")
+
+# create interim folder
+dir.create(path = file.path(dir, "02_scm", "interim"))
 
 # get file stem name
 file_stem <- get_file_stem()
 out_file <- file.path(dir, "02_scm", "interim", paste0(file_stem, "_out.csv"))
 
+
+# copy data #
+file.copy(
+  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_swf.csv"), dir_data, overwrite = T)
+file.copy(
+  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_pupils.csv"), dir_data, overwrite = T)
+file.copy(
+  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_establishments_search.csv"), dir_data, overwrite = T)
+
+# load data #
+
+swf <- fread(file.path(dir_data, "data_swf.csv"))
+pup <- fread(file.path(dir_data, "data_pupils.csv"))
+est <- fread(file.path(dir_data, "data_establishments_search.csv"), na.strings = "")
+
 # process data establishments #
 
 # load in file with timeseries desc
-summary <- read.csv(file.path(dir, "02_scm",  "01_treated_schools_examine_dv_preds_out.csv"))
+summary <- read.csv(file.path(dir, "02_scm", "interim", "01_treated_schools_examine_dv_preds_out.csv"))
 # save laestab numbers of all treated schools
 list_laestab_exclude <- unique(summary$laestab)
 
@@ -111,8 +134,6 @@ lookup <- data.frame(region1 = c("West Midlands", "South East", "Yorkshire and t
 
 
 ```{r check_treated, echo=FALSE, results='asis', eval = F}
-# select columns
-df <- df[, c("laestab", "time_period", "time_period_str", "school", "pupil_to_qual_teacher_ratio", "fte_avg_age", "pnpupfsm_e")]
 
 #### CREATE SUMMARY TABLE ####
 
@@ -128,7 +149,7 @@ ts_desc <- ts_desc %>% relocate(Variable) %>% as.data.frame()
 
 # assign new variable names
 ts_desc$Variable <- factor(ts_desc$Variable, 
-                           levels = c("pupil_to_qual_teacher_ratio", 
+                           levels = c(dv, 
                                       "pnpupfsm_e", 
                                       "fte_avg_age"),
                            labels = c("Outcome", "% pupils FSM", "Teacher age")
@@ -150,10 +171,10 @@ cat("\n")
 df_long <- df %>%
   mutate(status = ifelse(laestab == paste(id_treated), id_name, "Donor schools")) %>%
   tidyr::pivot_longer(
-    cols = -c(laestab, school, time_period, time_period_str, status),
+    cols = c(paste(vars)),
     names_to = "variable") %>%
   mutate(variable = case_match(variable, 
-                               "pupil_to_qual_teacher_ratio" ~ "Outcome",
+                               dv ~ "Outcome",
                                "fte_avg_age" ~ "Teacher age",
                                "pnpupfsm_e" ~ "% pupils FSM"
   ))
@@ -181,21 +202,6 @@ print(ggplot(data = df_long, aes(x = time_period_str, y = value, group = laestab
 
 
 ```{r check_donors, echo=FALSE, results='asis', eval = F}
-# select columns
-df <- df[, c("laestab", "time_period", "school", "pupil_to_qual_teacher_ratio", "fte_avg_age", "pnpupfsm_e")]
-
-# create data
-df_long <- df %>%
-  mutate(status = ifelse(laestab == paste(id_treated), id_name, "Donor schools")) %>%
-  tidyr::pivot_longer(
-    cols = -c(laestab, school, time_period, status),
-    names_to = "variable") %>%
-  mutate(variable = case_match(variable, 
-                               "pupil_to_qual_teacher_ratio" ~ "Outcome",
-                               "fte_avg_age" ~ "Teacher age",
-                               "pnpupfsm_e" ~ "% pupils FSM"
-  ))
-df_long$variable <- factor(df_long$variable, levels = c("Outcome", "% pupils FSM", "Teacher age"))
 
 # plot timeseries average for each school
 cols <- c(navy40, coral)
@@ -215,8 +221,6 @@ print(ggplot(data = df_long, aes(x = time_period, y = value, col = status, group
               axis.ticks.x = element_blank()))
 
 # check data for NAs
-vars <- setdiff(names(df), c("laestab", "time_period", "school"))
-
 for (v in 1:length(vars)) {
   
   var = vars[v]
@@ -247,23 +251,6 @@ for (v in 1:length(vars)) {
   
 }
 
-# # print output
-# kbl(obs_pa, caption = paste("Non-NA observations for each variable")) %>%
-#   kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>%
-#   add_footnote("Bold indicates NA observations for a given year and variable.") %>%
-#   {
-#     # Apply column_spec to all columns
-#     kbl_obj <- .
-#     for (i in seq_along(obs_pa)) {
-#       if(i == 1) next # skip column containing time_period
-#       kbl_obj <- kbl_obj %>%
-#         column_spec(i, bold = ifelse(obs_pa[, i] != (length(id_cont)+length(id_treated)), TRUE, FALSE))
-#     }
-#     kbl_obj
-#   } %>%
-#   print()
-
-
 # compute summary stats of school timeseries averages 
 ave_ts_pa %>%
   select(-1) %>%
@@ -288,7 +275,7 @@ ave_ts_long <- ave_ts_pa %>%
   mutate(
     se = sd/sqrt(n),
     variable = case_match(variable, 
-                          "pupil_to_qual_teacher_ratio" ~ "Outcome",
+                          dv ~ "Outcome",
                           "fte_avg_age" ~ "Teacher age",
                           "pnpupfsm_e" ~ "% pupils FSM"
     )
@@ -372,14 +359,14 @@ for (i in 1:length(list_laestab_treated)) {
   id_treated <- list_laestab_treated[i]
   
   # get name of school
-  id_name <- unique(summary$school[summary$laestab == id_treated])
+  id_name <- unique(summary$establishmentname[summary$laestab == id_treated])
   
   
   cat("\n\n")
   cat("# ", id_name, "\n\n")
   
   # process data
-  df <- process_data_scm(id_treated = id_treated, read_files = T, export_data.tables = T)
+  df <- process_data_scm(id_treated = id_treated)
   
   # print raw variable timeseries
   <<check_treated>>
@@ -413,7 +400,7 @@ for (i in 1:length(list_laestab_treated)) {
                id_cont = I(list(id_cont))#,
                #id_cont2 = paste("c(", I(list(id_cont)), ")")
     ),
-    sd_filtering(data = df, var = "pupil_to_qual_teacher_ratio", show_kbl = F),
+    sd_filtering(data = df, var = dv, show_kbl = F),
     by = "laestab")
   
   # visualise treated school and donor pool
@@ -432,9 +419,9 @@ for (i in 1:length(list_laestab_treated)) {
   cat("- Note: Any schools that had outlying values (mean +/- 3*SD; determined (1) within their timeseries and (2) across the donor pool) were removed.  \n\n")
   
   # filter by SD crit
-  sd_filtering(data = df, perc = 100, var = "pupil_to_qual_teacher_ratio", show_kbl = T)
-  df$crit_sd_pupil_to_qual_teacher_ratio[df$laestab == id_treated] <- T
-  df <- subset(df, df$crit_sd_pupil_to_qual_teacher_ratio == T)
+  sd_filtering(data = df, perc = 100, var = dv, show_kbl = T)
+  df[df$laestab == id_treated, paste0("crit_sd_", dv)] <- T
+  df <- subset(df, df[, paste0("crit_sd_", dv)] == T)
   
   # determine ids of control schools
   id_cont <- unique(df$laestab[df$laestab != id_treated])
@@ -479,7 +466,7 @@ for (i in 1:length(list_laestab_treated)) {
                              id_cont = I(list(id_cont))#,
                              #id_cont2 = paste("c(", I(list(id_cont)), ")")
                   ),
-                  sd_filtering(data = df, var = "pupil_to_qual_teacher_ratio", show_kbl = F),
+                  sd_filtering(data = df, var = dv, show_kbl = F),
                   by = "laestab")
   )
   
@@ -504,9 +491,9 @@ for (i in 1:length(list_laestab_treated)) {
   cat("- Note: Any schools that had outlying values (mean +/- 3*SD; determined (1) within their timeseries and (2) across the donor pool) were removed.  \n\n")
   
   # filter by SD crit
-  sd_filtering(data = df, perc = 100, var = "pupil_to_qual_teacher_ratio", show_kbl = T)
-  df$crit_sd_pupil_to_qual_teacher_ratio[df$laestab == id_treated] <- T
-  df <- subset(df, df$crit_sd_pupil_to_qual_teacher_ratio == T)
+  sd_filtering(data = df, perc = 100, var = dv, show_kbl = T)
+  df[df$laestab == id_treated, paste0("crit_sd_", dv)] <- T
+  df <- subset(df, df[, paste0("crit_sd_", dv)] == T)
   
   # determine ids of control schools
   id_cont <- unique(df$laestab[df$laestab != id_treated])
