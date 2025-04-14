@@ -37,7 +37,11 @@ source_code <- function(root_dir_name = "code", target_repo = "helper_functions"
   
   # attempt to download from github
   tempp_file <- tempfile(fileext = ".R")
-  message <- curl::curl_download(git_url, tempp_file, quiet = F)
+  message <- tryCatch({
+    curl::curl_download(git_url, tempp_file, quiet = F)
+  }, error = function(e) {
+    return(error = paste("Error in curl::curl_download:", e$message))
+  })
   
   if(!grepl("Error", message)) {
     
@@ -126,97 +130,24 @@ dix$laestab <- gsub("/", "", dix$LAESTAB)
 
 # get establishment data from treated schools
 list_laestab <- c(laestab_stp, laestab_hca, dix$laestab)
-
-est_treated <- est %>% 
-  filter(laestab %in% list_laestab) %>%
-  mutate(school = "treated") %>% 
-  as.data.frame()
-
 ```
 
-```{r process_data, eval=FALSE, include=F}
+```{r process_data, eval=FALSE, echo=F}
 #id_treated = list_laestab[1] # debug
 
-#### DETERMINE AVAILABLE TIMESERIES DATA ####
+# process data
+df <- process_data_scm(id_treated = id_treated)
 
-# Identify years for which there are observations for treated school
-dv <- "pupil_to_qual_teacher_ratio"
-data_avail_dv <- swf %>%
-  filter(!is.na(get(dv))) %>%
-  filter(laestab == id_treated) %>%
-  select(time_period, laestab, paste(dv)) %>%
-  distinct(time_period) %>%
-  pull(time_period)
-
-# Identify years for which there are observations for treated school
-var <- "fte_avg_age"
-data_avail_age <- swf %>%
-  filter(!is.na(get(var))) %>%
-  filter(laestab == id_treated) %>%
-  select(time_period, laestab, paste(var)) %>%
-  distinct(time_period) %>%
-  pull(time_period)
-
-# Identify years for which there are observations for treated school
-var <- "pnpupfsm_e"
-data_avail_fsm <- pup %>%
-  filter(!is.na(get(var))) %>%
-  filter(laestab == id_treated) %>%
-  select(time_period, laestab, paste(var)) %>%
-  distinct(time_period) %>%
-  pull(time_period)
-
-# combine, excluding duplicates
-data_avail <- intersect(data_avail_dv, intersect(data_avail_age, data_avail_fsm))
-
-#### CREATE OUTCOME DATASET ####
-
-# Filter SWF data to create outcome dataset
-z <- swf[laestab %in% id_treated & time_period %in% data_avail]
-
-
-# Remove rows for years for which the treated school has no data, 
-# rows with NA for the dependent variable and age predictor 
-# and add observation count
-z <- z %>%
-  filter(!is.na(get(dv))) %>%
-  select(time_period, laestab, school, pupil_to_qual_teacher_ratio, pupil_to_qual_unqual_teacher_ratio, fte_avg_age) %>%
-  arrange(laestab, desc(time_period)) %>%
-  mutate(school = first(school),
-         fte_avg_age_roll = zoo::rollapply(fte_avg_age, width = 2, mean, align = "left", partial = T)
-  ) %>%
-  as.data.frame()
-
-#### CREATE PREDICTOR DATASET ####
-
-# Filter to create predictor dataset
-x <- pup %>% 
-  filter(laestab %in% id_treated & time_period %in% data_avail) %>%
-  select(time_period, laestab, urn, pnpupfsm_e) %>%
-  arrange(laestab, desc(time_period)) %>%
-  mutate(
-    pnpupfsm_e_roll = zoo::rollapply(pnpupfsm_e, width = 2, mean, align = "left", partial = T)
-  ) %>%
-  as.data.frame()
-
-
-# combine outcome and predictor
-df <- merge(z, x, by = c("laestab", "time_period"), all.x = T)
-
-# arrange data
+# focus on data for treated school
 df <- df %>%
-  relocate(urn, .after = laestab) %>%
-  arrange(laestab, time_period) %>%
-  mutate(
-    # add slash and use as string
-    time_period_str = insert_slash(time_period),
-    # remove the last two digits
-    time_period = as.numeric(substr(time_period, 0, 4))
-  )
+  filter(laestab %in% id_treated) %>%
+  arrange(laestab, desc(time_period)) %>%
+  mutate(across(all_of(vars), ~ zoo::rollapply(.x, width = 2, mean, align = "left", partial = T), .names = "{col}_roll")) %>%
+  as.data.frame()
 
 # ONLY PROCEED IF THERE IS DATA FROM AT LEAST 4 YEARS AVAILABLE
 
-cat("## ", unique(df$school), "\n\n")
+cat("## ", unique(df$establishmentname), "\n\n")
 
 
 
@@ -224,13 +155,17 @@ cat("## ", unique(df$school), "\n\n")
 
 
 # compute timeseries descriptives
-ts_desc <- apply(df[, grepl("pup|fte", names(df))], MARGIN = 2, FUN = function(x){psych::describe(x, fast = T)})
+ts_desc <- apply(df[, grepl("pup|fte", names(df))], MARGIN = 2, FUN = function(x){psych::describe(x, IQR = T, trim = 1/nrow(df))})
 
 # combine to df
 ts_desc <- do.call("rbind",ts_desc)
 ts_desc$vars <- NULL
 
-ts_desc$out_count <- apply(df[, grepl("pup|fte", names(df))], MARGIN = 2, FUN = function(x){sum(is_outlier_3sd(x))})
+ts_desc$out_sd <- apply(df[, grepl("pup|fte", names(df))], MARGIN = 2, FUN = function(x){sum(is_outlier_3sd(x))})
+ts_desc$out_iqr <- apply(df[, grepl("pup|fte", names(df))], MARGIN = 2, FUN = function(x){sum(is_outlier_iqr(x))})
+
+# compute snr
+ts_desc$snr <- apply(df[, grepl("pup|fte", names(df))], MARGIN = 2, FUN = function(x){calculate_snr(x, window_size = 3)})
 
 # compute relative standard deviation
 ts_desc$rsd <- ts_desc$sd / ts_desc$mean
@@ -270,10 +205,10 @@ if (nrow(df) > 1) {
 
 # assign new variable names
 out$Variable <- factor(out$Variable, 
-                       levels = c("pupil_to_qual_teacher_ratio", "pupil_to_qual_unqual_teacher_ratio", 
+                       levels = c("pupil_to_qual_teacher_ratio", "pupil_to_qual_teacher_ratio_roll", 
                                   "pnpupfsm_e", "pnpupfsm_e_roll",
                                   "fte_avg_age", "fte_avg_age_roll"),
-                       labels = c("Outcome (qual)", "Outcome (all)",
+                       labels = c("Outcome (raw)", "Outcome (roll)",
                                   "FSM (raw)", "FSM (roll)",
                                   "Age (raw)", "Age (roll)")
                        
@@ -285,60 +220,51 @@ out <- out[order(out$Variable), ]
 row_idx <- c(which.min(c(out$sd[1:2])), 2 + which.min(c(out$sd[3:4])), 4 + which.min(c(out$sd[5:6])) )
 
 # print to markdown
-kbl(out, caption = paste0("Descriptives of timeseries data"), , digits = 2, row.names = F) %>%
+kbl(out, caption = paste0("Descriptives of timeseries data"), digits = 2, row.names = F) %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
-  add_footnote("Rows in italics describe the timeseries with the smaller SD.") %>%
-  column_spec(c(1, 13), border_right = T) %>%
-  column_spec(c(1, 4, 8, 13), bold = T) %>%
-  row_spec(row_idx, italic = T) %>%
+  column_spec(c(2, 18), border_right = T) %>%
+  column_spec(c(1, 4, 17), bold = T) %>%
   print()
 cat("\n")
 
 # save data
 if (id_treated == laestab_stp) {
   summary <- out %>%
-    mutate(school = unique(df$school),
+    mutate(establishmentname = unique(df$establishmentname),
            laestab = unique(df$laestab)) %>%
-    relocate(laestab, school) %>%
+    relocate(laestab, establishmentname) %>%
     as.data.frame()
 } else {
   summary <- rbind.all.columns(summary, out %>%
-                                 mutate(school = unique(df$school),
+                                 mutate(establishmentname = unique(df$establishmentname),
                                         laestab = unique(df$laestab)) %>%
-                                 relocate(laestab, school) %>%
+                                 relocate(laestab, establishmentname) %>%
                                  as.data.frame())
 }
 
 #### CREATE SPAGHETTI PLOT ####
 
+
 # create data in long format
 df_long <- df %>%
   tidyr::pivot_longer(
-    cols = -c(laestab, school, time_period, time_period_str, school, urn),
+    cols = all_of(c(paste(vars), paste0(vars, "_roll"))),
     names_to = "variable") %>%
   mutate(category = case_match(variable, 
                                "pupil_to_qual_teacher_ratio" ~ "Outcome",
-                               "pupil_to_qual_unqual_teacher_ratio" ~ "Outcome",
+                               "pupil_to_qual_teacher_ratio_roll" ~ "Outcome",
                                "fte_avg_age" ~ "Teacher age",
                                "fte_avg_age_roll" ~ "Teacher age",
                                "pnpupfsm_e" ~ "% pupils FSM",
                                "pnpupfsm_e_roll" ~ "% pupils FSM"
   ),
   computation = case_match(variable, 
-                           "pupil_to_qual_teacher_ratio" ~ "Qualified teachers",
-                           "pupil_to_qual_unqual_teacher_ratio" ~ "All teachers",
+                           "pupil_to_qual_teacher_ratio" ~ "Raw",
+                           "pupil_to_qual_teacher_ratio_roll" ~ "Rolling average",
                            "fte_avg_age" ~ "Raw",
                            "fte_avg_age_roll" ~ "Rolling average",
                            "pnpupfsm_e" ~ "Raw",
                            "pnpupfsm_e_roll" ~ "Rolling average"
-  ),
-  comment = case_match(variable, 
-                       "pupil_to_qual_teacher_ratio" ~ "Old",
-                       "pupil_to_qual_unqual_teacher_ratio" ~ "Modified",
-                       "fte_avg_age" ~ "Old",
-                       "fte_avg_age_roll" ~ "Modified",
-                       "pnpupfsm_e" ~ "Old",
-                       "pnpupfsm_e_roll" ~ "Modified"
   )
   ) %>%
   as.data.frame()
@@ -347,26 +273,23 @@ df_long$category <- factor(df_long$category, levels = c("Outcome", "% pupils FSM
 
 
 # plot timeseries for each variable
-plt <- ggplot(data = df_long, aes(x = time_period_str, y = value, col = computation, group = interaction(laestab, computation))) +
+plt <- ggplot(data = df_long, aes(x = time_period, y = value, col = computation, group = interaction(laestab, computation))) +
   geom_line() + 
   geom_point() +
   facet_wrap(~ category, ncol = 1, strip.position = "top", scales = "free_y") +
   ambition_theme +
-  ylab("Reported value") +
-  scale_color_manual(values = c("All teachers" = navy, "Qualified teachers" = coral, "Raw" = blue, "Rolling average" = red)) +
+  ylab("Reported value") + xlab("Academic year") +
+  scale_x_continuous(breaks = df_long$time_period, labels = df_long$time_period_str) +
+  scale_color_manual(values = c("Raw" = blue, "Rolling average" = red)) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
-        axis.title.x = element_blank(), 
         legend.title = element_blank())
 
-print(plt)
+suppressWarnings(print(plt))
 cat("\n\n")  # Add some space between plots
-
 
 ```
 
-
-
-```{r, echo=FALSE, results='asis'}
+```{r run code, echo=FALSE, results='asis'}
 for (id_treated in list_laestab) {
   <<process_data>>
 }
@@ -379,20 +302,17 @@ cat("## Summary \n\n")
 # print to markdown
 summary <- 
   read.csv(out_file) %>% 
-  filter(Variable %in% c("Outcome (qual)", "FSM (roll)", "Age (roll)")) %>%
   mutate_if(is.numeric, round, digits = 2) %>%
   as.data.frame() 
 
-cat("In total, data from", length(unique(summary$school)), "schools were considered.")
+cat("In total, data from", length(unique(summary$establishmentname)), "schools were considered.")
 cat("\n\n")
-cat(length(unique(summary$school[summary$n >= 4])), "schools had four or more pre-treatment observations.")
+cat(length(unique(summary$establishmentname[summary$n >= 4])), "schools had four or more pre-treatment observations.")
 cat("\n\n")
-# 
+
 summary %>% 
   filter(n >= 4) %>% 
   select(-laestab) %>%
-  mutate(Variable = factor(Variable, levels = c("Outcome (qual)", "FSM (roll)", "Age (roll)"))) %>%
-  arrange(Variable, sd) %>%
   kbl(caption = paste0("Descriptives of timeseries data"), row.names = F) %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
   column_spec(c(2, 13), border_right = T) %>%
