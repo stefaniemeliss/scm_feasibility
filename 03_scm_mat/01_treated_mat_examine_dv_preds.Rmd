@@ -95,11 +95,11 @@ dir_data <- file.path(dir, "data")
 dir_misc <- file.path(dir, "misc")
 
 # create interim folder
-dir.create(path = file.path(getwd(), "interim"))
+dir.create(path = file.path(dir, "03_scm_mat", "interim"))
 
 # get file stem name
 file_stem <- get_file_stem()
-out_file <- file.path(getwd(), "interim", paste0(file_stem, "_out.csv"))
+out_file <- file.path(dir, "03_scm_mat", "interim", paste0(file_stem, "_out.csv"))
 
 # copy data #
 file.copy(
