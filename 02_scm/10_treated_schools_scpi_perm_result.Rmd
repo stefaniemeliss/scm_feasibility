@@ -33,8 +33,14 @@ source_code <- function(root_dir_name = "code", target_repo = "helper_functions"
   
   # attempt to download from github
   tempp_file <- tempfile(fileext = ".R")
-  message <- curl::curl_download(git_url, tempp_file, quiet = F)
   
+  # run processing with the parameters
+  message <- tryCatch({
+    curl::curl_download(git_url, tempp_file, quiet = F)
+  }, error = function(e) {
+    return(error = paste("Error in curl::curl_download:", e$message))
+  })
+
   if(!grepl("Error", message)) {
     
     # if successful, source file
@@ -80,18 +86,34 @@ source_code <- function(root_dir_name = "code", target_repo = "helper_functions"
 source_code(target_repo = "scm_feasibility", file_name = "functions.R")
 
 # Define the base directory
-get_directory()
-# Define directories based on the current working directory
+dir <- get_directory()
 dir_data <- file.path(dir, "data")
 dir_misc <- file.path(dir, "misc")
 
 # get file stem name
 file_stem <- get_file_stem()
 
+# copy data #
+file.copy(
+  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_swf.csv"), dir_data, overwrite = T)
+file.copy(
+  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_pupils.csv"), dir_data, overwrite = T)
+file.copy(
+  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_establishments_search.csv"), dir_data, overwrite = T)
+file.copy(
+  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_establishments_groups.csv"), dir_data, overwrite = T)
+
+# load data #
+
+swf <- fread(file.path(dir_data, "data_swf.csv"))
+pup <- fread(file.path(dir_data, "data_pupils.csv"))
+est <- fread(file.path(dir_data, "data_establishments_search.csv"), na.strings = "")
+groups <- fread(file.path(dir_data, "data_establishments_groups.csv"), na.strings = "")
+
 # process data establishments #
 
 # load in file with timeseries desc
-summary <- read.csv(file.path(dir, "02_scm",  "02_treated_schools_filter_donor_pool_out.csv"))
+summary <- read.csv(file.path(dir, "02_scm", "interim",  "02_treated_schools_filter_donor_pool_out.csv"))
 
 # only select schools with sufficient donor pool
 summary <- subset(summary, n_pool >= 50)
@@ -101,24 +123,77 @@ df_region <- unique(summary[, c("laestab", "school", "same", "neighbouring")])
 ```
 
 ```{r nat, include=F}
-# Copy data files from the source directory to the target directory
-file.copy(
-  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_swf.csv"),
-  dir_data,
-  overwrite = TRUE
-)
-
-# Load data from CSV files into data tables
-swf <- fread(file = file.path(dir_data, "data_swf.csv"))
 dv <- "pupil_to_qual_teacher_ratio"
+
+# determine laestabs currently open
+list_laestab <- est %>%
+  filter(grepl("Open", establishmentstatus_name)) %>%
+  filter(grepl("ary|All", phaseofeducation_name)) %>%
+  pull(laestab) %>%
+  unique()
+
+# Perform the data transformation and filtering
+z <- swf %>%
+  filter(laestab %in% list_laestab) %>%
+  # Select relevant columns from the data frame
+  select(time_period, laestab, school, urn, !!sym(dv))
+
+# Add MAT information to the dataset
+# Create lookup table with relevant group information (avoiding duplicates)
+lookup <- est[grepl("Open", establishmentstatus_name) & laestab %in% list_laestab, c("laestab", "establishmentname", "gor_name", "phaseofeducation_name", "opendate")]
+lookup <- lookup[!duplicated(lookup), ]
+df <- merge(z, lookup, by = "laestab", all.x = T)
+
+# ---- Longitudinal data filtering ----
+
+# Remove any NA years at the beginning of the timeseries
+# Create a cumulative sum of non-NA values starting from the first non-NA value encountered.
+# cum_non_na remain zero as long as the values are NAs
+df <- df %>%
+  group_by(laestab) %>%
+  # sort ascending by timeseries - BEGINNING
+  arrange(time_period) %>%
+  mutate(cum_non_na_start = cumsum(!is.na(!!sym(dv)))) %>%
+  filter(cum_non_na_start > 0) %>%
+  select(-cum_non_na_start) %>%
+  ungroup() %>%
+  arrange(laestab, time_period)
+
+# Identify schools that do not have gaps at the end of the timeseries
+list_laestab <- df %>%
+  group_by(laestab) %>%
+  # sort ascending by timeseries - END
+  arrange(desc(time_period)) %>%
+  mutate(cum_non_na_end = cumsum(!is.na(!!sym(dv)))) %>%
+  # check if there are any per laestab
+  summarise(
+    n = n(),
+    cum_non_na_end = sum(cum_non_na_end > 0)
+  ) %>%
+  # remove if so
+  filter(n == cum_non_na_end) %>%
+  pull(laestab) %>%
+  unique()
+
+# Remove any schools with gaps in their timeseries (i.e., NA in the middle of their data)
+df <- df %>%
+  filter(laestab %in% list_laestab) %>%
+  group_by(laestab) %>%
+  mutate(na = sum(is.na(!!sym(dv)))) %>%
+  ungroup() %>%
+  filter(na == 0) %>%
+  select(-na)
+
+# Update list of schools to include only those that don't have any missing values in the middle or at the end
+list_laestab <- unique(df$laestab)
+
 
 # Remove rows for years for which there is no outcome data, 
 # and add observation count and count of outliers per school
 
 # Perform the data transformation and filtering
-z <- swf %>%
-  # Select relevant columns from the data frame
-  select(time_period, laestab, school, urn, pupil_to_qual_teacher_ratio) %>%
+df <- df %>%
+  filter(laestab %in% list_laestab) %>%
   # Filter out rows where the variable of interest (dv) is NA
   filter(!is.na(get(dv))) %>%
   # Group the data by school identifier
@@ -136,37 +211,14 @@ z <- swf %>%
   # Filter out groups (schools) that have any outliers within their timeseries for dv
   filter(count_outliers_dv == 0) %>%
   # Select the columns to keep in the final output
-  select(time_period, laestab, school, pupil_to_qual_teacher_ratio) %>%
+  select(-c(count_outliers_dv, outliers_dv, count_outliers_dv, obs_count_dv)) %>%
   # Convert the resulting tibble back to a base R data frame
   as.data.frame()
 
 
 # Remove outliers from data - 1st run #
 
-z <- z %>%
-  # Add a new column to identify outliers based on the 3-sigma rule
-  mutate(
-    outlier_dv = is_outlier_3sd(get(dv))
-  ) %>%
-  # Group the data by the 'laestab' column (likely a school identifier)
-  group_by(laestab) %>%
-  # Add a new column to count the number of outliers within each group
-  mutate(
-    count_outliers_dv = sum(outlier_dv)
-  ) %>%
-  # Remove the grouping to perform subsequent operations on the entire data frame
-  ungroup() %>%
-  # Filter out groups (schools) that have any outliers within their timeseries for dv
-  filter(count_outliers_dv == 0) %>%
-  # remove the temporary columns 'outlier_dv' and 'count_outliers_dv'
-  # select(-outlier_dv, -count_outliers_dv) %>%
-  # Convert the resulting tibble back to a base R data frame
-  as.data.frame()
-
-# Remove outliers from data - 2nd run #
-# second run applied because first run resulted in such high SD that the lower bound was negative - which is implausible as a cut-off given that the PTR values are positive 
-
-z <- z %>%
+df <- df %>%
   # Add a new column to identify outliers based on the 3-sigma rule
   mutate(
     outlier_dv = is_outlier_3sd(get(dv))
@@ -186,9 +238,33 @@ z <- z %>%
   # Convert the resulting tibble back to a base R data frame
   as.data.frame()
 
+if (is_outlier_3sd(df[, dv], show.bounds = T)[1] < 0) {
+  # Remove outliers from data - 2nd run #
+  # second run applied because first run resulted in such high SD that the lower bound was negative - which is implausible as a cut-off given that the PTR values are positive 
+  
+  df <- df %>%
+    # Add a new column to identify outliers based on the 3-sigma rule
+    mutate(
+      outlier_dv = is_outlier_3sd(get(dv))
+    ) %>%
+    # Group the data by the 'laestab' column (likely a school identifier)
+    group_by(laestab) %>%
+    # Add a new column to count the number of outliers within each group
+    mutate(
+      count_outliers_dv = sum(outlier_dv)
+    ) %>%
+    # Remove the grouping to perform subsequent operations on the entire data frame
+    ungroup() %>%
+    # Filter out groups (schools) that have any outliers within their timeseries for dv
+    filter(count_outliers_dv == 0) %>%
+    # remove the temporary columns 'outlier_dv' and 'count_outliers_dv'
+    select(-outlier_dv, -count_outliers_dv) %>%
+    # Convert the resulting tibble back to a base R data frame
+    as.data.frame()
+}
 
 # compute timeseries descriptives
-desc <- z %>%
+desc <- df %>%
   group_by(laestab) %>%
   summarise(
     mean = mean(pupil_to_qual_teacher_ratio, na.rm = T),
@@ -197,7 +273,7 @@ desc <- z %>%
     min = min(pupil_to_qual_teacher_ratio, na.rm = T),
     max = max(pupil_to_qual_teacher_ratio, na.rm = T),
     n = n()
-    )
+  )
 
 # Calculate pooled variance
 # Sum the product of the number of observations minus one and the variance for each school, then divide by the total number of observations minus one.
@@ -214,6 +290,21 @@ bound_up <- pooled_mean + 3*pooled_sd
 ```
 
 ```{r ratio, include=F}
+# Function to calculate number of teachers based on pupil-to-teacher ratio
+calculate_teachers <- function(pupil_teacher_ratio, num_pupils) {
+  num_teachers <- num_pupils / pupil_teacher_ratio
+  return(num_teachers)
+}
+
+# Function to calculate change in number of teachers based on change in ratio
+calculate_change_in_teachers <- function(starting_ratio, change_in_ratio, num_pupils) {
+  new_ratio <- starting_ratio + change_in_ratio
+  initial_teachers <- num_pupils / starting_ratio
+  new_teachers <- num_pupils / new_ratio
+  change_in_teachers <- new_teachers - initial_teachers
+  return(change_in_teachers)
+}
+
 # Number of pupils (constant)
 num_pupils <- 1000
 num_teach <- 62
@@ -224,11 +315,8 @@ starting_ratio <- num_pupils/num_teach
 # Create a sequence of ratios from starting_ratio, incrementing by 0.2
 ratios <- seq(starting_ratio - 3, starting_ratio + 3, by = 0.5)
 
-# Function to calculate number of teachers based on pupil-to-teacher ratio
-calculate_teachers <- function(pupil_teacher_ratio, num_pupils) {
-  num_teachers <- num_pupils / pupil_teacher_ratio
-  return(num_teachers)
-}
+# Calculate number of teachers for each ratio
+teachers_needed <- sapply(ratios, calculate_teachers, num_pupils)
 
 # Calculate number of teachers for each ratio
 teachers_needed <- sapply(ratios, calculate_teachers, num_pupils)
@@ -247,21 +335,29 @@ kbl(results, digits = 3, row.names = F, caption = "Mapping between changes in ra
   add_footnote("We here assume a constant number of pupil FTE of 1000.") %>%
   print()
 
-# Function to calculate change in number of teachers based on change in ratio
-calculate_change_in_teachers <- function(starting_ratio, change_in_ratio, num_pupils) {
-  new_ratio <- starting_ratio + change_in_ratio
-  initial_teachers <- num_pupils / starting_ratio
-  new_teachers <- num_pupils / new_ratio
-  change_in_teachers <- new_teachers - initial_teachers
-  return(change_in_teachers)
-}
-
-
 # Example initial ratio and change in ratio
 change_in_ratio <- -0.2
 
 # Calculate change in number of teachers
 change_in_teachers <- calculate_change_in_teachers(starting_ratio, change_in_ratio, num_pupils)
+
+# # SECONDARY
+# # Number of pupils (constant)
+# num_pupils <- 1000
+# starting_ratio <- 17.44
+# num_teach <- num_pupils / starting_ratio
+# 
+# # determine percentage vector
+# out <- data.frame(change_perc = seq(-.1, .1, 0.01))
+# 
+# # translate percentage into ratio
+# out$effect_ratio <- out$change_perc * starting_ratio
+# out$abs_ratio <- starting_ratio + out$effect_ratio
+# out$effect_pooled_sd <- out$effect_ratio / pooled_sd
+# 
+# out$abs_teacher <- sapply(out$abs_ratio, calculate_teachers, num_pupils)
+# out$effect_teacher <- out$abs_teacher - num_teach
+
 ```
 
 ```{r est, eval=FALSE, include=F}
@@ -429,7 +525,7 @@ cat("\n\n")
 
 ```{r res, eval=FALSE, include=F}
 #### SC - evaluate results ####
-summarise_scest(scest.out, cv = F)
+summarise_scest(scest.out, id_treated = id_treated, id_name = id_name, cv = F)
 
 #### EXTRACT DATA #####
 
@@ -689,6 +785,15 @@ if (decrease == 0) {
 # compute ratio of post-treatment RMSPE To pre-treatment RMSPE                                                  
 rmspe <- function(x){sqrt(mean(x^2))}
 
+# Calculate directional gaps: Use only negative post-treatment gaps
+# negative because we would predict that the treatment LOWERS the DV pupil-to-teacher ratio
+directional_postrmspe <- function(unit_id) {
+  post_gaps <- storegaps[(length(period.pre)+1):nrow(storegaps), unit_id]
+  negative_gaps <- post_gaps[post_gaps < 0]  # Focus on negative deviations
+  if(length(negative_gaps) == 0) return(0)   # Handle no negative gaps
+  sqrt(mean(negative_gaps^2))                # RMSPE of negative gaps
+}
+
 # process data from placebo runs #
 
 # determine file pattern
@@ -703,37 +808,71 @@ if (length(files) > 0) {
     
     file = files[f]
     
+    file = files[f]
+    
     # read in results
     storegaps <- read.csv(file)
     names(storegaps)[1] <- "time_period"
     names(storegaps) <- gsub("X", "", names(storegaps))
     
-    preloss <- apply(storegaps[1:length(period.pre), -1], 2, rmspe)
-    postloss <- apply(storegaps[(1+length(period.pre)):(length(period.pre)+length(period.post)), -1], 2, rmspe)
-    ratio <- sort(postloss/preloss)
-    observed_statistic <- ratio[names(ratio) == id_treated]
+    # compute RMPSE for pre and post
+    prermspe <- apply(storegaps[1:length(period.pre), -1], 2, rmspe)
+    postrmspe <- apply(storegaps[(1+length(period.pre)):(length(period.pre)+length(period.post)), -1], 2, rmspe)
+    # compute post to pre ratio
+    ratio <- sort(postrmspe/prermspe)
+    # determine ratio in treated unit
+    observed_ratio <- ratio[names(ratio) == id_treated]
+    # permutation distribution of ratios
+    permutation_ratios <- c(ratio)  # Includes treated unit's ratio
     
-    # compute treatment effect
+    # compute directional rmspe values for post
+    # this only takes into consideration the any negative deviations in the gap when computing the RMSPE
+    postrmspe_neg <- sapply(colnames(storegaps)[-1], directional_postrmspe)
+    # compute post to pre ratio using directional rmspe post values
+    ratio_negative <- postrmspe_neg / prermspe  # Directional RMSPE ratio
+    # determine ratio in treated unit
+    observed_ratio_neg <- ratio_negative[names(ratio_negative) == id_treated]
+    # permutation distribution of directional ratios
+    permutation_ratios_neg <- ratio_negative  # Includes all units (treated + placebos)
+    
+    # compute treatment effect: mean post-treatment gap for treated unit
     postgap <- apply(storegaps[(1+length(period.pre)):(length(period.pre)+length(period.post)), -1], 2, mean)
     avg_gap_post <- postgap[names(postgap) == id_treated]
     
+    # effect in national SD
+    eff_gap_pooled_sd <- avg_gap_post / pooled_sd
+
     # combine permutation data into df
-    perm_results <- data.frame(laestab = names(preloss),
-                               rmspe_pre = preloss,
-                               rmspe_post = postloss,
-                               ratio = postloss / preloss)
+    perm_results <- data.frame(laestab = names(prermspe),
+                               rmspe_pre = prermspe,
+                               rmspe_post = postrmspe,
+                               ratio = postrmspe / prermspe,
+                               rmspe_post_neg = postrmspe_neg,
+                               ratio_neg = postrmspe_neg / prermspe,
+                               gap_post = postgap)
     
     # identify ill-fitting placebo runs
-    perm_results$thresh5 <- perm_results$rmspe_pre < perm_results$rmspe_pre[perm_results$laestab == id_treated] * 5
-    n_ill <- sum(perm_results$thresh5 == F)
-    cutoff_value <- quantile(perm_results$ratio, 0.95)
-    cutoff_thresh5 <- quantile(perm_results$ratio[perm_results$thresh5 == T], 0.95)
+    fit_threshold <- perm_results$rmspe_pre[perm_results$laestab == id_treated] * 5
+    perm_results$ill_fitted <- perm_results$rmspe_pre > fit_threshold
+    n_ill <- sum(perm_results$ill_fitted == T)
+    cutoff_value <- quantile(perm_results$ratio, 0.95, na.rm = T)
+    cutoff_thresh5 <- quantile(perm_results$ratio[perm_results$ill_fitted == F], 0.95, na.rm = T)
     
-    prob <- sum(perm_results$ratio >= observed_statistic) / length(perm_results$ratio)
-    prob_thresh5 <- sum(perm_results$ratio[perm_results$thresh5] >= observed_statistic) / sum(perm_results$thresh5)
+    # compute two-sided p values
+    prob_two_sided <- sum(perm_results$ratio >= observed_ratio) / length(perm_results$ratio)
+    prob_two_sided_thresh5 <- sum(perm_results$ratio[perm_results$ill_fitted == F] >= observed_ratio) / sum(perm_results$ill_fitted == F)
     
-    sig <- prob < .05
-    sig_thresh5 <- prob_thresh5 < .05
+    # determine if the p values are significant
+    sig_two_sided <- prob_two_sided < .05
+    sig_two_sided_thresh5 <- prob_two_sided_thresh5 < .05
+    
+    # compute one-sided p values
+    prob_one_sided <- sum(perm_results$ratio_neg >= observed_ratio_neg) / length(perm_results$ratio_neg)
+    prob_one_sided_thresh5 <- sum(perm_results$ratio_neg[perm_results$ill_fitted == F] >= observed_ratio_neg) / sum(perm_results$ill_fitted == F)
+    
+    # determine if the p values are significant
+    sig_one_sided <- prob_one_sided < .05
+    sig_one_sided_thresh5 <- prob_one_sided_thresh5 < .05
     
     # initialise df for results
     sim <- data.frame(
@@ -743,17 +882,23 @@ if (length(files) > 0) {
       reduction = decrease,
       file = file,
       sim = f,
-      gap_post = avg_gap_post,
+      eff_gap = avg_gap_post,
+      eff_gap_pooled_sd = eff_gap_pooled_sd,
+      export = paste(round(avg_gap_post, 2), "/", round(eff_gap_pooled_sd, 2)),
       rmspe_pre = perm_results$rmspe_pre[perm_results$laestab == id_treated],
       rmspe_post = perm_results$rmspe_post[perm_results$laestab == id_treated],
       rmspe_ratio = perm_results$ratio[perm_results$laestab == id_treated],
-      cutoff_value = cutoff_value,
-      prob = prob,
-      sig = sig,
+      rmspe_post_neg = perm_results$rmspe_post_neg[perm_results$laestab == id_treated],
+      rmspe_ratio_neg = perm_results$ratio_neg[perm_results$laestab == id_treated],
       n_ill = n_ill,
-      cutoff_thresh5 = cutoff_thresh5,
-      prob_thresh5 = prob_thresh5,
-      sig_thresh5 = sig_thresh5
+      prob_two_sided = prob_two_sided,
+      sig_two_sided = sig_two_sided,
+      prob_two_sided_thresh5 = prob_two_sided_thresh5,
+      sig_two_sided_thresh5 = sig_two_sided_thresh5,
+      prob_one_sided = prob_one_sided,
+      sig_one_sided = sig_one_sided,
+      prob_one_sided_thresh5 = prob_one_sided_thresh5,
+      sig_one_sided_thresh5 = sig_one_sided_thresh5
     )
     
     if (f == 1 & decrease == 0) {
@@ -769,81 +914,176 @@ if (length(files) > 0) {
 ```
 
 ```{r power, eval=FALSE, include=F}
-# df_out <- read.csv(file = "02_scm/07_treated_schools_scpi_perm_result_St_Peter's_Catholic_School.csv") # debug
-
-# example results for one simulation #
-kbl(df_out[, -c(grep("laestab|school|pre|donor|ill", names(df_out)))], digits = 3, row.names = F, caption = paste(id_name)) %>%
-  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>%
-  row_spec(which(df_out$prob_thresh5 < .05), bold = T) %>%
-  add_footnote(c(
-    paste("N =", unique(df_out$n_donors), "donor schools were used for permutation testing. There were N = " , n_ill, "ill-fitted placebo runs."),
-    paste0("The pre-treatment outcome timeseries of the treated school has an SD = ", round(unique(df_out$sd_pre), 3), " and an RMSPE = ", round(unique(df_out$rmspe_pre), 3), "."),
-    paste0("The simulated post-treatment outcome timeseries of the treated school has a mean of = ", round(unique(df_out$mean_pre), 3), " before applying any effects."),
-    paste0("The pooled pre-treatment outcome timeseries mean at the national level is ", round(unique(pooled_mean), 3)," with a pooled timeseries SD at national level of ", round(unique(pooled_sd), 3), "."),
-    "Bold indicates that the probability of obtaining such a ratio at random is below 0.05.")) %>%
-  print()
-cat("\n\n")
-
-# determine output filename
-file_name <- file.path(dir, "02_scm", "interim", paste0(file_stem, "_TMP_" , gsub(" ", "_", id_name), ".csv"))
-
-# save output
-write.csv(df_out, file = file_name, row.names = FALSE)
-
-
-# results of all simulations #
-
 # add decrease in percent
 df_sim$decrease = factor(paste0(df_sim$reduction * 100, "%"), levels = paste0(0:10, "%"))
 
-# faceted histogram
+# get counts and power obtained across all simulations for this setting #
+power <- df_sim %>% 
+  group_by(decrease) %>% 
+  summarise(
+    n_ill = mean(n_ill),
+    n_sig_two_sided = sum(sig_two_sided_thresh5),
+    power_two_sided_num = 100 * sum(sig_two_sided_thresh5)/n(),
+    power_two_sided = paste0(power_two_sided_num, "%"),
+    n_sig_one_sided = sum(sig_two_sided_thresh5),
+    power_one_sided_num = 100 * sum(sig_one_sided_thresh5)/n(),
+    power_one_sided = paste0(power_one_sided_num, "%")
+  )
+
+row_idx <- which(power$power_one_sided_num >= 80) 
+  
+# compute descriptive stats
+vars_to_check <- c("eff_gap", "eff_gap_pooled_sd", "rmspe_pre", "rmspe_post", "rmspe_ratio", "rmspe_post_neg", "rmspe_ratio_neg")
+
+out <- 
+  # compute descriptive stats
+  rbind(
+    do.call("rbind", psych::describeBy(df_sim[, vars_to_check], group = df_sim[, "decrease"]))
+  ) %>%
+  # add decrease and vars from row.names, round values and ensure that they all have two digits
+  mutate(
+    decrease = sub("%.*", "%", row.names(.)),
+    vars = sub(".*%.", "", row.names(.)),
+    across(where(is.numeric), ~ round(.x, digits = 2)),
+    across(where(is.numeric), ~ sprintf("%.2f", .x))
+  ) %>%
+  # make decrease factor and create summary string
+    mutate(
+    decrease = factor(decrease, levels = paste0(0:10, "%")),
+    vars = factor(vars, levels = vars_to_check),
+    summary = paste0(mean, " (", sd, ") ", "[", min, ";", max, "]")
+  ) %>%
+  # drop vars and arrange columns
+  select(vars, decrease, summary) %>%
+  relocate(vars, decrease) %>%
+  arrange(vars, decrease) %>%
+  tibble::remove_rownames(.) %>%
+  # make data wide
+  tidyr::pivot_wider(names_from = vars, values_from = summary) %>%
+  # merge with counts and power obtained
+  as.data.frame()
+
+# print to markdown
+out <- full_join(power, out) %>%
+  select(-c(power_two_sided_num, power_one_sided_num))
+
+kbl(out, row.names = F, digits = 3) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>%
+  row_spec(row_idx, bold = T) %>%
+  print()
+  
+# determine output filename
+file_name <- file.path(dir, "02_scm", "interim", paste0(file_stem, "_TMP_" , gsub(" ", "_", id_name), ".csv"))
+write.csv(out, file = file_name, row.names = FALSE)
+
+# plot results of all simulations #
+
+# faceted histogram - two sided test
 plt <- ggplot(data = df_sim) +
-  geom_histogram(aes(x = prob_thresh5, fill = sig_thresh5), binwidth = 0.01, boundary = 0, colour = "black", position = "identity") +
+  geom_histogram(aes(x = prob_two_sided_thresh5, fill = sig_two_sided_thresh5), binwidth = 0.01, boundary = 0, colour = "black", position = "identity") +
   facet_wrap(vars(decrease), ncol = 2, strip.position = "right") +
   ambition_theme +
-  theme(axis.title = element_blank(), 
+  theme(axis.title.y = element_blank(), 
         strip.text = element_text(size = 10, face = "bold"),
         axis.text = element_text(size = 10), 
         legend.position = "none") +
   scale_fill_manual(values = c("TRUE" = coral, "FALSE" = navy40)) +
-  geom_text(data = df_sim %>% filter(sig_thresh5 == TRUE) %>% group_by(decrease) %>% summarise(count = n()), 
-            aes(x = Inf, y = Inf, label = paste(count, "simulations below 0.05")),
+  xlab("p value (two-sided)") +
+  geom_text(data = df_sim %>% filter(sig_two_sided_thresh5 == TRUE) %>% group_by(decrease) %>% summarise(count = n()), 
+            aes(x = Inf, y = Inf, label = paste(count, "out of", length(files), "simulations below 0.05")),
+            hjust = 1.1, vjust = 1.1, size = 4, colour = coral)
+print(plt)
+cat("\n\n")
+# faceted histogram - one sided test
+plt <- ggplot(data = df_sim) +
+  geom_histogram(aes(x = prob_one_sided_thresh5, fill = sig_one_sided_thresh5), binwidth = 0.01, boundary = 0, colour = "black", position = "identity") +
+  facet_wrap(vars(decrease), ncol = 2, strip.position = "right") +
+  ambition_theme +
+  theme(axis.title.y = element_blank(), 
+        strip.text = element_text(size = 10, face = "bold"),
+        axis.text = element_text(size = 10), 
+        legend.position = "none") +
+  scale_fill_manual(values = c("TRUE" = coral, "FALSE" = navy40)) +
+  xlab("p value (one-sided)") +
+  geom_text(data = df_sim %>% filter(sig_one_sided_thresh5 == TRUE) %>% group_by(decrease) %>% summarise(count = n()), 
+            aes(x = Inf, y = Inf, label = paste(count, "out of", length(files), "simulations below 0.05")),
             hjust = 1.1, vjust = 1.1, size = 4, colour = coral)
 print(plt)
 cat("\n\n")
 
-# scatter plot of probability and effect size
+# scatter plot of probability and effect size - two sided
 plt <- ggplot(data = df_sim) +
   geom_vline(xintercept = 0.05, linetype = "dashed") +
-  geom_point(aes(x = prob_thresh5, y = gap_post, col = sig_thresh5)) +
+  geom_point(aes(x = prob_two_sided_thresh5, y = eff_gap, col = sig_two_sided_thresh5)) +
   facet_wrap(vars(decrease), ncol = 2, strip.position = "right") +
   ambition_theme +
-  theme(axis.title.x = element_blank(), 
+  theme(#axis.title.x = element_blank(), 
         strip.text = element_text(size = 10, face = "bold"),
         axis.text = element_text(size = 10), 
         legend.position = "none") +
   ylab("Average treatment effect (treated - synth)") +
+  xlab("p value (two-sided)") +
   scale_colour_manual(values = c("TRUE" = coral, "FALSE" = navy40)) +
-  geom_text(data = df_sim %>% filter(sig_thresh5 == TRUE) %>% group_by(decrease) %>% summarise(count = n()), 
-            aes(x = Inf, y = Inf, label = paste(count, "simulations below 0.05")),
+  geom_text(data = df_sim %>% filter(sig_two_sided_thresh5 == TRUE) %>% group_by(decrease) %>% summarise(count = n()), 
+            aes(x = Inf, y = Inf, label = paste(count, "out of", length(files), "simulations below 0.05")),
+            hjust = 1.1, vjust = 1.1, size = 4, colour = coral)
+print(plt)
+cat("\n\n")
+# scatter plot of probability and effect size - one sided
+plt <- ggplot(data = df_sim) +
+  geom_vline(xintercept = 0.05, linetype = "dashed") +
+  geom_point(aes(x = prob_one_sided_thresh5, y = eff_gap, col = sig_one_sided_thresh5)) +
+  facet_wrap(vars(decrease), ncol = 2, strip.position = "right") +
+  ambition_theme +
+  theme(#axis.title.x = element_blank(), 
+        strip.text = element_text(size = 10, face = "bold"),
+        axis.text = element_text(size = 10), 
+        legend.position = "none") +
+  ylab("Average treatment effect (treated - synth)") +
+  xlab("p value (one-sided)") +
+  scale_colour_manual(values = c("TRUE" = coral, "FALSE" = navy40)) +
+  geom_text(data = df_sim %>% filter(sig_one_sided_thresh5 == TRUE) %>% group_by(decrease) %>% summarise(count = n()), 
+            aes(x = Inf, y = Inf, label = paste(count, "out of", length(files), "simulations below 0.05")),
             hjust = 1.1, vjust = 1.1, size = 4, colour = coral)
 print(plt)
 cat("\n\n")
 
-# scatter plot of probability and effect size
+# scatter plot of probability and effect size - two sided
 plt <- ggplot(data = df_sim) +
   geom_vline(xintercept = 0.05, linetype = "dashed") +
-  geom_point(aes(x = prob_thresh5, y = gap_post/pooled_sd, col = sig_thresh5)) +
+  geom_point(aes(x = prob_two_sided_thresh5, y = eff_gap/pooled_sd, col = sig_two_sided_thresh5)) +
   facet_wrap(vars(decrease), ncol = 2, strip.position = "left") +
   ambition_theme +
-  theme(axis.title.x = element_blank(), 
+  theme(#axis.title.x = element_blank(), 
         strip.text = element_text(size = 10, face = "bold"),
         axis.text = element_text(size = 10), 
         legend.position = "none") +
   scale_colour_manual(values = c("TRUE" = coral, "FALSE" = navy40)) +
-  geom_text(data = df_sim %>% filter(sig_thresh5 == TRUE) %>% group_by(decrease) %>% summarise(count = n()), 
-            aes(x = Inf, y = Inf, label = paste(count, "simulations below 0.05")),
+  geom_text(data = df_sim %>% filter(sig_two_sided_thresh5 == TRUE) %>% group_by(decrease) %>% summarise(count = n()), 
+            aes(x = Inf, y = Inf, label = paste(count, "out of", length(files), "simulations below 0.05")),
             hjust = 1.1, vjust = 1.1, size = 4, colour = coral) + 
+  xlab("p value (two-sided)") +
+  scale_y_continuous(
+    "Eff (abs) = mean(treated – synth)", 
+    sec.axis = sec_axis(~ . / pooled_sd, name = "Eff (pooled SD) = Eff (abs) / pooled national SD ")
+  )
+print(plt)
+cat("\n\n")
+# scatter plot of probability and effect size - one sided
+plt <- ggplot(data = df_sim) +
+  geom_vline(xintercept = 0.05, linetype = "dashed") +
+  geom_point(aes(x = prob_one_sided_thresh5, y = eff_gap/pooled_sd, col = sig_one_sided_thresh5)) +
+  facet_wrap(vars(decrease), ncol = 2, strip.position = "left") +
+  ambition_theme +
+  theme(#axis.title.x = element_blank(), 
+        strip.text = element_text(size = 10, face = "bold"),
+        axis.text = element_text(size = 10), 
+        legend.position = "none") +
+  scale_colour_manual(values = c("TRUE" = coral, "FALSE" = navy40)) +
+  geom_text(data = df_sim %>% filter(sig_one_sided_thresh5 == TRUE) %>% group_by(decrease) %>% summarise(count = n()), 
+            aes(x = Inf, y = Inf, label = paste(count, "out of", length(files), "simulations below 0.05")),
+            hjust = 1.1, vjust = 1.1, size = 4, colour = coral) + 
+  xlab("p value (one-sided)") +
   scale_y_continuous(
     "Eff (abs) = mean(treated – synth)", 
     sec.axis = sec_axis(~ . / pooled_sd, name = "Eff (pooled SD) = Eff (abs) / pooled national SD ")
@@ -851,20 +1091,42 @@ plt <- ggplot(data = df_sim) +
 print(plt)
 cat("\n\n")
 
-# scatter plot of probability and effect size
+# scatter plot of probability and effect size - two sided
 plt <- ggplot(data = df_sim) +
   geom_vline(xintercept = 0.05, linetype = "dashed") +
-  geom_point(aes(x = prob_thresh5, y = gap_post/pooled_sd, col = sig_thresh5)) +
+  geom_point(aes(x = prob_two_sided_thresh5, y = eff_gap/pooled_sd, col = sig_two_sided_thresh5)) +
   facet_wrap(vars(decrease), ncol = 2, strip.position = "left") +
   ambition_theme +
-  theme(axis.title.x = element_blank(), 
+  theme(#axis.title.x = element_blank(), 
         strip.text = element_text(size = 10, face = "bold"),
         axis.text = element_text(size = 10), 
         legend.position = "none") +
   scale_colour_manual(values = c("TRUE" = coral, "FALSE" = navy40)) +
-  geom_text(data = df_sim %>% filter(sig_thresh5 == TRUE) %>% group_by(decrease) %>% summarise(count = n()), 
-            aes(x = Inf, y = Inf, label = paste(count, "simulations below 0.05")),
+  geom_text(data = df_sim %>% filter(sig_two_sided_thresh5 == TRUE) %>% group_by(decrease) %>% summarise(count = n()), 
+            aes(x = Inf, y = Inf, label = paste(count, "out of", length(files), "simulations below 0.05")),
             hjust = 1.1, vjust = 1.1, size = 4, colour = coral) + 
+  xlab("p value (two-sided)") +
+  scale_y_continuous(
+    paste0("Change in ratio where 0 equals ", round(starting_ratio, 2)), 
+    sec.axis = sec_axis(~ calculate_change_in_teachers(starting_ratio, ., num_pupils), name = paste0("Change in teacher FTE where 0 equals ", round(num_teach, 2)))
+  )
+print(plt)
+cat("\n\n")
+# scatter plot of probability and effect size - one sided
+plt <- ggplot(data = df_sim) +
+  geom_vline(xintercept = 0.05, linetype = "dashed") +
+  geom_point(aes(x = prob_one_sided_thresh5, y = eff_gap/pooled_sd, col = sig_one_sided_thresh5)) +
+  facet_wrap(vars(decrease), ncol = 2, strip.position = "left") +
+  ambition_theme +
+  theme(#axis.title.x = element_blank(), 
+        strip.text = element_text(size = 10, face = "bold"),
+        axis.text = element_text(size = 10), 
+        legend.position = "none") +
+  scale_colour_manual(values = c("TRUE" = coral, "FALSE" = navy40)) +
+  geom_text(data = df_sim %>% filter(sig_one_sided_thresh5 == TRUE) %>% group_by(decrease) %>% summarise(count = n()), 
+            aes(x = Inf, y = Inf, label = paste(count, "out of", length(files), "simulations below 0.05")),
+            hjust = 1.1, vjust = 1.1, size = 4, colour = coral) + 
+  xlab("p value (one-sided)") +
   scale_y_continuous(
     paste0("Change in ratio where 0 equals ", round(starting_ratio, 2)), 
     sec.axis = sec_axis(~ calculate_change_in_teachers(starting_ratio, ., num_pupils), name = paste0("Change in teacher FTE where 0 equals ", round(num_teach, 2)))
@@ -872,24 +1134,42 @@ plt <- ggplot(data = df_sim) +
 print(plt)
 cat("\n\n")
 
-# scatter plot of probability and ratio
+# scatter plot of probability and ratio - two sided
 plt <- ggplot(data = df_sim) +
   geom_vline(xintercept = 0.05, linetype = "dashed") +
-  geom_point(aes(x = prob_thresh5, y = rmspe_ratio, col = sig_thresh5)) +
+  geom_point(aes(x = prob_two_sided_thresh5, y = rmspe_ratio, col = sig_two_sided_thresh5)) +
   facet_wrap(vars(decrease), ncol = 2, strip.position = "right") +
   ambition_theme +
-  theme(axis.title.x = element_blank(), 
+  theme(#axis.title.x = element_blank(), 
         strip.text = element_text(size = 10, face = "bold"),
         axis.text = element_text(size = 10), 
         legend.position = "none") +
   ylab("Ratio of RMSPE (post) to RMSPE (pre)") +
+  xlab("p value (two-sided)") +
   scale_colour_manual(values = c("TRUE" = coral, "FALSE" = navy40)) +
-  geom_text(data = df_sim %>% filter(sig_thresh5 == TRUE) %>% group_by(decrease) %>% summarise(count = n()), 
-            aes(x = Inf, y = Inf, label = paste(count, "simulations below 0.05")),
+  geom_text(data = df_sim %>% filter(sig_two_sided_thresh5 == TRUE) %>% group_by(decrease) %>% summarise(count = n()), 
+            aes(x = Inf, y = Inf, label = paste(count, "out of", length(files), "simulations below 0.05")),
             hjust = 1.1, vjust = 1.1, size = 4, colour = coral)
 print(plt)
 cat("\n\n")
-
+# scatter plot of probability and ratio - one sided
+plt <- ggplot(data = df_sim) +
+  geom_vline(xintercept = 0.05, linetype = "dashed") +
+  geom_point(aes(x = prob_one_sided_thresh5, y = rmspe_ratio_neg, col = sig_one_sided_thresh5)) +
+  facet_wrap(vars(decrease), ncol = 2, strip.position = "right") +
+  ambition_theme +
+  theme(#axis.title.x = element_blank(), 
+        strip.text = element_text(size = 10, face = "bold"),
+        axis.text = element_text(size = 10), 
+        legend.position = "none") +
+  xlab("p value (one-sided)") +
+  ylab("Ratio of RMSPE (post negative) to RMSPE (pre)") +
+  scale_colour_manual(values = c("TRUE" = coral, "FALSE" = navy40)) +
+  geom_text(data = df_sim %>% filter(sig_one_sided_thresh5 == TRUE) %>% group_by(decrease) %>% summarise(count = n()), 
+            aes(x = Inf, y = Inf, label = paste(count, "out of", length(files), "simulations below 0.05")),
+            hjust = 1.1, vjust = 1.1, size = 4, colour = coral)
+print(plt)
+cat("\n\n")
 
 # determine output filename
 file_name <- file.path(dir, "02_scm", "interim", paste0(file_stem, "_" , gsub(" ", "_", id_name), ".csv"))
@@ -909,7 +1189,7 @@ swf %>% filter(laestab == id_treated) %>%
 ```
 
 
-```{r run_code, echo=F, message=FALSE, results='asis'}
+```{r run_code, echo=F, message=FALSE, results='asis', fig.align='center', fig.height=6, fig.width=8, out.width='100%', out.height='100%'}
 
 #### Define best parameter settings from grid search - per school ####
 info <- list(
@@ -919,8 +1199,8 @@ info <- list(
        cov.adj = list(c("constant")),
        region.filter = "same",
        sd.range = NULL,
-       # decrease_sim = c(seq(.00, .1, 0.01))),
-       decrease_sim = c(seq(.00, .1, 0.02))),
+       decrease_sim = c(seq(.00, .1, 0.01))),
+       # decrease_sim = c(seq(.00, .1, 0.02))),
   # Dixon Music primary
   list(school = "Dixons Music Primary",
        features = c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age"),
@@ -1013,7 +1293,7 @@ for (i in 1:length(info)) {
   id_treated <- df_region$laestab[df_region$school == id_name]
   
   # process data
-  df <- process_data_scm(id_treated = id_treated, read_files = T, export_data.tables = T)
+  df <- process_data_scm(id_treated = id_treated)
   
   
   cat("# ", id_name, "\n\n")
