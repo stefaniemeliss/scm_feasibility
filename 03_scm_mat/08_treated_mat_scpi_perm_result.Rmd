@@ -302,6 +302,17 @@ pooled_mean <- sum(desc$n * desc$mean) / sum(desc$n)
 # extract range as mean +/- 3SD -> for plotting
 bound_lo <- pooled_mean - 3*pooled_sd
 bound_up <- pooled_mean + 3*pooled_sd
+
+
+data.frame(weighted.mean = pooled_mean,
+           pooled.sd = pooled_sd, 
+           lower.bound = bound_lo,
+           upper.bound = bound_up) %>%
+  kbl(row.names = F, digits = 3) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
+  print()
+cat("\n\n")
+
 ```
 
 ```{r ratio, include=F}
@@ -359,22 +370,22 @@ change_in_teachers <- calculate_change_in_teachers(starting_ratio, change_in_rat
 calculate_change_in_teachers(starting_ratio, 0.5, num_pupils)
 calculate_change_in_teachers(starting_ratio, -0.5, num_pupils)
 
-# ACADEMIES
-# Number of pupils (constant)
-num_pupils <- 1000
-starting_ratio <- 18.63
-num_teach <- num_pupils / starting_ratio
-
-# determine percentage vector
-out <- data.frame(change_perc = seq(-.1, .1, 0.01))
-
-# translate percentage into ratio
-out$effect_ratio <- out$change_perc * starting_ratio
-out$abs_ratio <- starting_ratio + out$effect_ratio
-out$effect_pooled_sd <- out$effect_ratio / pooled_sd
-
-out$abs_teacher <- sapply(out$abs_ratio, calculate_teachers, num_pupils)
-out$effect_teacher <- out$abs_teacher - num_teach
+# # ACADEMIES
+# # Number of pupils (constant)
+# num_pupils <- 1000
+# starting_ratio <- 18.63
+# num_teach <- num_pupils / starting_ratio
+# 
+# # determine percentage vector
+# out <- data.frame(change_perc = seq(-.1, .1, 0.01))
+# 
+# # translate percentage into ratio
+# out$effect_ratio <- out$change_perc * starting_ratio
+# out$abs_ratio <- starting_ratio + out$effect_ratio
+# out$effect_pooled_sd <- out$effect_ratio / pooled_sd
+# 
+# out$abs_teacher <- sapply(out$abs_ratio, calculate_teachers, num_pupils)
+# out$effect_teacher <- out$abs_teacher - num_teach
 
 ```
 
