@@ -137,7 +137,7 @@ lookup <- data.frame(time_period = c(2010:2026),
 ```
 
 
-```{r nat, include=F}
+```{r nat, echo=F, results='asis'}
 dv <- "pupil_to_qual_teacher_ratio"
 
 # determine laestabs currently open
