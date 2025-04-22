@@ -14,10 +14,11 @@ insert_slash <- function(number) {
 
 process_data_scm <- function(id_treated = "id_treated", 
                              dv = "pupil_to_qual_teacher_ratio",
-                             var_teach = "fte_avg_age",
+                             var_teach = "fte_avg_age_known",
                              var_pup = "pnpupfsm_e",
                              regions = NULL,
-                             swf_filter = NULL, pup_filter = NULL
+                             swf_filter = NULL, pup_filter = NULL,
+                             exclude_from_na_omit = "pnpupfsm_ever"
 ){
   
   # This is a data pre-processing function for later synthetic control method (SCM) analysis using [id_treated] as the treated school.
@@ -28,29 +29,30 @@ process_data_scm <- function(id_treated = "id_treated",
   
   # Filter School Workforce (SWF) data to create outcome dataset with selected variables
   z <- swf %>%
-    filter(laestab %in% id_treated)
-  
-  # Apply additional filter to SWF data if provided
-  if (!is.null(swf_filter)) {
-    z <- z %>% filter(!!rlang::parse_expr(swf_filter))
-  }
-  
-  z <- z %>% select(time_period, laestab, !!sym(dv), !!sym(var_teach))
+    filter(laestab %in% id_treated) %>%
+    # Apply additional filter to SWF data if provided
+    {if (!is.null(swf_filter)) filter(., !!rlang::parse_expr(swf_filter)) else .} %>% 
+    select(time_period, laestab, all_of(dv), all_of(var_teach))
   
   # Filter pupil data to create predictor dataset with selected variables
   x <- pup %>% 
-    filter(laestab %in% id_treated)
+    filter(laestab %in% id_treated) %>%
+    # Apply additional filter to pupil data if provided
+    {if (!is.null(pup_filter)) filter(., !!rlang::parse_expr(pup_filter)) else .} %>%
+    select(time_period, laestab, all_of(var_pup))
   
-  # Apply additional filter to pupil data if provided
-  if (!is.null(pup_filter)) {
-    x <- x %>% filter(!!rlang::parse_expr(pup_filter))
+  # combine pupil and teacher data
+  df <- full_join(z, x)
+  
+  # Modified NA handling after initial merge
+  if (!is.null(exclude_from_na_omit)) {
+    df <- df %>% tidyr::drop_na(-any_of(exclude_from_na_omit))
+  } else {
+    df <- na.omit(df)
   }
   
-  x <- x %>% select(time_period, laestab, !!sym(var_pup))
-  
   # Determine available timeseries data for id_treated
-  data_avail <- full_join(z, x) %>%
-    na.omit() %>%
+  data_avail <- df %>%
     pull(time_period) %>%
     unique() %>%
     sort()
@@ -104,32 +106,30 @@ process_data_scm <- function(id_treated = "id_treated",
   
   # Filter School Workforce (SWF) data to create outcome dataset with selected variables
   z <- swf %>%
-    filter(laestab %in% list_laestab & time_period %in% data_avail)
-  
-  # Apply additional filter to SWF data if provided
-  if (!is.null(swf_filter)) {
-    z <- z %>% filter(!!rlang::parse_expr(swf_filter))
-  }
-  
-  z <- z %>% select(time_period, laestab, !!sym(dv), !!sym(var_teach))
+    filter(laestab %in% list_laestab) %>%
+    # Apply additional filter to SWF data if provided
+    {if (!is.null(swf_filter)) filter(., !!rlang::parse_expr(swf_filter)) else .} %>% 
+    select(time_period, laestab, all_of(dv), all_of(var_teach))
   
   # Filter pupil data to create predictor dataset with selected variables
   x <- pup %>% 
-    filter(laestab %in% list_laestab & time_period %in% data_avail)
-  
-  # Apply additional filter to pupil data if provided
-  if (!is.null(pup_filter)) {
-    x <- x %>% filter(!!rlang::parse_expr(pup_filter))
-  }
-  
-  x <- x %>% select(time_period, laestab, !!sym(var_pup))
+    filter(laestab %in% list_laestab) %>%
+    # Apply additional filter to pupil data if provided
+    {if (!is.null(pup_filter)) filter(., !!rlang::parse_expr(pup_filter)) else .} %>%
+    select(time_period, laestab, all_of(var_pup))
   
   # Combine outcome and predictor datasets
   df <- merge(z, x, all = T, by = c("laestab", "time_period"))
   
   # Remove any rows with missing values
   # This creates complete obs for all vars
-  df <- na.omit(df)
+  # Modified NA handling after initial merge
+  if (!is.null(exclude_from_na_omit)) {
+    df <- df %>% tidyr::drop_na(-any_of(exclude_from_na_omit))
+  } else {
+    df <- na.omit(df)
+  }
+  
   list_laestab <- unique(df$laestab)
   
   
@@ -196,7 +196,6 @@ process_data_scm <- function(id_treated = "id_treated",
   list_laestab <- unique(df$laestab)
   
   vars <- c(dv, var_teach, var_pup)
-  vars_out <- paste0(vars, "_out_count")
   
   df_treat <- df %>%
     filter(laestab == id_treated)
@@ -206,9 +205,9 @@ process_data_scm <- function(id_treated = "id_treated",
     filter(laestab != id_treated) %>%
     group_by(laestab) %>%
     summarise(
-      across(all_of(vars), ~ sum(is_outlier_3sd(.x)), .names = "{col}_out_count")
+      across(all_of(vars), ~ sum(is_outlier_3sd(.x), na.rm = T), .names = "{col}_out_count")
     ) %>%
-    filter(if_all(all_of(vars_out), ~ .x == 0)) %>%
+    filter(if_all(ends_with("_out_count"), ~ .x == 0)) %>%
     pull(laestab) %>%
     unique()
   
@@ -225,9 +224,9 @@ process_data_scm <- function(id_treated = "id_treated",
     ) %>%
     group_by(laestab) %>%
     summarise(
-      across(all_of(vars_out), ~ sum(.x))
+      across(ends_with("_out_count"), ~ sum(.x, na.rm = T))
     ) %>%
-    filter(if_all(all_of(vars_out), ~ .x == 0)) %>%
+    filter(if_all(ends_with("_out_count"), ~ .x == 0)) %>%
     pull(laestab) %>%
     unique()
   
@@ -267,6 +266,11 @@ process_data_scm <- function(id_treated = "id_treated",
   assign("var_teach", var_teach, envir = .GlobalEnv)  
   assign("var_pup", var_pup, envir = .GlobalEnv)    
   assign("vars", vars, envir = .GlobalEnv)    
+  assign("regions", regions, envir = .GlobalEnv)    
+  assign("swf_filter", swf_filter, envir = .GlobalEnv)    
+  assign("pup_filter", pup_filter, envir = .GlobalEnv)    
+  assign("exclude_from_na_omit", exclude_from_na_omit, envir = .GlobalEnv)    
+  assign("df_donor", df_donor, envir = .GlobalEnv)    
   
   # clean up a little
   gc()
