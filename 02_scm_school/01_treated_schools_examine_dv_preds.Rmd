@@ -132,17 +132,23 @@ dix$laestab <- gsub("/", "", dix$LAESTAB)
 list_laestab <- c(laestab_stp, laestab_hca, dix$laestab)
 ```
 
+
+
+
+
 ```{r process_data, eval=FALSE, echo=F}
 #id_treated = list_laestab[1] # debug
 
 # process data
-df <- process_data_scm(id_treated = id_treated)
+df <- process_data_scm(id_treated = id_treated,
+                       var_teach = c("fte_avg_age_known"),
+                       var_pup = c("pnpupfsm_e", "pnpupfsm_ever"))
 
 # focus on data for treated school
 df <- df %>%
   filter(laestab %in% id_treated) %>%
   arrange(laestab, desc(time_period)) %>%
-  mutate(across(all_of(vars), ~ zoo::rollapply(.x, width = 2, mean, align = "left", partial = T), .names = "{col}_roll")) %>%
+  mutate(across(all_of(vars), ~ zoo::rollapply(.x, width = 2, FUN = function(y) mean(y, na.rm = TRUE), align = "left", partial = TRUE), .names = "{col}_roll")) %>%
   as.data.frame()
 
 # ONLY PROCEED IF THERE IS DATA FROM AT LEAST 4 YEARS AVAILABLE
@@ -161,24 +167,26 @@ ts_desc <- apply(df[, grepl("pup|fte", names(df))], MARGIN = 2, FUN = function(x
 ts_desc <- do.call("rbind",ts_desc)
 ts_desc$vars <- NULL
 
-ts_desc$out_sd <- apply(df[, grepl("pup|fte", names(df))], MARGIN = 2, FUN = function(x){sum(is_outlier_3sd(x))})
-ts_desc$out_iqr <- apply(df[, grepl("pup|fte", names(df))], MARGIN = 2, FUN = function(x){sum(is_outlier_iqr(x))})
+ts_desc$out_sd <- apply(df[, grepl("pup|fte", names(df))], MARGIN = 2, FUN = function(x){sum(is_outlier_3sd(x), na.rm = T)})
+ts_desc$out_iqr <- apply(df[, grepl("pup|fte", names(df))], MARGIN = 2, FUN = function(x){sum(is_outlier_iqr(x), na.rm = T)})
 
 if (nrow(df) >= 3) {
   
   # compute snr
-  ts_desc$snr <- apply(df[, grepl("pup|fte", names(df))], MARGIN = 2, FUN = function(x){calculate_snr(x, window_size = 3)})
-  
+  ts_desc$snr <- apply(df[, grepl("pup|fte", names(df))], MARGIN = 2, FUN = function(x){
+    if (sum(!is.na(x)) >= 3) calculate_snr(na.omit(x), window_size = 3) else NA})
 }
+
 # compute relative standard deviation
 ts_desc$rsd <- ts_desc$sd / ts_desc$mean
 
-if (nrow(df) > 1) {
+if (nrow(df) > 2) {
   
   # compute timeseries auto correlation
   max_lag = ceiling(.25 * nrow(df)) # use lags up to about one-quarter of the total number of observations.
   ts_ac <- apply(df[, grepl("pup|fte", names(df))], MARGIN = 2, FUN = function(x){
-    tmp <- acf(ts(x), lag.max = max_lag, plot = F)
+    x <- ifelse(is.na(x), 0, x)
+    tmp <- acf(ts(na.omit(x)), lag.max = max_lag, plot = F)
     return(tmp$acf)
   })
   
@@ -210,17 +218,20 @@ if (nrow(df) > 1) {
 out$Variable <- factor(out$Variable, 
                        levels = c("pupil_to_qual_teacher_ratio", "pupil_to_qual_teacher_ratio_roll", 
                                   "pnpupfsm_e", "pnpupfsm_e_roll",
-                                  "fte_avg_age", "fte_avg_age_roll"),
+                                  "pnpupfsm_ever", "pnpupfsm_ever_roll",
+                                  "fte_avg_age", "fte_avg_age_roll",
+                                  "fte_avg_age_known", "fte_avg_age_known_roll"
+                       ),
                        labels = c("Outcome (raw)", "Outcome (roll)",
                                   "FSM (raw)", "FSM (roll)",
-                                  "Age (raw)", "Age (roll)")
+                                  "FSM ever (raw)", "FSM ever (roll)",
+                                  "Age (raw)", "Age (roll)",
+                                  "Age known (raw)", "Age known (roll)")
                        
 )
 # sort 
 out <- out[order(out$Variable), ]
 
-
-row_idx <- c(which.min(c(out$sd[1:2])), 2 + which.min(c(out$sd[3:4])), 4 + which.min(c(out$sd[5:6])) )
 
 # print to markdown
 kbl(out, caption = paste0("Descriptives of timeseries data"), digits = 2, row.names = F) %>%
@@ -258,21 +269,17 @@ df_long <- df %>%
                                "pupil_to_qual_teacher_ratio_roll" ~ "Outcome",
                                "fte_avg_age" ~ "Teacher age",
                                "fte_avg_age_roll" ~ "Teacher age",
+                               "fte_avg_age_known" ~ "Teacher age known",
+                               "fte_avg_age_known_roll" ~ "Teacher age known",
                                "pnpupfsm_e" ~ "% pupils FSM",
-                               "pnpupfsm_e_roll" ~ "% pupils FSM"
+                               "pnpupfsm_e_roll" ~ "% pupils FSM",
+                               "pnpupfsm_ever" ~ "% pupils FSM ever",
+                               "pnpupfsm_ever_roll" ~ "% pupils FSM ever"
   ),
-  computation = case_match(variable, 
-                           "pupil_to_qual_teacher_ratio" ~ "Raw",
-                           "pupil_to_qual_teacher_ratio_roll" ~ "Rolling average",
-                           "fte_avg_age" ~ "Raw",
-                           "fte_avg_age_roll" ~ "Rolling average",
-                           "pnpupfsm_e" ~ "Raw",
-                           "pnpupfsm_e_roll" ~ "Rolling average"
-  )
-  ) %>%
+  computation = ifelse(grepl("roll", variable), "Rolling average", "Raw")) %>%
   as.data.frame()
 
-df_long$category <- factor(df_long$category, levels = c("Outcome", "% pupils FSM", "Teacher age"))
+df_long$category <- factor(df_long$category, levels = c("Outcome", "% pupils FSM", "% pupils FSM ever", "Teacher age", "Teacher age known"))
 
 
 # plot timeseries for each variable
@@ -291,6 +298,8 @@ suppressWarnings(print(plt))
 cat("\n\n")  # Add some space between plots
 
 ```
+
+
 
 ```{r run code, echo=FALSE, results='asis'}
 for (id_treated in list_laestab) {
