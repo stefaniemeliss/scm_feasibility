@@ -93,11 +93,11 @@ dir_data <- file.path(dir, "data")
 dir_misc <- file.path(dir, "misc")
 
 # create interim folder
-dir.create(path = file.path(dir, "02_scm", "interim"))
+dir.create(path = file.path(dir, "02_scm_school", "interim"))
 
 # get file stem name
 file_stem <- get_file_stem()
-out_file <- file.path(dir, "02_scm", "interim", paste0(file_stem, "_out.csv"))
+out_file <- file.path(dir, "02_scm_school", "interim", paste0(file_stem, "_out.csv"))
 
 
 # copy data #
@@ -164,9 +164,12 @@ ts_desc$vars <- NULL
 ts_desc$out_sd <- apply(df[, grepl("pup|fte", names(df))], MARGIN = 2, FUN = function(x){sum(is_outlier_3sd(x))})
 ts_desc$out_iqr <- apply(df[, grepl("pup|fte", names(df))], MARGIN = 2, FUN = function(x){sum(is_outlier_iqr(x))})
 
-# compute snr
-ts_desc$snr <- apply(df[, grepl("pup|fte", names(df))], MARGIN = 2, FUN = function(x){calculate_snr(x, window_size = 3)})
-
+if (nrow(df) >= 3) {
+  
+  # compute snr
+  ts_desc$snr <- apply(df[, grepl("pup|fte", names(df))], MARGIN = 2, FUN = function(x){calculate_snr(x, window_size = 3)})
+  
+}
 # compute relative standard deviation
 ts_desc$rsd <- ts_desc$sd / ts_desc$mean
 
@@ -222,8 +225,8 @@ row_idx <- c(which.min(c(out$sd[1:2])), 2 + which.min(c(out$sd[3:4])), 4 + which
 # print to markdown
 kbl(out, caption = paste0("Descriptives of timeseries data"), digits = 2, row.names = F) %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
-  column_spec(c(2, 18), border_right = T) %>%
-  column_spec(c(1, 4, 17), bold = T) %>%
+  column_spec(c(2), border_right = T) %>%
+  #column_spec(c(1, 4, 17), bold = T) %>%
   print()
 cat("\n")
 
@@ -315,8 +318,8 @@ summary %>%
   select(-laestab) %>%
   kbl(caption = paste0("Descriptives of timeseries data"), row.names = F) %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
-  column_spec(c(2, 13), border_right = T) %>%
-  column_spec(c(1, 2, 5, 9, 13), bold = T) %>%
+  column_spec(c(2), border_right = T) %>%
+  #column_spec(c(1, 2, 5, 9, 13), bold = T) %>%
   print()
 cat("\n")
 ```

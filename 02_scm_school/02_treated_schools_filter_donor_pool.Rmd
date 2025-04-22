@@ -88,11 +88,11 @@ dir_data <- file.path(dir, "data")
 dir_misc <- file.path(dir, "misc")
 
 # create interim folder
-dir.create(path = file.path(dir, "02_scm", "interim"))
+dir.create(path = file.path(dir, "02_scm_school", "interim"))
 
 # get file stem name
 file_stem <- get_file_stem()
-out_file <- file.path(dir, "02_scm", "interim", paste0(file_stem, "_out.csv"))
+out_file <- file.path(dir, "02_scm_school", "interim", paste0(file_stem, "_out.csv"))
 
 
 # copy data #
@@ -112,7 +112,7 @@ est <- fread(file.path(dir_data, "data_establishments_search.csv"), na.strings =
 # process data establishments #
 
 # load in file with timeseries desc
-summary <- read.csv(file.path(dir, "02_scm", "interim", "01_treated_schools_examine_dv_preds_out.csv"))
+summary <- read.csv(file.path(dir, "02_scm_school", "interim", "01_treated_schools_examine_dv_preds_out.csv"))
 # save laestab numbers of all treated schools
 list_laestab_exclude <- unique(summary$laestab)
 
