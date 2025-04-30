@@ -1926,15 +1926,21 @@ grid_search_scpi_mat <- function(param_grid, sim = F) {
 }
 
 extract_years_from_filter <- function(swf_filter) {
-  # Split the unique values by "&" and unlist the result
-  filters <- unlist(strsplit(as.character(swf_filter), " & ", fixed = TRUE))
   
-  # Filter unique values that contain "time_period"
-  filters <- unique(filters[grepl("time_period", filters)])
-  
-  # Extract years using stringr
-  years_excl <- unlist(stringr::str_extract_all(filters, "\\d+"))
-  years_excl <- as.numeric(substr(years_excl, 0, 4))
+  if (swf_filter != "NULL") {
+    # Split the unique values by "&" and unlist the result
+    filters <- unlist(strsplit(as.character(swf_filter), " & ", fixed = TRUE))
+    
+    # Filter unique values that contain "time_period"
+    filters <- unique(filters[grepl("time_period", filters)])
+    
+    # Extract years using stringr
+    years_excl <- unlist(stringr::str_extract_all(filters, "\\d+"))
+    years_excl <- as.numeric(substr(years_excl, 0, 4))
+    
+  } else {
+    years_excl <- numeric(1)
+  }
   
   return(years_excl)
 }
