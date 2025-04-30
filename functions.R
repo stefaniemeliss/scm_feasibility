@@ -136,7 +136,7 @@ process_data_scm <- function(id_treated = "id_treated",
   # merge with a scaffold so that timeseries is complete again
   df <- merge(expand.grid(laestab = list_laestab,
                           time_period = data_avail), 
-              df, all = T)
+              df, all.x = T)
   
   # Add MAT information to the dataset
   # Create lookup table with relevant group information (avoiding duplicates)
@@ -271,6 +271,7 @@ process_data_scm <- function(id_treated = "id_treated",
   assign("pup_filter", pup_filter, envir = .GlobalEnv)    
   assign("exclude_from_na_omit", exclude_from_na_omit, envir = .GlobalEnv)    
   assign("df_donor", df_donor, envir = .GlobalEnv)    
+  assign("df_treat", df_treat, envir = .GlobalEnv)    
   
   # clean up a little
   gc()
