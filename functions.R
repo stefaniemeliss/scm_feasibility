@@ -594,7 +594,7 @@ grid_search_synth <- function(df, param_grid, treatment_identifier, dependent_va
 
 
 # Create function to run grid search
-grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
+grid_search_scpi <- function(param_grid, sim = F) {
   
   # Define default values for parameters
   default_values <- data.frame(
@@ -613,6 +613,13 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
     stringsAsFactors = FALSE
   )
   
+  # create empty df - for timeseries export
+  synth_empty = data.frame(time_period = numeric(1),
+                           period = character(1),
+                           actual = numeric(1),
+                           synthetic = numeric(1),
+                           gap = numeric(1)
+  )
   
   run_scm <- function(df, params) {
     
@@ -625,6 +632,10 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
     tmp <- default_values[, setdiff(names(default_values), names(params))]
     params <- merge(params, tmp, by = 0)
     
+    # Convert "NULL" string to actual NULL
+    swf.filter.param <- if(params$swf.filter == "NULL") NULL else unlist(params$swf.filter)
+    params$swf.filter <- unlist(params$swf.filter)
+    
     
     if ("region.filter" %in% names(params)) {
       
@@ -633,8 +644,11 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
       if ("neighbouring" %in% params$region.filter[[1]]) (regions <- unlist(c(df_region[df_region$laestab == id_treated, c("same", "neighbouring")])))
       
       # process data
-      df <- process_data_scm(id_treated = id_treated, regions = regions)
-      
+      df <- process_data_scm(id_treated = id_treated,
+                             regions = regions,
+                             var_teach = c("fte_avg_age_known"),
+                             var_pup = c("pnpupfsm_e", "pnpupfsm_ever"),
+                             swf_filter = swf.filter.param) 
     }
     
     if ("sd.range" %in% names(params) & !is.null(params$sd.range[[1]])) {
@@ -643,6 +657,7 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
       df <- sd_filtering(data = df, perc = params$sd.range[[1]], var = params$outcome.var)
       df[df$laestab == id_treated, paste0("crit_sd_", params$outcome.var)] <- T
       df <- subset(df, df[, paste0("crit_sd_", params$outcome.var)] == T)
+      df[, paste0("crit_sd_", dv)] <- NULL
       
     }
     
@@ -665,7 +680,7 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
         group_by(laestab) %>%
         arrange(laestab, desc(time_period)) %>%
         mutate(
-          across(all_of(roll.vars), ~ zoo::rollapply(.x, width = params$rolling.window, mean, align = "left", partial = T))
+          across(all_of(roll.vars), ~ zoo::rollapply(.x, width = params$rolling.window, FUN = function(x) mean(x, na.rm = TRUE), align = "left", partial = T))
         )
       
       # apply rolling window average to pre treatment period
@@ -674,12 +689,71 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
         group_by(laestab) %>%
         arrange(laestab, desc(time_period)) %>%
         mutate(
-          across(all_of(roll.vars), ~ zoo::rollapply(.x, width = params$rolling.window, mean, align = "left", partial = T))
+          across(all_of(roll.vars), ~ zoo::rollapply(.x, width = params$rolling.window, FUN = function(x) mean(x, na.rm = TRUE), align = "left", partial = T))
         )
       
       # combine rolled data from time time periods
       df <- bind_rows(pre, post) %>%
         arrange(laestab, desc(time_period)) %>%
+        as.data.frame()
+    }
+    
+    if(sim){
+      
+      #df <- data$df
+      
+      # simulate data using linear projection for the next three years #
+      
+      # transform data structure
+      df$laestab_f <- factor(df$laestab)
+      df$time_centered <- df$time_period - min(df$time_period)
+      
+      # add LA to data
+      df$la <- as.factor(substr(df$laestab, 1, 3))
+      
+      # Fit model
+      # Different baseline levels for each laestab (school)
+      # Different rates of change over time for each la (local authority)
+      m1 <- lmer(get(dv) ~ 
+                   time_centered + # fixed effect for time_period
+                   (1 | laestab_f) + # random intercept for laestab with (1 | laestab)
+                   (0 + time_centered | la), # random slope for time_period grouped by la
+                 data = df[df$time_period %in% c(2021, 2022, 2023), ])
+      
+      # Generate the prediction data frame for the next three academic years
+      simulated_data <- expand.grid(
+        laestab = unique(df$laestab),
+        time_period = c(2024, 2025, 2026)  # Representing 2024/25, 2025/26, 2026/27
+      )
+      
+      simulated_data$laestab_f <- factor(simulated_data$laestab)
+      simulated_data$la <- as.factor(substr(simulated_data$laestab, 1, 3))
+      simulated_data$time_centered <- simulated_data$time_period - min(df$time_period)
+      simulated_data$time_period_str <- case_match(simulated_data$time_period,
+                                                   2024 ~ "2024/25",
+                                                   2025 ~ "2025/26",
+                                                   2026 ~ "2026/27")
+      
+      # Generate *simulations* conditioned on all random effects with noise
+      simulations <- simulate(m1, nsim = 1, seed = 202324,
+                              newdata = simulated_data, 
+                              re.form = NULL, allow.new.levels = FALSE)
+      
+      # Add predictions to the data frame
+      # simulated_data$pred <- predictions
+      simulated_data[, dv] <- simulations$sim_1
+      
+      # overwrite data
+      df <- bind_rows(df, simulated_data) %>%
+        # group by schools
+        group_by(laestab) %>%
+        arrange(time_period) %>%
+        mutate(
+          # fill missing values: observations to be carried forward
+          across(c(establishmentname, gor_name, phaseofeducation_name),
+                 ~zoo::na.locf(., na.rm = FALSE, fromLast = FALSE)))  %>%
+        ungroup() %>%
+        arrange(laestab, time_period) %>%
         as.data.frame()
     }
     
@@ -692,6 +766,7 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
       params$w.constr <- I(list(list(name = "simplex")))
       params$w.constr.str <- NA
     }
+    
     
     scdata.out <- tryCatch({
       # data preparation
@@ -714,15 +789,33 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
     })
     
     if (is.list(scdata.out) && "error" %in% names(scdata.out)) {
+      params$w.constr.str <- NA
+      
+      # save info on weight constraints
+      w.constr <- params$w.constr[[1]]
+      
+      if (!"name" %in% names(w.constr)) {
+        w.constr[["name"]] <- "user provided"
+      }
+      
+      # format weight constraints as string
+      w.constr <- w.constr[c("name", "p", "lb", "Q", "dir")]
+      w.constr <- paste(names(w.constr), w.constr, sep = " = ", collapse = "; " )
+      # add to params
+      params$w.constr.str <- w.constr
+      
       return(list(status = scdata.out$error,
-                  n_pool = length(id_cont),
+                  n_pool = NA,
                   n_active = NA, 
-                  sd_treated = sd(df[df$laestab == id_treated & df$time_period %in% params$period.pre[[1]], params$outcome.var], na.rm = T), 
+                  sd_treated = NA, 
                   m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
                   rmspe_pre = NA, mspe_pre = NA, mae_pre = NA, 
-                  rmspe_post = NA, mspe_post = NA, mae_post = NA, 
-                  params = params))
+                  rmspe_post = NA, mspe_post = NA, mae_post = NA,
+                  params = params,
+                  ts_synth = synth_empty,
+                  ts_donor = df)) # store processed data
     } else { 
+      # save number of units in donor pool
       n_pool <- length(scdata.out$specs$donors.units)
     }
     
@@ -751,13 +844,15 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
       params$w.constr.str <- w.constr
       
       return(list(status = scest.out$error,
-                  n_pool = length(id_cont),
+                  n_pool = NA,
                   n_active = NA, 
-                  sd_treated = sd(df[df$laestab == id_treated & df$time_period %in% params$period.pre[[1]], params$outcome.var], na.rm = T), 
+                  sd_treated = NA, 
                   m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
                   rmspe_pre = NA, mspe_pre = NA, mae_pre = NA, 
-                  rmspe_post = NA, mspe_post = NA, mae_post = NA, 
-                  params = params))
+                  rmspe_post = NA, mspe_post = NA, mae_post = NA,
+                  params = params,
+                  ts_synth = synth_empty,
+                  ts_donor = df)) # store processed data
     } else {
       # save info on weight constraints
       w.constr <- scest.out$est.results$w.constr
@@ -776,25 +871,33 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
     actual_pre <- scest.out$data$Y.pre
     synthetic_pre <- scest.out$est.results$Y.pre.fit
     gap_pre <- actual_pre - synthetic_pre # compute gap as difference between both
+    years_pre <- as.numeric(gsub(paste0(params$unit.tr[[1]], "."), "", row.names(scest.out$data$Y.pre)))
     
     # Compute fit - PRE
     rmspe_pre <- sqrt(mean((gap_pre)^2, na.rm = TRUE))
     mspe_pre <- mean((gap_pre)^2, na.rm = TRUE)
     mae_pre <- mean(abs(gap_pre), na.rm = TRUE)
     
-    if (cv) {
+    # Extract the actual and synthetic control outcomes for all years - POST
+    actual_post <- scest.out$data$Y.post
+    synthetic_post <- scest.out$est.results$Y.post.fit
+    gap_post <- actual_post - synthetic_post # compute gap as difference between both... # Compute fit - POST
+    years_post <- as.numeric(gsub(paste0(params$unit.tr[[1]], "."), "", row.names(scest.out$data$Y.post)))
+    
+    # Store time series data of treated unit and synthetic control
+    df_ts_synth <- data.frame(
+      time_period = c(years_pre, years_post),
+      period = c(rep("pre", length(years_pre)), rep("post", length(years_post))),
+      actual = c(actual_pre, actual_post),
+      synthetic = c(synthetic_pre, synthetic_post),
+      gap = c(gap_pre, gap_post)
+    )
+    
+    if (params$cross.val) {
       
-      # Extract the actual and synthetic control outcomes for all years - POST
-      actual_post <- scest.out$data$Y.post
-      synthetic_post <- scest.out$est.results$Y.post.fit
-      gap_post <- actual_post - synthetic_post # compute gap as difference between both
-      
-      # Compute fit - POST
       rmspe_post <- sqrt(mean((gap_post)^2, na.rm = TRUE))
       mspe_post <- mean((gap_post)^2, na.rm = TRUE)
       mae_post <- mean(abs(gap_post), na.rm = TRUE)
-      
-      rm(actual_post, synthetic_post, gap_post)
       
     } else {
       
@@ -802,6 +905,7 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
       rmspe_post <- NA
       mspe_post <- NA
       mae_post <- NA 
+      
     }
     
     # compute performance parameters
@@ -812,8 +916,6 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
     max_gap <- max(gap_pre, na.rm = TRUE)
     cor <- cor(actual_pre, synthetic_pre)[1]
     
-    rm(actual_pre, synthetic_pre, gap_pre)
-    
     return(list(status = "scest() completed",
                 n_pool = n_pool,
                 n_active = n_active, 
@@ -821,147 +923,131 @@ grid_search_scpi <- function(df, param_grid, use_parallel = FALSE, cv = FALSE) {
                 m_gap = m_gap, sd_gap = sd_gap, min_gap = min_gap, max_gap = max_gap, cor = cor,
                 rmspe_pre = rmspe_pre, mspe_pre = mspe_pre, mae_pre = mae_pre, 
                 rmspe_post = rmspe_post, mspe_post = mspe_post, mae_post = mae_post, 
-                params = params))
-    
+                params = params,
+                ts_synth = df_ts_synth,
+                ts_donor = df)) # store processed data
   }
   
-  if (use_parallel) {
-    # Register parallel backend
-    num_cores <- detectCores() - 3
-    cl <- makeCluster(num_cores)
-    registerDoParallel(cl)
+  
+  # Perform grid search without parallel processing
+  results <- lapply(1:nrow(param_grid), function(i) {
+    message(i)
+    params <- param_grid[i, ]
+    row.names(params) <- 1
     
-    # Perform grid search with parallel processing
-    results <- foreach(i = 1:nrow(param_grid), .combine = rbind, .packages = c("scpi", "dplyr")) %dopar% {
-      params <- param_grid[i, ]
-      row.names(params) <- 1
+    result <- tryCatch({
+      run_scm(df, params)
+    }, error = function(e) {
+      return(list(error = paste("Error in run_scm:", e$message)))
+    })
+    
+    if (is.list(result) && !is.null(result$error)) {
       
-      result <- tryCatch({
-        run_scm(df, params)
-      }, error = function(e) {
-        return(list(status=paste("Error in run_scm:", e$message),
-                    n_pool = length(id_cont),
-                    n_active = NA, 
-                    sd_treated = sd(df[df$laestab == id_treated & df$time_period %in% params$period.pre[[1]], params$outcome.var], na.rm = T), 
-                    m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
-                    rmspe_pre = NA, mspe_pre = NA, mae_pre = NA,
-                    rmspe_post = NA, mspe_post = NA, mae_post = NA,
-                    params = params))
-      })
-      
-      # Create a list to store the results
-      result_list <- list(
-        outcome.var = ifelse(!is.null(result$params$outcome.var[[1]]), paste(result$params$outcome.var[[1]], collapse = ", "), NA),
-        features = ifelse(!is.null(result$params$features[[1]]), paste(result$params$features[[1]], collapse = ", "), NA),
-        cov.adj = ifelse(!is.null(result$params$cov.adj[[1]]), 
-                         paste(sapply(result$params$cov.adj[[1]], function(x) paste(x, collapse = ", ")), collapse = "; \n"), 
-                         NA),
-        region.filter = ifelse(!is.null(result$params$region.filter[[1]]), result$params$region.filter[[1]], NA),
-        sd.range = ifelse(!is.null(result$params$sd.range[[1]]), result$params$sd.range[[1]], NA),
-        rolling.window = ifelse(!is.null(result$params$rolling.window), result$params$rolling.window, NA),
-        roll.outcome = ifelse(!is.null(result$params$roll.outcome), result$params$roll.outcome, NA),
-        roll.vars = ifelse(!is.null(result$params$roll.vars), result$params$roll.vars, NA),
-        period.pre = ifelse(!is.null(result$params$period.pre[[1]]), 
-                            paste(result$params$period.pre[[1]], collapse = ", "), 
-                            NA),
-        period.post = ifelse(!is.null(result$params$period.post[[1]]), 
-                             paste(result$params$period.post[[1]], collapse = ", "), 
-                             NA),
-        w.constr = ifelse(!is.null(result$params$w.constr[[1]]), result$params$w.constr.str, NA),
-        cointegrated.data = ifelse(!is.null(result$params$cointegrated.data), result$params$cointegrated.data, NA),
-        anticipation = ifelse(!is.null(result$params$anticipation), result$params$anticipation, NA),
-        constant = ifelse(!is.null(result$params$constant), result$params$constant, NA),
-        status = ifelse(is.null(result$status), "run_scm() completed", result$status),
-        n_pool = result$n_pool,
-        n_active = result$n_active,
-        sd_treated = result$sd_treated,
-        m_gap = result$m_gap,
-        sd_gap = result$sd_gap,
-        min_gap = result$min_gap,
-        max_gap = result$max_gap,
-        cor = result$cor,
-        rmspe_pre = result$rmspe_pre,
-        mspe_pre = result$mspe_pre,
-        mae_pre = result$mae_pre,
-        rmspe_post = result$rmspe_post,
-        mspe_post = result$mspe_post,
-        mae_post = result$mae_post
-      )
-      
-      # Convert the list to a data frame
-      result_df <- as.data.frame(result_list, stringsAsFactors = FALSE)
-      
-      return(result_df)
+      return(list(status = result$error,
+                  n_pool = NA,
+                  n_active = NA, 
+                  sd_treated = NA, 
+                  m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
+                  rmspe_pre = NA, mspe_pre = NA, mae_pre = NA,
+                  rmspe_post = NA, mspe_post = NA, mae_post = NA, 
+                  params = params,
+                  ts_synth = synth_empty,
+                  ts_donor = df)) # store processed data
     }
     
-    # Stop the cluster
-    stopCluster(cl)
+    # Create a list to store the results
+    result_list <- list(
+      it = ifelse(!is.null(result$params$it), result$params$it, NA),
+      outcome.var = ifelse(!is.null(result$params$outcome.var[[1]]), paste(result$params$outcome.var[[1]], collapse = ", "), NA),
+      features = ifelse(!is.null(result$params$features[[1]]), paste(result$params$features[[1]], collapse = ", "), NA),
+      cov.adj = ifelse(!is.null(result$params$cov.adj[[1]]),
+                       paste(sapply(result$params$cov.adj[[1]], function(x) paste(x, collapse = ", ")), collapse = "; \n"),
+                       NA),
+      
+      swf.filter = ifelse(!is.null(result$params$swf.filter), result$params$swf.filter, NA),
+      region.filter = ifelse(!is.null(result$params$region.filter[[1]]), paste(result$params$region.filter[[1]], collapse = ", "), NA),
+      sd.range = ifelse(!is.null(result$params$sd.range[[1]]), result$params$sd.range[[1]], NA),
+      rolling.window = ifelse(!is.null(result$params$rolling.window), result$params$rolling.window, NA),
+      roll.outcome = ifelse(!is.null(result$params$roll.outcome), result$params$roll.outcome, NA),
+      roll.vars = ifelse(!is.null(result$params$roll.vars), result$params$roll.vars, NA),
+      
+      period.pre = ifelse(!is.null(result$params$period.pre[[1]]),
+                          paste(result$params$period.pre[[1]], collapse = ", "),
+                          NA),
+      period.post = ifelse(!is.null(result$params$period.post[[1]]),
+                           paste(result$params$period.post[[1]], collapse = ", "),
+                           NA),
+      cross.val = ifelse(!is.null(result$params$cross.val), result$params$cross.val, NA),
+      
+      w.constr = ifelse(!is.null(result$params$w.constr[[1]]), result$params$w.constr.str, NA),
+      cointegrated.data = ifelse(!is.null(result$params$cointegrated.data), result$params$cointegrated.data, NA),
+      anticipation = ifelse(!is.null(result$params$anticipation), result$params$anticipation, NA),
+      constant = ifelse(!is.null(result$params$constant), result$params$constant, NA),
+      status = ifelse(is.null(result$status), "run_scm() completed", result$status),
+      n_pool = result$n_pool,
+      n_active = result$n_active,
+      sd_treated = result$sd_treated,
+      m_gap = result$m_gap,
+      sd_gap = result$sd_gap,
+      min_gap = result$min_gap,
+      max_gap = result$max_gap,
+      cor = result$cor,
+      rmspe_pre = result$rmspe_pre,
+      mspe_pre = result$mspe_pre,
+      mae_pre = result$mae_pre,
+      rmspe_post = result$rmspe_post,
+      mspe_post = result$mspe_post,
+      mae_post = result$mae_post
+    )
     
-  } else {
-    # Perform grid search without parallel processing
-    results <- do.call(rbind, lapply(1:nrow(param_grid), function(i) {
-      message(i)
-      params <- param_grid[i, ]
-      row.names(params) <- 1
-      
-      result <- tryCatch({
-        run_scm(df, params)
-      }, error = function(e) {
-        return(list(status=paste("Error in run_scm:", e$message),
-                    n_pool = length(id_cont),
-                    n_active = NA, 
-                    sd_treated = sd(df[df$laestab == id_treated & df$time_period %in% params$period.pre[[1]], params$outcome.var], na.rm = T), 
-                    m_gap = NA, sd_gap = NA, min_gap = NA, max_gap = NA, cor = NA,
-                    rmspe_pre = NA, mspe_pre = NA, mae_pre = NA,
-                    rmspe_post = NA, mspe_post = NA, mae_post = NA,
-                    params = params))
-      })
-      
-      # Create a list to store the results
-      result_list <- list(
-        outcome.var = ifelse(!is.null(result$params$outcome.var[[1]]), paste(result$params$outcome.var[[1]], collapse = ", "), NA),
-        features = ifelse(!is.null(result$params$features[[1]]), paste(result$params$features[[1]], collapse = ", "), NA),
-        cov.adj = ifelse(!is.null(result$params$cov.adj[[1]]),
-                         paste(sapply(result$params$cov.adj[[1]], function(x) paste(x, collapse = ", ")), collapse = "; \n"),
-                         NA),
-        region.filter = ifelse(!is.null(result$params$region.filter[[1]]), paste(result$params$region.filter[[1]], collapse = ", "), NA),
-        sd.range = ifelse(!is.null(result$params$sd.range[[1]]), result$params$sd.range[[1]], NA),
-        rolling.window = ifelse(!is.null(result$params$rolling.window), result$params$rolling.window, NA),
-        roll.outcome = ifelse(!is.null(result$params$roll.outcome), result$params$roll.outcome, NA),
-        roll.vars = ifelse(!is.null(result$params$roll.vars), result$params$roll.vars, NA),
-        period.pre = ifelse(!is.null(result$params$period.pre[[1]]),
-                            paste(result$params$period.pre[[1]], collapse = ", "),
-                            NA),
-        period.post = ifelse(!is.null(result$params$period.post[[1]]),
-                             paste(result$params$period.post[[1]], collapse = ", "),
-                             NA),
-        w.constr = ifelse(!is.null(result$params$w.constr[[1]]), result$params$w.constr.str, NA),
-        cointegrated.data = ifelse(!is.null(result$params$cointegrated.data), result$params$cointegrated.data, NA),
-        anticipation = ifelse(!is.null(result$params$anticipation), result$params$anticipation, NA),
-        constant = ifelse(!is.null(result$params$constant), result$params$constant, NA),
-        status = ifelse(is.null(result$status), "run_scm() completed", result$status),
-        n_pool = result$n_pool,
-        n_active = result$n_active,
-        sd_treated = result$sd_treated,
-        m_gap = result$m_gap,
-        sd_gap = result$sd_gap,
-        min_gap = result$min_gap,
-        max_gap = result$max_gap,
-        cor = result$cor,
-        rmspe_pre = result$rmspe_pre,
-        mspe_pre = result$mspe_pre,
-        mae_pre = result$mae_pre,
-        rmspe_post = result$rmspe_post,
-        mspe_post = result$mspe_post,
-        mae_post = result$mae_post
-      )
-      
-      # Convert the list to a data frame
-      result_df <- as.data.frame(result_list, stringsAsFactors = FALSE)
-      
-      return(result_df)
-    }))
-  }
+    # Convert the list to a data frame
+    df_result <- as.data.frame(result_list, stringsAsFactors = FALSE)
+    
+    # Add run ID to data frame for identification
+    df_result$run_id <- i
+    
+    # Combine results and timeseries
+    df_ts_synth <- merge(df_result, result$ts_synth) # this is either df_ts_synth or synth_empty
+    
+    # Combine params and donor pool
+    df_ts_donor <- merge(df_result, result$ts_donor)
+    
+    return(list(results = df_result, ts_synth = df_ts_synth, ts_donor = df_ts_donor))
+  })
+  
+  # Extract and combine all results into two separate data frames
+  all_results <- do.call(rbind, lapply(results, function(x) x$results))
+  all_ts_synth <- do.call(rbind, lapply(results, function(x) x$ts_synth))
+  all_ts_donor <- do.call(rbind, lapply(results, function(x) x$ts_donor))
+  
+  # edit all_ts_donor to only save reveland information without duplicates
+  all_ts_donor <- all_ts_donor %>%
+    # focus on time series including simulated data
+    filter(cross.val == F) %>%
+    # select columns
+    select(-c(cov.adj, w.constr, cointegrated.data, anticipation, constant, status, n_active, run_id,
+              sd_treated, cor, laestab_f, time_centered, la)) %>%
+    select(! matches("_gap|_pre|_post")) %>%
+    relocate(time_period_str, .after = time_period) %>%
+    # group by param grid vars
+    group_by_at(setdiff(names(.), c(names(df), "it"))) %>%
+    # extract all its where this donor pool filtering applies
+    mutate(its = paste(unique(it), collapse = ", "),
+           n = n()) %>%
+    ungroup() %>%
+    select(-it) %>%
+    filter(!duplicated(.)) %>%
+    # only those not impacted by CV (hence not using period.pre)
+    group_by_at(setdiff(names(.), c(names(df), "it"))) %>%
+    mutate(n_new = n(),
+           check = (n_pool + 1) * 17 == n())
+  
+  # Final output structure
+  results <- list(
+    results = all_results,
+    ts_synth = all_ts_synth,
+    ts_donor = all_ts_donor
+  )
   
   return(results)
 }
