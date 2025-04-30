@@ -1036,6 +1036,7 @@ grid_search_scpi <- function(param_grid, sim = F) {
            n = n()) %>%
     ungroup() %>%
     select(-it) %>%
+    relocate(its) %>%
     filter(!duplicated(.)) %>%
     # only those not impacted by CV (hence not using period.pre)
     group_by_at(setdiff(names(.), c(names(df), "it"))) %>%
