@@ -101,13 +101,15 @@ file.copy(
 file.copy(
   file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_pupils.csv"), dir_data, overwrite = T)
 file.copy(
-  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_establishments_search.csv"), dir_data, overwrite = T)
+  # file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_establishments_search.csv"), dir_data, overwrite = T)
+  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_establishments_download.csv"), dir_data, overwrite = T)
 
 # load data #
 
 swf <- fread(file.path(dir_data, "data_swf.csv"))
 pup <- fread(file.path(dir_data, "data_pupils.csv"))
-est <- fread(file.path(dir_data, "data_establishments_search.csv"), na.strings = "")
+# est <- fread(file.path(dir_data, "data_establishments_search.csv"), na.strings = "")
+est <- fread(file.path(dir_data, "data_establishments_download.csv"), na.strings = "")
 
 # process data establishments #
 
@@ -118,6 +120,7 @@ list_laestab_exclude <- unique(summary$laestab)
 
 # only select schools with sufficent obs
 summary <- subset(summary, n >= 4)
+summary <- subset(summary, establishmentname != "Dixons McMillan Academy")
 
 # save laestab numbers
 list_laestab_treated <- unique(summary$laestab)
@@ -139,7 +142,7 @@ lookup <- data.frame(region1 = c("West Midlands", "South East", "Yorkshire and t
 
 
 # compute timeseries descriptives
-ts_desc <- apply(df[, grepl("pup|fte", names(df))], MARGIN = 2, FUN = function(x){psych::describe(x, fast = T)})
+ts_desc <- apply(df[df$laestab %in% id_treated, grepl("pup|fte", names(df))], MARGIN = 2, FUN = function(x){psych::describe(x, fast = T)})
 
 # combine to df
 ts_desc <- do.call("rbind",ts_desc)
@@ -151,14 +154,15 @@ ts_desc <- ts_desc %>% relocate(Variable) %>% as.data.frame()
 ts_desc$Variable <- factor(ts_desc$Variable, 
                            levels = c(dv, 
                                       "pnpupfsm_e", 
-                                      "fte_avg_age"),
-                           labels = c("Outcome", "% pupils FSM", "Teacher age")
+                                      "pnpupfsm_ever",
+                                      "fte_avg_age_known"),
+                           labels = c("Outcome", "% pupils FSM", "% pupils FSM (ever)", "Teacher age")
 )
 # sort 
 ts_desc <- ts_desc[order(ts_desc$Variable), ]
 
 # print to markdown
-kbl(ts_desc, caption = paste0("Descriptives of timeseries data"), , digits = 2, row.names = F) %>%
+kbl(ts_desc, caption = paste0("Descriptives of timeseries data"), digits = 2, row.names = F) %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
   add_footnote("Rows in italics describe the timeseries with the smaller SD.") %>%
   column_spec(c(1), border_right = T) %>%
@@ -175,22 +179,24 @@ df_long <- df %>%
     names_to = "variable") %>%
   mutate(variable = case_match(variable, 
                                dv ~ "Outcome",
-                               "fte_avg_age" ~ "Teacher age",
-                               "pnpupfsm_e" ~ "% pupils FSM"
+                               "fte_avg_age_known" ~ "Teacher age",
+                               "pnpupfsm_e" ~ "% pupils FSM",
+                               "pnpupfsm_ever" ~ "% pupils FSM (ever)"
   ))
-df_long$variable <- factor(df_long$variable, levels = c("Outcome", "% pupils FSM", "Teacher age"))
+df_long$variable <- factor(df_long$variable, levels = c("Outcome", "% pupils FSM", "% pupils FSM (ever)", "Teacher age"))
 
 # plot timeseries average for each school
 cols <- c(coral)
 names(cols) <- c(id_name)
 
 # plot timeseries for each variable
-print(ggplot(data = df_long, aes(x = time_period_str, y = value, group = laestab)) +
+print(ggplot(data = df_long, aes(x = time_period, y = value, group = laestab)) +
         #geom_line(data = df_long[df_long$status == "Donor schools", ], aes(col = paste("Donor schools"))) + 
         geom_point(data = df_long[df_long$status == paste(id_name), ], col = coral) +
         geom_line(data = df_long[df_long$status == paste(id_name), ], col = coral) +
         facet_wrap(~ variable, ncol = 1, strip.position = "top", scales = "free_y") +
         ambition_theme +
+        scale_x_continuous(breaks = df_long$time_period, labels = df_long$time_period_str) +
         scale_color_manual(values=coral) +
         ylab("Reported value") +
         theme(axis.text.x = element_text(angle = 45, hjust = 1),
@@ -210,12 +216,14 @@ names(cols) <- c("Donor schools", id_name)
 print(ggplot(data = df_long, aes(x = time_period, y = value, col = status, group = laestab)) +
         geom_line(data = df_long[df_long$status == "Donor schools", ], aes(col = paste("Donor schools"))) + 
         geom_line(data = df_long[df_long$status == paste(id_name), ], aes(col = paste(id_name)), linewidth =.8) +
+        geom_point(data = df_long[df_long$status == paste(id_name), ], aes(col = paste(id_name))) +
         facet_wrap(~ variable, ncol = 1, strip.position = "top", scales = "free_y") +
         ambition_theme +
         scale_color_manual(
           breaks=c(id_name, "Donor schools"),
           values=cols) +
         ylab("Reported value") +
+        scale_x_continuous(breaks = df_long$time_period, labels = df_long$time_period_str) +
         theme(axis.title.x = element_blank(),
               axis.text.x = element_blank(),
               axis.ticks.x = element_blank()))
@@ -276,10 +284,12 @@ ave_ts_long <- ave_ts_pa %>%
     se = sd/sqrt(n),
     variable = case_match(variable, 
                           dv ~ "Outcome",
-                          "fte_avg_age" ~ "Teacher age",
-                          "pnpupfsm_e" ~ "% pupils FSM"
+                          "fte_avg_age_known" ~ "Teacher age",
+                          "pnpupfsm_e" ~ "% pupils FSM",
+                          "pnpupfsm_ever" ~ "% pupils FSM (ever)"
     )
   )
+ave_ts_long$variable <- factor(ave_ts_long$variable, levels = c("Outcome", "% pupils FSM", "% pupils FSM (ever)", "Teacher age"))
 
 
 # plot timeseries average for each school
@@ -313,9 +323,10 @@ print(ggplot(data = ave_ts_long, aes(x = idx, y = mean, col = status)) +
 # compute within-school correlations #
 
 # Group data by school and compute pairwise correlations
+tmp_vars <- setdiff(vars, "pnpupfsm_ever")
 correlations <- df %>%
   group_by(laestab) %>%
-  summarise(pairwise_correlations = list(compute_pairwise_correlations(pick(all_of(vars)), vars, c("Outcome", "Teacher age", "% pupils FSM"))), .groups = "drop")
+  summarise(pairwise_correlations = list(compute_pairwise_correlations(pick(all_of(tmp_vars)), tmp_vars, c("Outcome", "Teacher age", "% pupils FSM"))), .groups = "drop")
 
 # Unnest the pairwise correlations
 correlations <- correlations %>%
@@ -325,8 +336,8 @@ correlations <- correlations %>%
 correlations <- correlations %>%
   mutate(idx = row.names(correlations),
          status = ifelse(laestab == id_treated, paste(id_name), "Donor schools")) %>%
-  tidyr::pivot_longer(cols = -c(laestab, idx, status), 
-                      names_to = c("pair", "type"), 
+  tidyr::pivot_longer(cols = -c(laestab, idx, status),
+                      names_to = c("pair", "type"),
                       names_sep = " - ") %>%
   tidyr::pivot_wider(names_from = type, values_from = value) %>%
   rename(COR = `COR`, CI_L = `CI L`, CI_U = `CI U`)
@@ -366,7 +377,16 @@ for (i in 1:length(list_laestab_treated)) {
   cat("# ", id_name, "\n\n")
   
   # process data
-  df <- process_data_scm(id_treated = id_treated)
+  if (id_name == "Dixons Kings Academy") {
+      df <- process_data_scm(id_treated = id_treated,
+                       var_teach = c("fte_avg_age_known"),
+                       var_pup = c("pnpupfsm_e", "pnpupfsm_ever"),
+                       swf_filter = "! time_period %in% c(201112, 201213, 201314)")  # missing data for 2013/14
+  } else {
+          df <- process_data_scm(id_treated = id_treated,
+                       var_teach = c("fte_avg_age_known"),
+                       var_pup = c("pnpupfsm_e", "pnpupfsm_ever"))
+  }
   
   # print raw variable timeseries
   <<check_treated>>
