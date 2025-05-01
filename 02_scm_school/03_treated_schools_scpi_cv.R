@@ -7,12 +7,10 @@ rm(list = ls())
 gc()
 
 # load libraries
-library(kableExtra)
 library(dplyr)
 library(data.table)
 library(scpi)
-library(foreach)
-library(doParallel)
+library(lme4)
 
 # create function to source code
 source_code <- function(root_dir_name = "code", target_repo = "helper_functions", branch = "main", file_name = "file.R") {
@@ -69,15 +67,32 @@ source_code <- function(root_dir_name = "code", target_repo = "helper_functions"
 source_code(target_repo = "scm_feasibility", file_name = "functions.R")
 
 # Define the base directory
-get_directory()
+dir <- get_directory()
+dir_data <- file.path(dir, "data")
+dir_misc <- file.path(dir, "misc")
 
 # get file stem name
 file_stem <- get_file_stem()
 
 # process data establishments #
 
+# copy data #
+file.copy(
+  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_swf.csv"), dir_data, overwrite = T)
+file.copy(
+  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_pupils.csv"), dir_data, overwrite = T)
+file.copy(
+  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_establishments_download.csv"), dir_data, overwrite = T)
+
+# load data #
+
+swf <- fread(file.path(dir_data, "data_swf.csv"))
+pup <- fread(file.path(dir_data, "data_pupils.csv"))
+est <- fread(file.path(dir_data, "data_establishments_download.csv"), na.strings = "")
+
+
 # load in file with timeseries desc
-summary <- read.csv(file.path(dir, "02_scm", "interim", "02_treated_schools_filter_donor_pool_out.csv"))
+summary <- read.csv(file.path(dir, "02_scm_school", "interim", "02_treated_schools_filter_donor_pool_out.csv"))
 
 # only select schools with sufficient donor pool
 summary <- subset(summary, n_pool >= 50)
@@ -85,20 +100,35 @@ summary <- subset(summary, n_pool >= 50)
 # save laestab numbers
 list_laestab_treated <- unique(summary$laestab)
 # list_laestab_treated <- list_laestab_treated[1:3] # debug
-# list_laestab_treated <- list_laestab_treated[-1:-2]
+# list_laestab_treated <- list_laestab_treated[-1:-5]
 # list_laestab_treated <- list_laestab_treated[1]
 
 # create df_region as reference
 df_region <- unique(summary[, c("laestab", "same", "neighbouring")])
 
+
 #### RUN GRIDSEARCH IN LOOP ####
+
+i = 1 # debug
 
 for (i in 1:length(list_laestab_treated)) {
   
   id_treated <- list_laestab_treated[i]
   
+  # define options for filtering for each school
+  
+  if (id_treated == 3804004) { # Dixons Kings Academy
+    swf_filter = "! time_period %in% c(201112, 201213, 201314)" # gap in data for 2013/14
+  } else {
+    swf_filter = NULL
+  }
+  
   # process data
-  df <- process_data_scm(id_treated = id_treated, read_files = T, export_data.tables = T)
+  data <- process_data_scm(id_treated = id_treated,
+                           var_teach = c("fte_avg_age_known"),
+                           var_pup = c("pnpupfsm_e", "pnpupfsm_ever"),
+                           swf_filter = swf_filter)
+  df = data$df
   regions <- est_treated$gor_name
   
   # determine ids of control schools
@@ -123,29 +153,25 @@ for (i in 1:length(list_laestab_treated)) {
   ### define grid
   
   # Define timeseries
-  years_avail <- sort(unique(df$time_period))
-  period.post <- c(2022:2023)
   
-  years_avail <- setdiff(years_avail, period.post)
+  period.avail <- sort(unique(df$time_period))
+  period.post <- c(2024:2026)
   
-  # Define option for pre-timeseries
-  period.pre.options <- list(c(sort(years_avail)), # all years
-                             c(sort(setdiff(years_avail, 2020))), # omit 2020/21
-                             c(sort(setdiff(years_avail, c(2020, 2021))))) # omit 2021/22
+  period.avail.cv <- sort(unique(df$time_period))
+  period.post.cv <- c(2022:2023)
   
   # Define options for outcome variable
-  outcome.var.options <- c("pupil_to_qual_teacher_ratio"#, 
-                           #"pupil_to_qual_unqual_teacher_ratio"
-  ) # Outcome variable
+  outcome.var.options <- c("pupil_to_qual_teacher_ratio") # Outcome variable
   
   # Define options for features
   features.options <- list(
     # no DV
-    c("pnpupfsm_e", "fte_avg_age"), 
+    c("pnpupfsm_e", "fte_avg_age_known"), 
+    c("pnpupfsm_ever", "fte_avg_age_known"), 
     # DV included
     ## raw
-    c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age")#,
-    #c("pupil_to_qual_unqual_teacher_ratio", "pnpupfsm_e", "fte_avg_age")
+    c("pupil_to_qual_teacher_ratio", "pnpupfsm_e", "fte_avg_age_known"),
+    c("pupil_to_qual_teacher_ratio", "pnpupfsm_ever", "fte_avg_age_known")
   )
   
   # Define possible covariate adjustments
@@ -165,15 +191,16 @@ for (i in 1:length(list_laestab_treated)) {
   # Define options on how to constrain the weight matrix
   w.constr.options = list(
     list(name = "simplex", p = "L1", lb = 0, Q = 1, dir = "=="), # default SCM
-    list(name = "lasso", p = "L1", lb = -Inf, Q = 1, dir = "<="), # default lasso
-    list(                p = "L1", lb = 0, Q = 1, dir = "<="), # lasso, lower bound changed to 0
+    #list(name = "lasso", p = "L1", lb = -Inf, Q = 1, dir = "<="), # default lasso
+    #list(                p = "L1", lb = 0, Q = 1, dir = "<="), # lasso, lower bound changed to 0
     list(name = "L1-L2", p = "L1-L2", lb = 0, Q = 1, Q2 = 1, dir = "==/<=") # default L1-l2
   )
   
   # data processing options
-  roll.outcome.options <- c(1:2) # how many years to calculate rolling average with
-  region.filter.options <- list(c("same"), c("same", "neighbouring"))
-
+  rolling.window.options <- c(1:2) # how many years to calculate rolling average with
+  roll.outcome.options <- c(TRUE, FALSE) # calculate rolling average for outcome as well as for features
+  region.filter.options <- list(c("same"), c("same", "neighbouring")) # which regions to include into donor pool
+  
   if(summary$phase[summary$laestab == id_treated & summary$region.filter == "same"] == "Primary"){
     # apply some SD filtering to donor school to deal with large number of primary schools available in donor pool
     sd.range.options <- list(c(100), c(50))
@@ -181,60 +208,179 @@ for (i in 1:length(list_laestab_treated)) {
     sd.range.options <- list(NULL, c(100))
   }
   
+  # define options for cross validation
+  cross.val.options <- c(TRUE, FALSE)
   
+  # define options for filtering for each school
+  if (id_name == "Dixons Kings Academy") {
+    filter.options <- list(
+      "! time_period %in% c(201112, 201213, 201314)" # gap in data for 2013/14
+    )
+  } else {
+    filter.options <- list(
+      "NULL"  # This will be interpreted as NULL later
+    )
+  }
+
   # Create initial parameter grid
   param_grid <- expand.grid(
+    region.filter = I(region.filter.options),
+    sd.range = I(sd.range.options),
+    rolling.window = rolling.window.options,
+    roll.outcome = roll.outcome.options,
+    swf.filter.idx = 1:length(filter.options),
+    
     outcome.var = outcome.var.options,
     features = I(features.options),
     cov.adj = I(cov.adj.options),
-    period.pre = I(period.pre.options),
-    period.post = I(list(period.post)),
+    period.avail = NA, # define using ifelse!!
+    period.pre = NA, # define using ifelse!!
+    period.post = NA, # define using ifelse!!
     # cointegrated.data = I(cointegrated.data.options),
     # constant = I(constant.options),
-    w.constr = I(w.constr.options),
-    region.filter = I(region.filter.options),
-    sd.range = I(sd.range.options),
-    roll.outcome = roll.outcome.options,
+    w.constr = w.constr.options,
+    cross.val = cross.val.options,
+    
     stringsAsFactors = FALSE
   )
   
+  # translate SWF filter #
+  
+  # Add the actual filter expressions
+  param_grid$swf.filter <- filter.options[param_grid$swf.filter.idx]
+  
+  # Remove the index column
+  param_grid$swf.filter.idx <- NULL
+  
+  # Extract any years to be excluded and add them as a list column
+  param_grid$period.excl <- apply(param_grid, 1, function(row) {
+    list(extract_years_from_filter(row["swf.filter"]))
+  })
+  
+  # Convert the list column to a proper format if needed
+  param_grid$period.excl <- I(param_grid$period.excl)
+  
+  # define period.post and period.avail based on CV filter
+  param_grid$period.post <- ifelse(param_grid$cross.val, I(list(period.post.cv)), I(list(period.post)))
+  param_grid$period.avail <- ifelse(param_grid$cross.val, I(list(period.avail.cv)), I(list(period.avail)))
+  
+  # Calculate period.pre based on period.avail, period.post and period.excl.
+  param_grid$period.pre <- mapply(calculate_period_pre, param_grid$period.avail, param_grid$period.post, param_grid$period.excl, SIMPLIFY = FALSE)
+  
+  
   # tidy up grid #
   
-  # check if features include any ratios
-  param_grid$ratio <- sapply(1:nrow(param_grid), function(i){ grepl("ratio", param_grid$features[i]) })
   # check if outcome variable is included as feature
   param_grid$included <- sapply(1:nrow(param_grid), function(i){ grepl(param_grid$outcome.var[i], param_grid$features[i]) })
-  # remove if ratio is in features but the features do not have outcome variable included
-  param_grid$keep1 <- ifelse(param_grid$ratio & !param_grid$included, F, T)
-  param_grid <- param_grid[param_grid$keep1 == T, ]
-  # remove if covariate adjustment is not NULL but outcome variable is not
-  param_grid$keep2 <- ifelse(grepl("t", param_grid$cov.adj) & !param_grid$included, F, T)
-  param_grid <- param_grid[param_grid$keep2 == T, ]
+  # remove if covariate adjustment is not NULL but outcome variable is not included in features
+  param_grid$keep <- ifelse(grepl("t", param_grid$cov.adj) & !param_grid$included, F, T)
+  param_grid <- param_grid[param_grid$keep == T, ]
+  
+  # remove if rolling.window == 1 & roll.outcome == TRUE (this is the same same as rolling.window == 1 & roll.outcome == FALSE)
+  param_grid$discard <- param_grid$rolling.window == 1 & param_grid$roll.outcome == T
+  param_grid <- param_grid[param_grid$discard == F, ]
   
   # remove cols
-  param_grid$keep1 <- NULL
-  param_grid$keep2 <- NULL
-  param_grid$ratio <- NULL
+  param_grid$keep <- NULL
   param_grid$included <- NULL
+  param_grid$discard <- NULL
+  
+  # ADD A COLUMN FOR EACH ITERATION #
+  param_grid <- param_grid %>%
+    # group by param grid vars
+    # only those not impacted by CV (hence not using period.pre etc)
+    group_by_at(setdiff(names(.), 
+                        names(.)[grepl("period.|cross.val", names(.))])
+                )%>%
+    # check that there are two each (CV == T and CV == F)
+    summarise(n = n()) %>%
+    ungroup() %>%
+    # create column indexing the iteration
+    mutate(it = as.character(1:nrow(.))) %>%
+    # move it to first position
+    relocate(it) %>%
+    # drop n
+    select(-n) %>%
+    # combine with other columns
+    full_join(., param_grid) %>%
+    # make df
+    as.data.frame()
+  
+  
+  # TRANSFORM DATA FOR SAVING #
+  out <- param_grid %>%
+    select(it,
+           region.filter, sd.range, 
+           rolling.window, roll.outcome,
+           swf.filter, 
+           features, cov.adj, w.constr,
+           period.pre, period.post, cross.val
+    ) %>%
+    as.data.frame()
+  
+  # Create a vector to store the concatenated strings
+  # Ensure the result is unlisted properly
+  # Add the character column to the existing dataframe
+  
+  # period pre
+  list_data <- out$period.pre
+  string <- sapply(list_data, function(x) paste(x[1], x[length(x)], sep = ":"))
+  out$period.pre <- string
+  # period post
+  list_data <- out$period.post
+  string <- sapply(list_data, function(x) paste(x[1], x[length(x)], sep = ":"))
+  out$period.post <- string
+  # swf filter
+  out$swf.filter <- unlist(out$swf.filter)
+  # region filter
+  list_data <- out$region.filter
+  string <- sapply(list_data, function(x) paste(x, collapse = ", "))
+  out$region.filter <- string
+  # sd filter
+  out$sd.range <- unlist(out$sd.range)
+  
+  # features
+  list_data <- param_grid$features
+  string <- sapply(list_data, function(x) paste(x, collapse = ", "))
+  string <- unlist(string)
+  out$features <- string
+  # cov.adj
+  list_data <- param_grid$cov.adj
+  string <- sapply(list_data, function(x) paste(x, collapse = ", "))
+  string <- unlist(string)
+  out$cov.adj <- string
+  # weight constraints
+  list_data <- param_grid$w.constr
+  string <- sapply(list_data, function(x) paste(x, collapse = ", "))
+  string <- unlist(string)
+  out$w.constr <- string
   
   # determine output filename
-  file_name <- file.path(dir, "02_scm", "interim", paste0(file_stem, "_gridsearch_", gsub(" ", "_", id_name), ".csv"))
+  file_name_grid <- file.path(dir, "02_scm_school", "interim", paste0(file_stem, "_", gsub(" ", "_", id_name), "_grid.csv"))
+  file_name_results <- file.path(dir, "02_scm_school", "interim", paste0(file_stem, "_", gsub(" ", "_", id_name), "_results.csv"))
+  file_name_ts_synth <- file.path(dir, "02_scm_school", "interim", paste0(file_stem, "_", gsub(" ", "_", id_name), "_ts_synth.csv"))
+  file_name_ts_donor <- file.path(dir, "02_scm_school", "interim", paste0(file_stem, "_", gsub(" ", "_", id_name), "_ts_donor.csv"))
   
   run_gridsearch <- T
   
   # execute gridsearch
   if (run_gridsearch) {
     
+    # save grid
+    write.csv(out, file = file_name_grid, row.names = FALSE)
+    
+    
     start <- Sys.time()
     
-    results <- grid_search_scpi(df = df,
-                                param_grid = param_grid,
-                                cv = T)
+    results <- grid_search_scpi(param_grid = param_grid[, ],
+                                    sim = T)
     
     print( Sys.time() - start )
     
     # Save results
-    write.csv(results, file = file_name, row.names = FALSE)
+    write.csv(results$results, file = file_name_results, row.names = FALSE)
+    write.csv(results$ts_synth, file = file_name_ts_synth, row.names = FALSE)
+    write.csv(results$ts_donor, file = file_name_ts_donor, row.names = FALSE)
     
   } 
 }
