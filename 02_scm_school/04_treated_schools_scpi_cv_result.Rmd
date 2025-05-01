@@ -9,17 +9,18 @@ output:
     toc_float: true
     self_contained: true
 ---
+
 This markdown summarises the results of the grid search.  
   
-The grid search iterated through the following parameters:  
-  
+- Which measure of FSM was used? (FSM vs. FSM ever)  
 - Was the outcome included as feature? (excl. DV vs. incl. DV)  
 - Was any covariates adjusted for each feature? (none vs. Constant vs. Trend vs. Constant + Trend)  
 - Which rolling window average width was applied to the features? (roll = 1 vs. roll = 2)  
-- Which years were included in the training data? (all years between 2010/11 and 2021/22 vs. excl. 2020/21 vs. excl. 2020/21 and 2021/22)  
+- Was the rolling window also applied to the outcome variable? (Raw DV vs. Roll DV)
+- Which years were included in the training data? (all years between 2010/11 and 2021/22)  
 - Which schools were included in the donor pool? (Schools in the same region vs. schools in same and neighbouring region)  
 - Was the donor pool filtered with respect to value of averaged pre-treatment outcome variable in relation to treated unit? (x SD thresholds)  
-- Which weight constraints were defined during the estimation? (Simplex vs. L1-l2 vs. Lasso vs. modified Lasso)  
+- Which weight constraints were defined during the estimation? (Simplex vs. L1-l2)  
   
   
 Data up to 2021/22 was used to estimate the weights under various settings. The weights were validated using data from 2022/23 and 2023/24.  
@@ -27,7 +28,8 @@ Data up to 2021/22 was used to estimate the weights under various settings. The 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
-# Clear the workspace and run garbage collection
+options(scipen = 999)
+# empty work space
 rm(list = ls())
 gc()
 
@@ -35,7 +37,7 @@ gc()
 library(kableExtra)
 library(dplyr)
 library(data.table)
-library(scpi)
+library(ggplot2)
 
 # create function to source code
 source_code <- function(root_dir_name = "code", target_repo = "helper_functions", branch = "main", file_name = "file.R") {
@@ -45,8 +47,14 @@ source_code <- function(root_dir_name = "code", target_repo = "helper_functions"
   
   # attempt to download from github
   tempp_file <- tempfile(fileext = ".R")
-  message <- curl::curl_download(git_url, tempp_file, quiet = F)
   
+  # run processing with the parameters
+  message <- tryCatch({
+    curl::curl_download(git_url, tempp_file, quiet = F)
+  }, error = function(e) {
+    return(error = paste("Error in curl::curl_download:", e$message))
+  })
+
   if(!grepl("Error", message)) {
     
     # if successful, source file
@@ -92,22 +100,38 @@ source_code <- function(root_dir_name = "code", target_repo = "helper_functions"
 source_code(target_repo = "scm_feasibility", file_name = "functions.R")
 
 # Define the base directory
-get_directory()
+dir <- get_directory()
+dir_data <- file.path(dir, "data")
+dir_misc <- file.path(dir, "misc")
 
 # get file stem name
 file_stem <- get_file_stem()
 
+# copy data #
+file.copy(
+  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_swf.csv"), dir_data, overwrite = T)
+file.copy(
+  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_pupils.csv"), dir_data, overwrite = T)
+file.copy(
+  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_establishments_download.csv"), dir_data, overwrite = T)
+
+# load data #
+
+swf <- fread(file.path(dir_data, "data_swf.csv"))
+pup <- fread(file.path(dir_data, "data_pupils.csv"))
+est <- fread(file.path(dir_data, "data_establishments_download.csv"), na.strings = "")
+
 # process data establishments #
 
 # load in file with timeseries desc
-summary <- read.csv(file.path(dir, "02_scm", "interim", "02_treated_schools_filter_donor_pool_out.csv"))
+summary <- read.csv(file.path(dir, "02_scm_school", "interim", "02_treated_schools_filter_donor_pool_out.csv"))
 
 # only select schools with sufficient donor pool
 summary <- subset(summary, n_pool >= 50)
 
 # save laestab numbers
 list_laestab_treated <- unique(summary$laestab)
-# list_laestab_treated <- list_laestab_treated[1:3] # debug
+# list_laestab_treated <- list_laestab_treated[1:5] # debug
 # list_laestab_treated <- list_laestab_treated[1:2] # debug
 
 # create df_region as reference
@@ -118,12 +142,11 @@ df_region <- unique(summary[, c("laestab", "same", "neighbouring")])
 #id_treated = list_laestab[1] # debug
 
 # create df for plotting - treated only
-df_treated <- df %>%
-  filter(laestab == id_treated) %>%
+df_treat <- df_treat %>%
   arrange(laestab, desc(time_period)) %>%
-  mutate(school = first(school),
-         fte_avg_age_roll = zoo::rollapply(fte_avg_age, width = 2, mean, align = "left", partial = T),
-         pnpupfsm_e_roll = zoo::rollapply(pnpupfsm_e, width = 2, mean, align = "left", partial = T)
+  mutate(
+    # apply rolling window average
+    across(all_of(vars), ~ zoo::rollapply(.x, width = 2, FUN = function(x) mean(x, na.rm = TRUE), align = "left", partial = T), .names = "{col}_roll")
   ) %>%
   as.data.frame()
 
@@ -131,151 +154,142 @@ df_treated <- df %>%
 #### CREATE SPAGHETTI PLOT ####
 
 # create data in long format
-df_long <- df_treated %>%
+# create data in long format
+df_long <- df_treat %>%
   tidyr::pivot_longer(
-    cols = -c(laestab, school, time_period, time_period_str, school, urn),
+    cols = all_of(c(paste(vars), paste0(vars, "_roll"))),
     names_to = "variable") %>%
   mutate(category = case_match(variable, 
                                "pupil_to_qual_teacher_ratio" ~ "Outcome",
-                               "pupil_to_qual_unqual_teacher_ratio" ~ "Outcome",
-                               "fte_avg_age" ~ "Teacher age",
-                               "fte_avg_age_roll" ~ "Teacher age",
+                               "pupil_to_qual_teacher_ratio_roll" ~ "Outcome",
+                               "fte_avg_age_known" ~ "Teacher age",
+                               "fte_avg_age_known_roll" ~ "Teacher age",
                                "pnpupfsm_e" ~ "% pupils FSM",
-                               "pnpupfsm_e_roll" ~ "% pupils FSM"
+                               "pnpupfsm_e_roll" ~ "% pupils FSM",
+                               "pnpupfsm_ever" ~ "% pupils FSM ever",
+                               "pnpupfsm_ever_roll" ~ "% pupils FSM ever"
   ),
-  computation = case_match(variable, 
-                           "pupil_to_qual_teacher_ratio" ~ "Qualified teachers",
-                           "pupil_to_qual_unqual_teacher_ratio" ~ "All teachers",
-                           "fte_avg_age" ~ "Raw",
-                           "fte_avg_age_roll" ~ "Rolling average",
-                           "pnpupfsm_e" ~ "Raw",
-                           "pnpupfsm_e_roll" ~ "Rolling average"
-  ),
-  comment = case_match(variable, 
-                       "pupil_to_qual_teacher_ratio" ~ "Old",
-                       "pupil_to_qual_unqual_teacher_ratio" ~ "Modified",
-                       "fte_avg_age" ~ "Old",
-                       "fte_avg_age_roll" ~ "Modified",
-                       "pnpupfsm_e" ~ "Old",
-                       "pnpupfsm_e_roll" ~ "Modified"
-  ),
-  roll = case_match(variable, 
-                    "pupil_to_qual_teacher_ratio" ~ "Raw",
-                    "pupil_to_qual_unqual_teacher_ratio" ~ "Raw",
-                    "fte_avg_age" ~ "Raw",
-                    "fte_avg_age_roll" ~ "Rolling average",
-                    "pnpupfsm_e" ~ "Raw",
-                    "pnpupfsm_e_roll" ~ "Rolling average"
-  )
-  ) %>%
+  computation = ifelse(grepl("roll", variable), "Rolling average", "Raw")) %>%
   as.data.frame()
 
-df_long$category <- factor(df_long$category, levels = c("Outcome", "% pupils FSM", "Teacher age"))
+df_long$category <- factor(df_long$category, levels = c("Outcome", "% pupils FSM", "% pupils FSM ever", "Teacher age"))
 
 
-# plot timeseries for each variable
-plt <- ggplot(data = df_long[df_long$variable != "pupil_to_qual_unqual_teacher_ratio", ], aes(x = time_period_str, y = value, col = roll, group = interaction(laestab, roll))) +
+##### CREATE SPAGHETTI PLOT ####
+
+# determine time period
+period.avail.plt <- sort(unique(df_long$time_period))
+period.pre.plt <- setdiff(period.avail.plt, c(2022:2023)) # Pre-treatment period
+
+plt <- ggplot(data = df_long, aes(x = time_period, y = value, col = computation, group = interaction(laestab, computation))) +
+  geom_vline(xintercept = period.pre.plt[length(period.pre.plt)]+0.5, linetype = "dotted") +
   geom_line() + 
   geom_point() +
   facet_wrap(~ category, ncol = 1, strip.position = "top", scales = "free_y") +
   ambition_theme +
-  ylab("Reported value") +
-  scale_color_manual(values = c("Raw" = coral, "Rolling average" = navy)) +
+  ylab("Reported value") + xlab("Academic year") +
+  scale_x_continuous(breaks = df_long$time_period, labels = df_long$time_period_str) +
+  scale_color_manual(values = c("Raw" = blue, "Rolling average" = red)) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
-        axis.title.x = element_blank(), 
         legend.title = element_blank())
 
-print(plt)
+suppressWarnings(print(plt))
 cat("\n\n")  # Add some space between plots
-
-
 ```
 
-```{r grid, eval=FALSE, include=F}
+```{r proc grid fit, eval=FALSE, echo=F}
 #### process data grid search ####
 
 # declare file name
-file_name <- file.path(dir, "02_scm", "interim", paste0("03_treated_schools_scpi_cv_gridsearch_", gsub(" ", "_", id_name), ".csv"))
+file_name <- file.path(dir, "02_scm_school", "interim", paste0("03_treated_schools_scpi_cv_", gsub(" ", "_", id_name), "_results.csv"))
 
 # read in results
 results <- read.csv(file_name)
 
 # copy data for editing
-tmp_results <- results
+results_fit <- results
 # apply(results[1:14], 2, unique)
 
-tmp_results$rmspe_ratio <- tmp_results$rmspe_pre / tmp_results$rmspe_post
+# --- create new vars for facets --- #
 
-tmp_results[tmp_results$rmspe_pre < tmp_results$sd_treated & tmp_results$rmspe_post < tmp_results$sd_treated,  ]
+# timeseries processing options #
 
-# create new vars for facets #
-# DV used
-tmp_results$dv <- ifelse(grepl("pupil_to_qual_teacher_ratio", tmp_results$outcome.var), "Qualified", "All")
-# is DV in features?
-tmp_results$feat_dv <- ifelse(grepl("ratio", tmp_results$features), "incl. DV", "excl. DV")
-tmp_results$feat_dv <- factor(tmp_results$feat_dv)
-# covariate adjustment
-tmp_results$adj <- ifelse(is.na(tmp_results$cov.adj), "none", tmp_results$cov.adj)
-tmp_results$adj <- factor(tmp_results$adj, levels = c("none", "constant", "trend", "constant, trend"),
-                          labels = c("none", "Constant", "Trend", "C + T"))
+# was rolling average computed
+results_fit$rolling.window <- ifelse(results_fit$rolling.window == 1, "Raw IV", "Roll IV")
+results_fit$rolling.window <- factor(results_fit$rolling.window)
+
+# was rolling average computed for outcome
+results_fit$roll.outcome <- ifelse(results_fit$roll.outcome, "Roll DV", "Raw DV")
+results_fit$roll.outcome <- factor(results_fit$roll.outcome)
+
+# donor pool filtering options # 
+
 # which region was used for filtering
-tmp_results$region <- ifelse(grepl("neighbouring", tmp_results$region.filter), "Same + Neighb.", "Same")
-tmp_results$region <- factor(tmp_results$region)
+results_fit$region.filter <- ifelse(grepl("neighbouring", results_fit$region.filter), "Same + Neighb.", "Same")
+results_fit$region.filter <- factor(results_fit$region.filter)
+
 # which SD filter was applied?
-if ("50" %in% unique(tmp_results$sd.range)) {
+if ("50" %in% unique(results_fit$sd.range)) {
   # Primary
-  tmp_results$sd <- ifelse(grepl("50", tmp_results$sd.range), "0.5 SD", "1 SD")
+  results_fit$sd.range <- ifelse(grepl("50", results_fit$sd.range), "0.5 SD", "1 SD")
 } else {
   # Secondary
-  tmp_results$sd <- ifelse(grepl("100", tmp_results$sd.range), "1 SD", "No SD")
+  results_fit$sd.range <- ifelse(grepl("100", results_fit$sd.range), "1 SD", "No SD")
 }
-tmp_results$sd <- factor(tmp_results$sd)
-# was rolling average computed
-tmp_results$roll <- paste0("roll = ", tmp_results$rolling.window)
-tmp_results$roll <- factor(tmp_results$roll)
+results_fit$sd.range <- factor(results_fit$sd.range)
+
+
+# SCM setup options in scpi #
+
+# which FSM measure?
+results_fit$fsm <- ifelse(grepl("pnpupfsm_ever", results_fit$features), "FSM ever", "FSM")
+results_fit$fsm <- factor(results_fit$fsm)
+
+# is DV in features?
+results_fit$feat_dv <- ifelse(grepl("ratio", results_fit$features), "incl. DV", "excl. DV")
+results_fit$feat_dv <- factor(results_fit$feat_dv)
+
+# covariate adjustment
+results_fit$adj <- ifelse(is.na(results_fit$cov.adj), "none", results_fit$cov.adj)
+results_fit$adj <- factor(results_fit$adj, levels = c("none", "constant", "trend", "constant, trend"),
+                          labels = c("none", "Constant", "Trend", "C + T"))
+
 # which years were used in training
-tmp_results$pretreat <- ifelse(grepl("2019, 2020, 2021", tmp_results$period.pre), "all years", 
-                               ifelse(!grepl("2019, 2021", tmp_results$period.pre), "excl. 20/21",
-                                      "excl. 20/21 & 21/22"))
-tmp_results$pretreat <- factor(tmp_results$pretreat)
+results_fit$year.min <- sapply(results_fit$period.pre, function(x) extract_min_max_years(x)[1])
+results_fit$year.max <- sapply(results_fit$period.pre, function(x) extract_min_max_years(x)[2])
+results_fit$period.pre <- paste0(results_fit$year.min, ":", results_fit$year.max)
+results_fit$period.pre <- factor(results_fit$period.pre)
+
 # which constraints were applied to the weights
-tmp_results$method <- tstrsplit(tmp_results$w.constr, "; ")[[1]]
-tmp_results$method <- gsub("name = ", "", tmp_results$method)
-tmp_results$method <- factor(tmp_results$method, levels = c("simplex", "L1-L2", "lasso", "user provided"))
+results_fit$method <- tstrsplit(results_fit$w.constr, "; ")[[1]]
+results_fit$method <- gsub("name = ", "", results_fit$method)
+results_fit$method <- factor(results_fit$method, levels = c("simplex", "L1-L2", "lasso", "user provided"))
 
-# finalise dataset
-tmp_results <- tmp_results %>%
-  # reorder dataset
-  arrange(feat_dv, adj, roll, pretreat, region, sd, method) %>%
-  # create id col
-  mutate(it = as.character(1:nrow(tmp_results))) %>%
-  # select columns
-  select(c(it, dv, feat_dv, adj, region, sd, roll, pretreat, method, sd_treated, rmspe_pre, rmspe_post))
+# create a bool capturing if there was an error
+results_fit$error <- grepl("Error", results_fit$status)
 
-# print donor pool size to markdown
-unique(results[, c("region.filter", "sd.range", "n_pool")]) %>%
-  kbl(caption = "Size of donor pool after filtering", row.names = F) %>%
-  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
-  print()
-cat("\n")
-
-
+# --- process data for plotting --- #
 
 # convert to long format
-tmp_long <- tmp_results %>%
+tmp_long <- results_fit %>%
+  # from wide to long
   tidyr::pivot_longer(
     cols = c(rmspe_pre, rmspe_post),
     names_to = "data",
     values_to = "rmspe") %>%
+  # remove all rows for rmspe in CV runs
+  filter(!(cross.val == F & data == "rmspe_post")) %>%
+  # rename
   mutate(data = case_match(data, 
                            "rmspe_pre" ~ "T",
-                           "rmspe_post" ~ "V")) %>%
-  mutate(data = factor(data)) %>%
+                           "rmspe_post" ~ "V"  )) %>%
+  mutate(data = ifelse(cross.val == F, "all", data)) %>%
+  mutate(data = factor(data, levels = c("T", "V", "all"))) %>%
   # Explicitly arrange dataset by all relevant variables
-  arrange(feat_dv, adj, roll, pretreat, region, sd, method, data)
+  arrange(it, feat_dv, adj, fsm, region.filter, sd.range, rolling.window, roll.outcome, period.pre, method, data)
 
 # Define explicit numeric dodge positions
-method_levels <- levels(tmp_results$method)
+method_levels <- unique(results_fit$method)
 dodge_width <- 0.6
 n_methods <- length(method_levels)
 # Create evenly spaced numeric offsets around 0
@@ -297,18 +311,25 @@ tmp_long <- tmp_long %>%
     x_position = data_numeric + method_position # final numeric position for plotting
   )
 
-#### plot data grid search ####
+```
 
-plt <- ggplot(data = tmp_long, aes(x = x_position, y = rmspe, group = it)) +
-  geom_hline(data = function(y) y %>% group_by(feat_dv, adj, roll, pretreat, region, sd) %>% summarise(sd_treated = unique(sd_treated), .groups = 'drop'),
-             aes(yintercept = sd_treated),color = black40, linetype = "dashed") +
+```{r plot grid fit, eval=FALSE, echo=F}
+#### plot data grid search ####
+pos_y = max(tmp_long$rmspe)+1
+
+plt <- ggplot(data = tmp_long[tmp_long$feat_dv == "excl. DV", ], 
+              aes(x = x_position, y = rmspe, group = it)) +
+  geom_hline(data = function(y) y %>% filter(data == "all") %>% group_by(feat_dv, adj, region.filter, sd.range, rolling.window, roll.outcome) %>% summarise(sd_treated = unique(sd_treated), .groups = 'drop'),
+             aes(yintercept = sd_treated), color = black40, linetype = "dashed") +
   geom_point(aes(colour = method), size = 1) +
   geom_line(aes(colour = method)) +
+  geom_label(data = tmp_long[tmp_long$feat_dv == "excl. DV" & tmp_long$data == "all", ], 
+             aes(x = 2, y = pos_y, label = as.character(n_pool)), hjust = 0.5, vjust = 0.5) +
   scale_x_continuous(
     breaks = unique(tmp_long$data_numeric),
     labels = unique(tmp_long$data)
   ) +
-  ggh4x::facet_grid2(cols = vars(feat_dv, adj, roll), rows = vars(pretreat, region, sd), strip = ggh4x::strip_nested()) +
+  ggh4x::facet_grid2(cols = vars(feat_dv, adj, rolling.window, roll.outcome), rows = vars(fsm, region.filter, sd.range), strip = ggh4x::strip_nested()) +
   ambition_theme +
   theme(strip.text = element_text(size = 10),
         legend.title = element_text(size = 10),
@@ -325,16 +346,68 @@ plt <- ggplot(data = tmp_long, aes(x = x_position, y = rmspe, group = it)) +
 print(plt)
 cat("\n\n")
 
+
+for (i in 1:length(levels(tmp_long$adj))) {
+  
+  plt <- ggplot(data = tmp_long[tmp_long$feat_dv == "incl. DV" & tmp_long$adj == levels(tmp_long$adj)[i], ], 
+                aes(x = x_position, y = rmspe, group = it)) +
+    geom_hline(data = function(y) y %>% filter(data == "all") %>% group_by(feat_dv, adj, region.filter, sd.range, rolling.window, roll.outcome) %>% summarise(sd_treated = unique(sd_treated), .groups = 'drop'),
+               aes(yintercept = sd_treated), color = black40, linetype = "dashed") +
+    geom_point(aes(colour = method), size = 1) +
+    geom_line(aes(colour = method)) +
+    geom_label(data = tmp_long[tmp_long$feat_dv == "incl. DV" & tmp_long$adj == levels(tmp_long$adj)[i] & tmp_long$data == "all", ], 
+               aes(x = 2, y = pos_y, label = as.character(n_pool)), hjust = 0.5, vjust = 0.5) +
+    scale_x_continuous(
+      breaks = unique(tmp_long$data_numeric),
+      labels = unique(tmp_long$data)
+    ) +
+    ggh4x::facet_grid2(cols = vars(feat_dv, adj, rolling.window, roll.outcome), rows = vars(fsm, region.filter, sd.range), strip = ggh4x::strip_nested()) +
+    ambition_theme +
+    theme(strip.text = element_text(size = 10),
+          legend.title = element_text(size = 10),
+          legend.text = element_text(size = 10),
+          axis.title = element_text(size = 10),
+          axis.text = element_text(size = 10),
+          #axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+          plot.caption = element_text(size = 10),
+          legend.margin=margin(t = -8)) +
+    ylab("Root Mean Squared Prediction Error (RMSPE)") +
+    xlab("Cross-validation fold") +
+    guides(colour = guide_legend(title = "Weight constraint")) +
+    scale_colour_manual(values = ambition_palette_bright)
+  print(plt)
+  cat("\n\n")
+  
+}
+
 ```
 
+
 ```{r, echo=F, message=FALSE, results='asis', fig.align='center', fig.height=10, fig.width=10}
+i = 1 # debug
 for (i in 1:length(list_laestab_treated)) {
   
   id_treated <- list_laestab_treated[i]
   
+  # define options for filtering for each school
+  
+  if (id_treated == 3804004) { # Dixons Kings Academy
+    swf_filter = "! time_period %in% c(201112, 201213, 201314)" # gap in data for 2013/14
+  } else {
+    swf_filter = NULL
+  }
+  
   # process data
-  df <- process_data_scm(id_treated = id_treated, read_files = T, export_data.tables = T)
+  data <- process_data_scm(id_treated = id_treated,
+                           var_teach = c("fte_avg_age_known"),
+                           var_pup = c("pnpupfsm_e", "pnpupfsm_ever"),
+                           swf_filter = swf_filter)
+
   regions <- est_treated$gor_name
+  
+  # determine ids of control schools
+  id_cont <- unique(df$laestab[df$laestab != id_treated])
+  length(id_cont)
   
   # determine ids of control schools
   id_cont <- unique(df$laestab[df$laestab != id_treated])
@@ -351,103 +424,17 @@ for (i in 1:length(list_laestab_treated)) {
   cat("Region:", est_treated$gor_name, "\n\n")
   
   cat("## Timeseries plots \n\n")
-  # Plot data
-  <<plot_ts>>
+# Plot data
+<<plot_ts>>
     
     # run grid searcg
     cat("## Grid search \n\n")
-  <<grid>>
-    
+# process fit grid data
+<<proc grid fit>>
+# plot the rmspe
+<<plot grid fit>>
 }
 
-
-```
-
-
-```{r, echo=F, message=FALSE, results='asis', eval = F}
-
-# Generate a list of CSV file paths
-file_list <- list.files(pattern = paste0(file_stem, "_grid"))
-
-# Read and combine all CSV files into one data frame
-df_grid <- do.call(rbind, lapply(file_list, function(file) {
-  data <- read.csv(file)
-  data$school <- gsub(paste0(file_stem, "_gridsearch_"), "", file)
-  data$school <- gsub(".csv", "", data$school)
-  data$school <- gsub("_", " ", data$school)
-  return(data)
-}))
-
-# tmp <- read.csv(file_list[1])
-
-
-tmp_results <- df_grid
-tmp_results$rel_fit <- tmp_results$rmspe_pre / tmp_results$sd_treated
-tmp_results$check <- tmp_results$rel_fit <= .5
-# create new vars for facets
-tmp_results$dv <- ifelse(grepl("pupil_to_qual_teacher_ratio", tmp_results$outcome.var), "Qualified", "All")
-tmp_results$feat_dv <- ifelse(grepl("ratio", tmp_results$features), "incl. DV", "excl. DV")
-tmp_results$feat <- ifelse(grepl("roll", tmp_results$features), "roll", "raw")
-tmp_results$pretreat <- ifelse(grepl("2019", tmp_results$period.pre), "all years", "excl. Covid")
-tmp_results$adj <- ifelse(is.na(tmp_results$cov.adj), "No", "Yes")
-tmp_results$school <- gsub("Dixons ", "", tmp_results$school)
-
-# plot all results
-plt <- ggplot(data = tmp_results, aes(x = feat, y = rel_fit)) +
-  geom_bar(stat = "summary", fun = "mean", position = position_dodge(width = .9), col = black10) +
-  geom_hline(aes(yintercept = .5),color = black40, linetype = "dashed") +
-  geom_point(aes(colour = school), position = position_dodge(width = .9), size = 1) +
-  facet_grid(cols = vars(dv, feat_dv, adj), rows = vars(pretreat)) +
-  ambition_theme +
-  theme(strip.text = element_text(size = 10),
-        axis.text.y = element_text(size = 10),
-        plot.caption = element_text(size = 10),
-        legend.title = element_blank(),
-        legend.text = element_text(size = 10),
-        legend.margin=margin(t = -8)) +
-  ylab("RMSPE / SD (treated unit)") +
-  xlab("Feature transformation") +
-  ggtitle("All SCMs per school") +
-  guides(shape = "none",
-         fill = "none",
-         colour = guide_legend(ncol = 3)) +
-  scale_colour_manual(values = as.vector(pals::polychrome(length(unique(tmp_results$school)))))
-print(plt)
-cat("\n\n")
-
-
-# filter
-filtered_data <- tmp_results %>%
-  mutate(rel_fit = rmspe_pre / sd_treated) %>%
-  # remove all schools with lowest minimum rel_fit above .5
-  filter(rel_fit <= .5) %>%
-  # select best 4 models per school
-  group_by(school) %>%
-  slice_min(order_by = rmspe_pre, n = 4)
-
-
-# plot all results
-plt <- ggplot(data = filtered_data, aes(x = feat, y = rel_fit)) +
-  geom_bar(stat = "summary", fun = "mean", position = position_dodge(width = .9), col = black10) +
-  geom_hline(aes(yintercept = .5),color = black40, linetype = "dashed") +
-  geom_point(aes(colour = school), position = position_dodge(width = .9), size = 2) +
-  facet_grid(cols = vars(dv, feat_dv, adj), rows = vars(pretreat)) +
-  ambition_theme +
-  theme(strip.text = element_text(size = 10),
-        axis.text.y = element_text(size = 10),
-        plot.caption = element_text(size = 10),
-        legend.title = element_blank(),
-        legend.text = element_text(size = 10),
-        legend.margin=margin(t = -8)) +
-  ylab("RMSPE / SD (treated unit)") +
-  xlab("Feature transformation") +
-  ggtitle("Best four SCMs per school that achieved good fit") +
-  guides(shape = "none",
-         fill = "none",
-         colour = guide_legend(ncol = 3)) +
-  scale_colour_manual(values = as.vector(pals::polychrome(length(unique(filtered_data$school)))))
-print(plt)
-cat("\n\n")
 
 ```
 
