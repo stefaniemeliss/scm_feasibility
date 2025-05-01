@@ -106,13 +106,15 @@ file.copy(
 file.copy(
   file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_pupils.csv"), dir_data, overwrite = T)
 file.copy(
-  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_establishments_search.csv"), dir_data, overwrite = T)
+  # file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_establishments_search.csv"), dir_data, overwrite = T)
+  file.path(gsub("scm_feasibility", "edu_stats", dir_data), "data_establishments_download.csv"), dir_data, overwrite = T)
 
 # load data #
 
 swf <- fread(file.path(dir_data, "data_swf.csv"))
 pup <- fread(file.path(dir_data, "data_pupils.csv"))
-est <- fread(file.path(dir_data, "data_establishments_search.csv"), na.strings = "")
+# est <- fread(file.path(dir_data, "data_establishments_search.csv"), na.strings = "")
+est <- fread(file.path(dir_data, "data_establishments_download.csv"), na.strings = "")
 
 
 # process data establishments #
@@ -321,9 +323,12 @@ cat("In total, data from", length(unique(summary$establishmentname)), "schools w
 cat("\n\n")
 cat(length(unique(summary$establishmentname[summary$n >= 4])), "schools had four or more pre-treatment observations.")
 cat("\n\n")
+cat("There was one school with missing data in the middle of the timeseries.")
+cat("\n\n")
 
 summary %>% 
   filter(n >= 4) %>% 
+  filter(establishmentname != "Dixons McMillan Academy") %>%
   select(-laestab) %>%
   kbl(caption = paste0("Descriptives of timeseries data"), row.names = F) %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed"), fixed_thead = T) %>% 
