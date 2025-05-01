@@ -16,8 +16,13 @@ process_data_scm <- function(id_treated = "id_treated",
                              dv = "pupil_to_qual_teacher_ratio",
                              var_teach = "fte_avg_age_known",
                              var_pup = "pnpupfsm_e",
-                             regions = NULL,
                              swf_filter = NULL, pup_filter = NULL,
+                             regions = NULL,
+                             sd_range = NULL,
+                             sim = F,
+                             rolling_window = NULL,
+                             roll_outcome = FALSE,
+                             period_pre = c(2010:2023),
                              exclude_from_na_omit = "pnpupfsm_ever"
 ){
   
@@ -103,6 +108,16 @@ process_data_scm <- function(id_treated = "id_treated",
   # Save unique lists of laestab and urn
   list_laestab <- c(unique(est_cont[, "laestab"]), unique(est_treated[, "laestab"]))
   
+  # save information about school to environment
+  if (nrow(est_treated) > 1) {
+    # if school has more than 1 URN linked to the same LAESTAB
+    est_treated <- subset(est_treated, est_treated$establishmentstatus_name == "Open")
+  }
+  assign("est_treated", est_treated, envir = .GlobalEnv)
+  # export school name
+  id_name <- est_treated$establishmentname
+  assign("id_name", id_name, envir = .GlobalEnv)
+  
   
   # Filter School Workforce (SWF) data to create outcome dataset with selected variables
   z <- swf %>%
@@ -142,7 +157,20 @@ process_data_scm <- function(id_treated = "id_treated",
   # Create lookup table with relevant group information (avoiding duplicates)
   lookup <- est[grepl("Open", establishmentstatus_name) & laestab %in% list_laestab, c("laestab", "establishmentname", "gor_name", "phaseofeducation_name")]
   lookup <- lookup[!duplicated(lookup), ]
-  df <- merge(df, lookup, by = "laestab", all.x = T)
+  # df <- merge(df, lookup, by = "laestab", all.x = T)
+  
+  df <- df %>% left_join(., lookup) %>%
+    mutate(
+      status = ifelse(laestab == id_treated, id_name, "Donor school"),
+      # # change name to include laestab to navigate duplicates
+      # school = paste(laestab, school),
+      # add slash and use as string
+      time_period_str = insert_slash(time_period),
+      # remove the last two digits
+      time_period = as.numeric(substr(time_period, 0, 4))
+    ) %>%
+    relocate(time_period_str, .after = time_period) %>%
+    as.data.frame()
   
   # ---- Longitudinal data filtering ----
   
@@ -190,15 +218,14 @@ process_data_scm <- function(id_treated = "id_treated",
     mutate(n_obs = sum(!is.na(get(dv)))) %>%
     ungroup() %>%
     filter(n_obs >= length(data_avail)) %>%
-    select(-n_obs)
+    select(-n_obs) 
+  
   
   # Update list of schools to include only those that don't have any missing values in the middle or at the end
   list_laestab <- unique(df$laestab)
   
-  vars <- c(dv, var_teach, var_pup)
   
-  df_treat <- df %>%
-    filter(laestab == id_treated)
+  vars <- c(dv, var_teach, var_pup)
   
   # Remove within-school timeseries outliers from donor pool
   list_laestab <- df %>%
@@ -234,32 +261,138 @@ process_data_scm <- function(id_treated = "id_treated",
   df_donor <- df %>%
     filter(laestab %in% list_laestab)
   
+  # get data from treated school
+  df_treat <- df %>%
+    filter(laestab == id_treated)
+  
   # arrange data
   df <- df_treat %>%
     bind_rows(df_donor) %>%
     arrange(laestab, time_period) %>%
-    mutate(
-      # # change name to include laestab to navigate duplicates
-      # school = paste(laestab, school),
-      # add slash and use as string
-      time_period_str = insert_slash(time_period),
-      # remove the last two digits
-      time_period = as.numeric(substr(time_period, 0, 4))
-    ) %>%
     as.data.frame()
   
-  list_laestab <- unique(df$laestab)
+  # ---- Further data processing ----
   
-  # export school name
-  id_name <- unique(df$establishmentname[df$laestab == id_treated])
-  assign("id_name", id_name, envir = .GlobalEnv)
-  
-  # save information about school to environment
-  if (nrow(est_treated) > 1) {
-    # if school has more than 1 URN linked to the same LAESTAB
-    est_treated <- subset(est_treated, est_treated$establishmentstatus_name == "Open")
+  # apply sd filtering
+  if (!is.null(sd_range)) {
+    
+    # filter by SD crit
+    df <- sd_filtering(data = df, perc = sd_range, var = dv)
+    df[df$laestab == id_treated, paste0("crit_sd_", dv)] <- T
+    df <- subset(df, df[, paste0("crit_sd_", dv)] == T)
+    df[, paste0("crit_sd_", dv)] <- NULL
+    
   }
-  assign("est_treated", est_treated, envir = .GlobalEnv)
+  
+  # simulate data
+  if(sim){
+    
+    # simulate data using linear projection for the next three years #
+    
+    # transform data structure
+    df$laestab_f <- factor(df$laestab)
+    df$time_centered <- df$time_period - min(df$time_period)
+    
+    # add LA to data
+    df$la <- as.factor(substr(df$laestab, 1, 3))
+    
+    # Fit model
+    # Different baseline levels for each laestab (school)
+    # Different rates of change over time for each la (local authority)
+    m1 <- lmer(get(dv) ~ 
+                 time_centered + # fixed effect for time_period
+                 (1 | laestab_f) + # random intercept for laestab with (1 | laestab)
+                 (0 + time_centered | la), # random slope for time_period grouped by la
+               data = df[df$time_period %in% c(2021, 2022, 2023), ])
+    
+    # Generate the prediction data frame for the next three academic years
+    simulated_data <- expand.grid(
+      laestab = unique(df$laestab),
+      time_period = c(2024, 2025, 2026)  # Representing 2024/25, 2025/26, 2026/27
+    )
+    
+    simulated_data$laestab_f <- factor(simulated_data$laestab)
+    simulated_data$la <- as.factor(substr(simulated_data$laestab, 1, 3))
+    simulated_data$time_centered <- simulated_data$time_period - min(df$time_period)
+    simulated_data$time_period_str <- case_match(simulated_data$time_period,
+                                                 2024 ~ "2024/25",
+                                                 2025 ~ "2025/26",
+                                                 2026 ~ "2026/27")
+    
+    # Generate *simulations* conditioned on all random effects with noise
+    simulations <- simulate(m1, nsim = 1, seed = 202324,
+                            newdata = simulated_data, 
+                            re.form = NULL, allow.new.levels = FALSE)
+    
+    # Add predictions to the data frame
+    # simulated_data$pred <- predictions
+    simulated_data[, dv] <- simulations$sim_1
+    
+    # overwrite data
+    df <- bind_rows(df, simulated_data) %>%
+      # group by schools
+      group_by(laestab) %>%
+      arrange(time_period) %>%
+      mutate(
+        # fill missing values: observations to be carried forward
+        across(c(establishmentname, gor_name, phaseofeducation_name, status),
+               ~zoo::na.locf(., na.rm = FALSE, fromLast = FALSE)))  %>%
+      ungroup() %>%
+      select(-c(laestab_f, time_centered, la)) %>%
+      arrange(laestab, time_period) %>%
+      as.data.frame()
+    
+  }
+  
+  # compute rolling averages
+  if (! is.null(rolling_window)){
+    
+    if (! is.null(roll_outcome) & roll_outcome == T) {
+      # make sure that outcome is included
+      roll_vars <- vars
+    } else {
+      # make sure that outcome is NOT included
+      roll_vars <- setdiff(vars, dv)
+    }
+    assign("roll_vars", roll_vars, envir = .GlobalEnv)  
+    
+    # apply rolling window average to pre treatment period
+    pre <- df %>%
+      filter(time_period %in% period_pre) %>%
+      group_by(laestab) %>%
+      arrange(laestab, desc(time_period)) %>%
+      mutate(
+        across(all_of(roll_vars), ~ zoo::rollapply(.x, width = rolling_window, FUN = function(x) mean(x, na.rm = TRUE), align = "left", partial = T))
+      )
+    
+    # apply rolling window average to pre treatment period
+    post <- df %>%
+      filter(! time_period %in% period_pre) %>%
+      group_by(laestab) %>%
+      arrange(laestab, desc(time_period)) %>%
+      mutate(
+        across(all_of(roll_vars), ~ zoo::rollapply(.x, width = rolling_window, FUN = function(x) mean(x, na.rm = TRUE), align = "left", partial = T))
+      )
+    
+    # combine rolled data from time time periods
+    df <- bind_rows(pre, post) %>%
+      arrange(laestab, desc(time_period)) %>%
+      as.data.frame()
+    
+  }
+  
+  # ---- Return data ----
+  
+  # update donor
+  df_donor <- df %>%
+    filter(laestab != id_treated)
+  
+  # update treated
+  df_treated <- df %>%
+    filter(laestab != id_treated)
+  
+  # update list_laestab
+  list_laestab <- unique(df$laestab)
   
   # export other values
   assign("dv", dv, envir = .GlobalEnv)  
@@ -267,16 +400,22 @@ process_data_scm <- function(id_treated = "id_treated",
   assign("var_pup", var_pup, envir = .GlobalEnv)    
   assign("vars", vars, envir = .GlobalEnv)    
   assign("regions", regions, envir = .GlobalEnv)    
+  assign("sd_range", sd_range, envir = .GlobalEnv)    
+  assign("rolling_window", rolling_window, envir = .GlobalEnv)    
+  assign("roll_outcome", roll_outcome, envir = .GlobalEnv)    
   assign("swf_filter", swf_filter, envir = .GlobalEnv)    
   assign("pup_filter", pup_filter, envir = .GlobalEnv)    
   assign("exclude_from_na_omit", exclude_from_na_omit, envir = .GlobalEnv)    
+  
+  assign("df", df, envir = .GlobalEnv)    
   assign("df_donor", df_donor, envir = .GlobalEnv)    
   assign("df_treat", df_treat, envir = .GlobalEnv)    
   
   # clean up a little
   gc()
   
-  return(df)
+  # Return invisible to suppress output but still allow assignment if desired
+  invisible(list(df = df, df_treat = df_treat, df_donor = df_donor))
 }
 
 # Function to determine if average pre-treatment timeseries is within [X] SDs of the average for treated school 
