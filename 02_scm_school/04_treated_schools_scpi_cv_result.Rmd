@@ -266,7 +266,7 @@ results_fit$method <- gsub("name = ", "", results_fit$method)
 results_fit$method <- factor(results_fit$method, levels = c("simplex", "L1-L2", "lasso", "user provided"))
 
 # create a bool capturing if there was an error
-results_fit$error <- grepl("Error", results_fit$status)
+results_fit$error <- grepl("Error", results_fit$status_it)
 
 # --- process data for plotting --- #
 
