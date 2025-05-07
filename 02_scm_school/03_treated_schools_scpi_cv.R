@@ -1,7 +1,5 @@
 #### SETUPS ####
 
-knitr::opts_chunk$set(echo = TRUE)
-
 # Clear the workspace and run garbage collection
 rm(list = ls())
 gc()
@@ -101,7 +99,7 @@ summary <- subset(summary, n_pool >= 50)
 list_laestab_treated <- unique(summary$laestab)
 # list_laestab_treated <- list_laestab_treated[1:3] # debug
 # list_laestab_treated <- list_laestab_treated[-1:-5]
-# list_laestab_treated <- list_laestab_treated[1]
+list_laestab_treated <- list_laestab_treated[-1]
 
 # create df_region as reference
 df_region <- unique(summary[, c("laestab", "same", "neighbouring")])
@@ -214,7 +212,39 @@ for (i in 1:length(list_laestab_treated)) {
   # define options for filtering for each school
   if (id_name == "Dixons Kings Academy") {
     filter.options <- list(
-      "! time_period %in% c(201112, 201213, 201314)" # gap in data for 2013/14
+      "! time_period %in% c(201112, 201213, 201314)", # gap in data for 2013/14
+      "! time_period %in% c(201112, 201213, 201314, 201415, 201516)"
+    )
+  } else if (id_name == "St Peter's Catholic School") {
+    filter.options <- list(
+      "NULL",
+      "! time_period %in% c(201011, 201112, 201213)", 
+      "! time_period %in% c(201011, 201112, 201213, 201314)" 
+    )
+  } else if (id_name == "Dixons Music Primary") {
+    filter.options <- list(
+      "NULL",
+      "! time_period %in% c(201213, 201314)"
+    )
+  } else if (id_name == "Dixons Marchbank Primary") {
+    filter.options <- list(
+      "NULL",
+      "! time_period %in% c(201415, 201516)"
+    )
+  } else if (id_name == "Dixons Trinity Academy") {
+    filter.options <- list(
+      "NULL",
+      "! time_period %in% c(201213, 201314)"
+    )
+  } else if (id_name == "Dixons City Academy") {
+    filter.options <- list(
+      "NULL",
+      "! time_period %in% c(201112)"
+    )
+  } else if (id_name == "The Highcrest Academy") {
+    filter.options <- list(
+      "NULL",
+      "! time_period %in% c(201011, 201112)"
     )
   } else {
     filter.options <- list(
@@ -254,11 +284,8 @@ for (i in 1:length(list_laestab_treated)) {
   
   # Extract any years to be excluded and add them as a list column
   param_grid$period.excl <- apply(param_grid, 1, function(row) {
-    list(extract_years_from_filter(row["swf.filter"]))
+    extract_years_from_filter(row["swf.filter"])
   })
-  
-  # Convert the list column to a proper format if needed
-  param_grid$period.excl <- I(param_grid$period.excl)
   
   # define period.post and period.avail based on CV filter
   param_grid$period.post <- ifelse(param_grid$cross.val, I(list(period.post.cv)), I(list(period.post)))
@@ -372,6 +399,8 @@ for (i in 1:length(list_laestab_treated)) {
     
     start <- Sys.time()
     
+    # results <- grid_search_scpi(param_grid = param_grid[seq(1, nrow(param_grid), 120), ],
+    #                                 sim = T)
     results <- grid_search_scpi(param_grid = param_grid[, ],
                                     sim = T)
     
@@ -381,8 +410,10 @@ for (i in 1:length(list_laestab_treated)) {
     write.csv(results$results, file = file_name_results, row.names = FALSE)
     write.csv(results$ts_synth, file = file_name_ts_synth, row.names = FALSE)
     write.csv(results$ts_donor, file = file_name_ts_donor, row.names = FALSE)
-    
-  } 
+   
+    # run garbage collection
+    gc()
+  }
 }
 
 
